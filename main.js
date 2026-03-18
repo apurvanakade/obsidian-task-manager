@@ -117,15 +117,6 @@ function findDeletedTaggedTask(previousState, nextState) {
   }
   return previousTaggedTask.line;
 }
-function findNextIncompleteTaskLine(lines, completedLine) {
-  for (let index = completedLine + 1; index < lines.length; index += 1) {
-    const match = lines[index].match(TASK_LINE_REGEX);
-    if (match && match[2].toLowerCase() !== "x") {
-      return index;
-    }
-  }
-  return null;
-}
 function findPreviousIncompleteTaskLine(lines, referenceLine) {
   for (let index = Math.min(referenceLine - 1, lines.length - 1); index >= 0; index -= 1) {
     const match = lines[index].match(TASK_LINE_REGEX);
@@ -267,7 +258,7 @@ async function applyCompletionRules(context) {
     const completionLines = lines.map((line, idx) => {
       return idx === completedLine ? setTaskStatus(line, "completed") : line;
     });
-    const startedNextTaskLine = findNextIncompleteTaskLine(completionLines, completedLine);
+    const startedNextTaskLine = findFirstIncompleteTaskLine(completionLines);
     completionLines[completedLine] = addCompletionFields(completionLines[completedLine]);
     const cleanedLines2 = stripNextActionTags(completionLines, settings.nextActionTag);
     const newStatus2 = startedNextTaskLine === null ? "completed" : "todo";
@@ -278,7 +269,7 @@ async function applyCompletionRules(context) {
     await setFileStatus(file, newStatus2);
     return;
   }
-  const nextTaskLine = findNextIncompleteTaskLine(lines, completedLine);
+  const nextTaskLine = findFirstIncompleteTaskLine(lines);
   const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
   cleanedLines[completedLine] = addCompletionFields(cleanedLines[completedLine]);
   const newStatus = nextTaskLine === null ? "completed" : "todo";

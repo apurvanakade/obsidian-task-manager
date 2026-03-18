@@ -76,7 +76,7 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
       return idx === completedLine ? setTaskStatus(line, "completed") : line;
     });
 
-    const startedNextTaskLine = findNextIncompleteTaskLine(completionLines, completedLine);
+    const startedNextTaskLine = findFirstIncompleteTaskLine(completionLines);
     // Stamp completion date and time.
     completionLines[completedLine] = addCompletionFields(completionLines[completedLine]);
     const cleanedLines = stripNextActionTags(completionLines, settings.nextActionTag);
@@ -94,7 +94,7 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
     return;
   }
 
-  const nextTaskLine = findNextIncompleteTaskLine(lines, completedLine);
+  const nextTaskLine = findFirstIncompleteTaskLine(lines);
   const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
   // Stamp completion metadata on the completed task.
   cleanedLines[completedLine] = addCompletionFields(cleanedLines[completedLine]);
