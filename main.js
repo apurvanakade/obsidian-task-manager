@@ -174,6 +174,51 @@ function isInProjectsFolder(filePath, projectsFolder) {
   return filePath === projectsFolder || filePath.startsWith(`${projectsFolder}/`);
 }
 
+function getCompletionDateString() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getCompletionTimeString() {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, "0");
+  const mins = String(now.getMinutes()).padStart(2, "0");
+  const secs = String(now.getSeconds()).padStart(2, "0");
+  return `${hours}:${mins}:${secs}`;
+}
+
+function addCompletionFields(line) {
+  const cleaned = stripCompletionFields(line);
+  return `${cleaned} [completion:: ${getCompletionDateString()}] [completition-time:: ${getCompletionTimeString()}]`;
+}
+
+function stripCompletionFields(line) {
+  return line
+    .replace(/\s*\[completion::[^\]]*\]/g, "")
+    .replace(/\s*\[completition-time::[^\]]*\]/g, "");
+}
+
+// Updates or inserts a YAML frontmatter field directly in a markdown string,
+// avoiding a separate processFrontMatter round-trip.
+function setFrontMatterField(content, field, value) {
+  const fieldPattern = new RegExp(`^(${escapeRegExp(field)}):.*$`, "m");
+  const fmBlockRegex = /^---\n([\s\S]*?)\n---(?:\n|$)/;
+
+  if (fmBlockRegex.test(content)) {
+    if (fieldPattern.test(content)) {
+      return content.replace(fieldPattern, `${field}: ${value}`);
+    }
+    // Frontmatter block exists but this field is not in it — insert it.
+    return content.replace(/^---\n/, `---\n${field}: ${value}\n`);
+  }
+
+  // No frontmatter at all — prepend a new block.
+  return `---\n${field}: ${value}\n---\n${content}`;
+}
+
 module.exports = class TaskManagerPlugin extends Plugin {
   constructor(app, manifest) {
     super(app, manifest);
@@ -228,11 +273,11 @@ module.exports = class TaskManagerPlugin extends Plugin {
 
   async primeTaskState() {
     const markdownFiles = this.app.vault.getMarkdownFiles();
-
-    for (const file of markdownFiles) {
+    // Read all files in parallel instead of sequentially.
+    await Promise.all(markdownFiles.map(async (file) => {
       const content = await this.app.vault.cachedRead(file);
       this.taskStateByPath.set(file.path, extractTaskState(content, this.settings.nextActionTag));
-    }
+    }));
   }
 
   async handleFileModify(file) {
@@ -287,40 +332,42 @@ module.exports = class TaskManagerPlugin extends Plugin {
     const lines = content.split(/\r?\n/);
     const nextTaskLine = findNextIncompleteTaskLine(lines, completedLine);
     const cleanedLines = stripNextActionTags(lines, this.settings.nextActionTag);
-    let updatedContent = cleanedLines.join("\n");
+    // Stamp completion date and time onto the completed task line.
+    cleanedLines[completedLine] = addCompletionFields(cleanedLines[completedLine]);
+    const newStatus = nextTaskLine === null ? "completed" : "todo";
 
-    if (nextTaskLine !== null) {
-      updatedContent = addNextActionTag(cleanedLines, nextTaskLine, this.settings.nextActionTag);
-    }
+    let updatedContent = nextTaskLine !== null
+      ? addNextActionTag(cleanedLines, nextTaskLine, this.settings.nextActionTag)
+      : cleanedLines.join("\n");
+    updatedContent = setFrontMatterField(updatedContent, this.settings.statusField, newStatus);
 
     if (updatedContent !== content) {
       await this.writeFileContent(file, updatedContent);
     }
-
-    await this.setFileStatus(file, nextTaskLine === null ? "completed" : "todo");
-    const refreshedContent = await this.app.vault.cachedRead(file);
-    this.taskStateByPath.set(file.path, extractTaskState(refreshedContent, this.settings.nextActionTag));
   }
 
   async applyUncompletionRules(file, content, uncompletedLine) {
     const lines = content.split(/\r?\n/);
     const firstIncompleteTaskLine = findFirstIncompleteTaskLine(lines);
+    // Always strip completion fields from the reopened task.
+    lines[uncompletedLine] = stripCompletionFields(lines[uncompletedLine]);
 
-    // Only act if the uncompleted task is now the first open task in the file.
     if (firstIncompleteTaskLine !== uncompletedLine) {
+      // Not the first open task — only strip completion fields, no tag or status change.
+      const updatedContent = lines.join("\n");
+      if (updatedContent !== content) {
+        await this.writeFileContent(file, updatedContent);
+      }
       return;
     }
 
     const cleanedLines = stripNextActionTags(lines, this.settings.nextActionTag);
-    const updatedContent = addNextActionTag(cleanedLines, uncompletedLine, this.settings.nextActionTag);
+    let updatedContent = addNextActionTag(cleanedLines, uncompletedLine, this.settings.nextActionTag);
+    updatedContent = setFrontMatterField(updatedContent, this.settings.statusField, "todo");
 
     if (updatedContent !== content) {
       await this.writeFileContent(file, updatedContent);
     }
-
-    await this.setFileStatus(file, "todo");
-    const refreshedContent = await this.app.vault.cachedRead(file);
-    this.taskStateByPath.set(file.path, extractTaskState(refreshedContent, this.settings.nextActionTag));
   }
 
   async applyDeletedTagRules(file, content, deletedTaggedTaskLine) {
@@ -328,21 +375,17 @@ module.exports = class TaskManagerPlugin extends Plugin {
     const cleanedLines = stripNextActionTags(lines, this.settings.nextActionTag);
     const previousTaskLine = findPreviousIncompleteTaskLine(cleanedLines, deletedTaggedTaskLine);
 
+    let updatedContent;
     if (previousTaskLine === null) {
-      await this.setFileStatus(file, "completed");
-      const refreshedContent = await this.app.vault.cachedRead(file);
-      this.taskStateByPath.set(file.path, extractTaskState(refreshedContent, this.settings.nextActionTag));
-      return;
+      updatedContent = setFrontMatterField(cleanedLines.join("\n"), this.settings.statusField, "completed");
+    } else {
+      updatedContent = addNextActionTag(cleanedLines, previousTaskLine, this.settings.nextActionTag);
+      updatedContent = setFrontMatterField(updatedContent, this.settings.statusField, "todo");
     }
 
-    const updatedContent = addNextActionTag(cleanedLines, previousTaskLine, this.settings.nextActionTag);
     if (updatedContent !== content) {
       await this.writeFileContent(file, updatedContent);
     }
-
-    await this.setFileStatus(file, "todo");
-    const refreshedContent = await this.app.vault.cachedRead(file);
-    this.taskStateByPath.set(file.path, extractTaskState(refreshedContent, this.settings.nextActionTag));
   }
 
   async reconcileFile(file) {
@@ -350,21 +393,18 @@ module.exports = class TaskManagerPlugin extends Plugin {
     const lines = content.split(/\r?\n/);
     const cleanedLines = stripNextActionTags(lines, this.settings.nextActionTag);
     const firstIncompleteTaskLine = findFirstIncompleteTaskLine(cleanedLines);
-    let updatedContent = cleanedLines.join("\n");
-    let nextStatus = "completed";
 
+    let updatedContent;
     if (firstIncompleteTaskLine !== null) {
       updatedContent = addNextActionTag(cleanedLines, firstIncompleteTaskLine, this.settings.nextActionTag);
-      nextStatus = "todo";
+      updatedContent = setFrontMatterField(updatedContent, this.settings.statusField, "todo");
+    } else {
+      updatedContent = setFrontMatterField(cleanedLines.join("\n"), this.settings.statusField, "completed");
     }
 
     if (updatedContent !== content) {
       await this.writeFileContent(file, updatedContent);
     }
-
-    await this.setFileStatus(file, nextStatus);
-    const refreshedContent = await this.app.vault.cachedRead(file);
-    this.taskStateByPath.set(file.path, extractTaskState(refreshedContent, this.settings.nextActionTag));
   }
 
   async writeFileContent(file, content) {
@@ -380,19 +420,6 @@ module.exports = class TaskManagerPlugin extends Plugin {
     }
   }
 
-  async setFileStatus(file, status) {
-    this.pendingPaths.add(file.path);
-
-    try {
-      await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
-        frontmatter[this.settings.statusField] = status;
-      });
-    } finally {
-      window.setTimeout(() => {
-        this.pendingPaths.delete(file.path);
-      }, 0);
-    }
-  }
 };
 
 class BaseTaskManagerSettingTab extends PluginSettingTab {
