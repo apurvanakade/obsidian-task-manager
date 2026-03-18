@@ -19,13 +19,17 @@ declare module "obsidian" {
   export interface Vault {
     getMarkdownFiles(): TFile[];
     getAllLoadedFiles(): TAbstractFile[];
+    getAbstractFileByPath(path: string): TAbstractFile | null;
     cachedRead(file: TFile): Promise<string>;
     modify(file: TFile, content: string): Promise<void>;
+    createFolder(path: string): Promise<TFolder>;
+    delete(file: TAbstractFile, force?: boolean): Promise<void>;
     on(name: "modify", callback: (file: TFile) => void | Promise<void>): EventRef;
   }
 
   export interface FileManager {
     processFrontMatter(file: TFile, fn: (frontmatter: Record<string, string>) => void): Promise<void>;
+    renameFile(file: TAbstractFile, newPath: string): Promise<void>;
   }
 
   export interface Workspace {
@@ -76,6 +80,16 @@ declare module "obsidian" {
 
   export class Notice {
     constructor(message: string);
+  }
+
+  export class Modal {
+    app: App;
+    contentEl: ObsidianHTMLElement;
+    constructor(app: App);
+    open(): void;
+    close(): void;
+    onOpen(): void;
+    onClose(): void;
   }
 
   export class FuzzySuggestModal<T> {

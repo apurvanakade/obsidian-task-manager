@@ -21,25 +21,53 @@ export class TaskManagerSettingTabRenderer {
     const settings = this.plugin.getSettings();
     containerEl.empty();
 
-    new Setting(containerEl)
-      .setName("Projects Folder")
-      .setDesc("Folder scanned recursively by the Process tasks command. Use Browse to pick a vault path.")
-      .addText((text) => {
-        this.configureFolderTextInput(text, settings.projectsFolder);
-      })
-      .addButton((button) => {
-        button
-          .setButtonText("Browse")
-          .onClick(() => {
-            openFolderPicker(this.baseSettingTab.app, async (folderPath) => {
-              await this.plugin.updateSetting("projectsFolder", folderPath);
-              this.display();
-            });
-          });
-      });
+    this.addFolderSetting(
+      containerEl,
+      "Projects Folder",
+      "Folder scanned recursively by the Process Tasks command.",
+      "projectsFolder",
+      settings.projectsFolder,
+      "Projects"
+    );
+
+    this.addFolderSetting(
+      containerEl,
+      "Completed Projects Folder",
+      "Destination folder for completed projects.",
+      "completedProjectsFolder",
+      settings.completedProjectsFolder,
+      "Projects/Completed"
+    );
+
+    this.addFolderSetting(
+      containerEl,
+      "Waiting Projects Folder",
+      "Destination folder for waiting projects.",
+      "waitingProjectsFolder",
+      settings.waitingProjectsFolder,
+      "Projects/Waiting"
+    );
+
+    this.addFolderSetting(
+      containerEl,
+      "Scheduled Projects Folder",
+      "Destination folder for scheduled projects.",
+      "scheduledProjectsFolder",
+      settings.scheduledProjectsFolder,
+      "Projects/Scheduled"
+    );
+
+    this.addFolderSetting(
+      containerEl,
+      "Someday-Maybe Projects Folder",
+      "Destination folder for someday-maybe projects.",
+      "somedayMaybeProjectsFolder",
+      settings.somedayMaybeProjectsFolder,
+      "Projects/Someday-Maybe"
+    );
 
     new Setting(containerEl)
-      .setName("Next action tag")
+      .setName("Next Action Tag")
       .setDesc("Tag added to the active next task.")
       .addText((text) => {
         text
@@ -51,7 +79,7 @@ export class TaskManagerSettingTabRenderer {
       });
 
     new Setting(containerEl)
-      .setName("Completed status field")
+      .setName("Completed Status Field")
       .setDesc("Frontmatter field updated when the file has no remaining incomplete tasks.")
       .addText((text) => {
         text
@@ -63,12 +91,43 @@ export class TaskManagerSettingTabRenderer {
       });
   }
 
-  private configureFolderTextInput(text: TextComponent, folderPath: string): void {
+  private addFolderSetting(
+    containerEl: HTMLElement,
+    name: string,
+    description: string,
+    settingKey: "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "scheduledProjectsFolder" | "somedayMaybeProjectsFolder",
+    folderPath: string,
+    placeholder: string
+  ): void {
+    new Setting(containerEl)
+      .setName(name)
+      .setDesc(`${description} Use Browse to pick a vault path.`)
+      .addText((text) => {
+        this.configureFolderTextInput(text, settingKey, folderPath, placeholder);
+      })
+      .addButton((button) => {
+        button
+          .setButtonText("Browse")
+          .onClick(() => {
+            openFolderPicker(this.baseSettingTab.app, async (selectedFolderPath) => {
+              await this.plugin.updateSetting(settingKey, selectedFolderPath);
+              this.display();
+            });
+          });
+      });
+  }
+
+  private configureFolderTextInput(
+    text: TextComponent,
+    settingKey: "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "scheduledProjectsFolder" | "somedayMaybeProjectsFolder",
+    folderPath: string,
+    placeholder: string
+  ): void {
     text
-      .setPlaceholder("Projects")
+      .setPlaceholder(placeholder)
       .setValue(folderPath)
       .onChange(async (value) => {
-        await this.plugin.updateSetting("projectsFolder", value);
+        await this.plugin.updateSetting(settingKey, value);
       });
   }
 }

@@ -29,7 +29,11 @@ var import_obsidian2 = require("obsidian");
 var DEFAULT_SETTINGS = {
   nextActionTag: "#next-action",
   statusField: "status",
-  projectsFolder: ""
+  projectsFolder: "",
+  completedProjectsFolder: "",
+  waitingProjectsFolder: "",
+  scheduledProjectsFolder: "",
+  somedayMaybeProjectsFolder: ""
 };
 function normalizeTag(tag) {
   const trimmedTag = String(tag || "").trim();
@@ -51,7 +55,11 @@ function normalizeSettings(rawSettings) {
     ...rawSettings,
     nextActionTag: normalizeTag(rawSettings.nextActionTag),
     statusField: normalizeStatusField(rawSettings.statusField),
-    projectsFolder: normalizeFolder(rawSettings.projectsFolder)
+    projectsFolder: normalizeFolder(rawSettings.projectsFolder),
+    completedProjectsFolder: normalizeFolder(rawSettings.completedProjectsFolder),
+    waitingProjectsFolder: normalizeFolder(rawSettings.waitingProjectsFolder),
+    scheduledProjectsFolder: normalizeFolder(rawSettings.scheduledProjectsFolder),
+    somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder)
   };
 }
 
@@ -171,30 +179,72 @@ var TaskManagerSettingTabRenderer = class {
     const { containerEl } = this.baseSettingTab;
     const settings = this.plugin.getSettings();
     containerEl.empty();
-    new import_obsidian.Setting(containerEl).setName("Projects Folder").setDesc("Folder scanned recursively by the Process tasks command. Use Browse to pick a vault path.").addText((text) => {
-      this.configureFolderTextInput(text, settings.projectsFolder);
-    }).addButton((button) => {
-      button.setButtonText("Browse").onClick(() => {
-        openFolderPicker(this.baseSettingTab.app, async (folderPath) => {
-          await this.plugin.updateSetting("projectsFolder", folderPath);
-          this.display();
-        });
-      });
-    });
-    new import_obsidian.Setting(containerEl).setName("Next action tag").setDesc("Tag added to the active next task.").addText((text) => {
+    this.addFolderSetting(
+      containerEl,
+      "Projects Folder",
+      "Folder scanned recursively by the Process Tasks command.",
+      "projectsFolder",
+      settings.projectsFolder,
+      "Projects"
+    );
+    this.addFolderSetting(
+      containerEl,
+      "Completed Projects Folder",
+      "Destination folder for completed projects.",
+      "completedProjectsFolder",
+      settings.completedProjectsFolder,
+      "Projects/Completed"
+    );
+    this.addFolderSetting(
+      containerEl,
+      "Waiting Projects Folder",
+      "Destination folder for waiting projects.",
+      "waitingProjectsFolder",
+      settings.waitingProjectsFolder,
+      "Projects/Waiting"
+    );
+    this.addFolderSetting(
+      containerEl,
+      "Scheduled Projects Folder",
+      "Destination folder for scheduled projects.",
+      "scheduledProjectsFolder",
+      settings.scheduledProjectsFolder,
+      "Projects/Scheduled"
+    );
+    this.addFolderSetting(
+      containerEl,
+      "Someday-Maybe Projects Folder",
+      "Destination folder for someday-maybe projects.",
+      "somedayMaybeProjectsFolder",
+      settings.somedayMaybeProjectsFolder,
+      "Projects/Someday-Maybe"
+    );
+    new import_obsidian.Setting(containerEl).setName("Next Action Tag").setDesc("Tag added to the active next task.").addText((text) => {
       text.setPlaceholder("#next-action").setValue(settings.nextActionTag).onChange(async (value) => {
         await this.plugin.updateSetting("nextActionTag", value);
       });
     });
-    new import_obsidian.Setting(containerEl).setName("Completed status field").setDesc("Frontmatter field updated when the file has no remaining incomplete tasks.").addText((text) => {
+    new import_obsidian.Setting(containerEl).setName("Completed Status Field").setDesc("Frontmatter field updated when the file has no remaining incomplete tasks.").addText((text) => {
       text.setPlaceholder("status").setValue(settings.statusField).onChange(async (value) => {
         await this.plugin.updateSetting("statusField", value);
       });
     });
   }
-  configureFolderTextInput(text, folderPath) {
-    text.setPlaceholder("Projects").setValue(folderPath).onChange(async (value) => {
-      await this.plugin.updateSetting("projectsFolder", value);
+  addFolderSetting(containerEl, name, description, settingKey, folderPath, placeholder) {
+    new import_obsidian.Setting(containerEl).setName(name).setDesc(`${description} Use Browse to pick a vault path.`).addText((text) => {
+      this.configureFolderTextInput(text, settingKey, folderPath, placeholder);
+    }).addButton((button) => {
+      button.setButtonText("Browse").onClick(() => {
+        openFolderPicker(this.baseSettingTab.app, async (selectedFolderPath) => {
+          await this.plugin.updateSetting(settingKey, selectedFolderPath);
+          this.display();
+        });
+      });
+    });
+  }
+  configureFolderTextInput(text, settingKey, folderPath, placeholder) {
+    text.setPlaceholder(placeholder).setValue(folderPath).onChange(async (value) => {
+      await this.plugin.updateSetting(settingKey, value);
     });
   }
 };
@@ -296,6 +346,7 @@ async function applyDeletedTagRules(context) {
 async function reconcileFile(context) {
   const { file, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
   const content = await readFile(file);
+  const currentStatus = readFrontmatterStatus(content, settings.statusField);
   const lines = content.split(/\r?\n/);
   const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
   const firstIncompleteTaskLine = findFirstIncompleteTaskLine(cleanedLines);
@@ -303,16 +354,28 @@ async function reconcileFile(context) {
   let nextStatus = "completed";
   if (firstIncompleteTaskLine !== null) {
     updatedContent = addNextActionTag(cleanedLines, firstIncompleteTaskLine, settings.nextActionTag);
-    nextStatus = "todo";
+    nextStatus = currentStatus !== null && currentStatus !== "completed" ? null : "todo";
   }
   if (updatedContent !== content) {
     await writeFileContent(file, updatedContent);
   }
-  await setFileStatus(file, nextStatus);
+  if (nextStatus !== null) {
+    await setFileStatus(file, nextStatus);
+  }
   setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
 }
 async function processProjectsFolder(context) {
-  const files = context.getMarkdownFiles().filter((file) => isInProjectsFolder(file.path, context.settings.projectsFolder));
+  const { settings } = context;
+  const activeFolders = [
+    settings.projectsFolder,
+    settings.completedProjectsFolder,
+    settings.waitingProjectsFolder,
+    settings.scheduledProjectsFolder,
+    settings.somedayMaybeProjectsFolder
+  ].filter(Boolean);
+  const files = context.getMarkdownFiles().filter(
+    (file) => activeFolders.some((folder) => isInProjectsFolder(file.path, folder))
+  );
   for (const file of files) {
     await context.reconcileOneFile(file);
   }
@@ -386,15 +449,38 @@ function formatDate(date) {
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
+function readFrontmatterStatus(content, statusField) {
+  const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!frontmatterMatch) {
+    return null;
+  }
+  const lines = frontmatterMatch[1].split(/\r?\n/);
+  const fieldRegex = new RegExp(`^\\s*${escapeRegExp2(statusField)}\\s*:\\s*(.*?)\\s*$`, "i");
+  for (const line of lines) {
+    const match = line.match(fieldRegex);
+    if (!match) {
+      continue;
+    }
+    return match[1].replace(/^['\"]|['\"]$/g, "").trim().toLowerCase();
+  }
+  return null;
+}
+function escapeRegExp2(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 // main.ts
-var TaskManagerPlugin = class extends import_obsidian2.Plugin {
+var _TaskManagerPlugin = class _TaskManagerPlugin extends import_obsidian2.Plugin {
   constructor() {
     super(...arguments);
     this.taskStateByPath = /* @__PURE__ */ new Map();
+    this.statusByPath = /* @__PURE__ */ new Map();
     // Prevent re-processing of writes triggered by this plugin itself.
     this.pendingPaths = /* @__PURE__ */ new Set();
     this.settings = normalizeSettings({});
+  }
+  isRoutableStatus(value) {
+    return _TaskManagerPlugin.ROUTABLE_STATUSES.includes(value);
   }
   async onload() {
     await this.loadSettings();
@@ -402,7 +488,7 @@ var TaskManagerPlugin = class extends import_obsidian2.Plugin {
     this.addSettingTab(new BaseTaskManagerSettingTab(this.app, this));
     this.addCommand({
       id: "process-tasks",
-      name: "Process tasks",
+      name: "Process Tasks",
       callback: () => {
         void this.processTasks();
       }
@@ -421,6 +507,7 @@ var TaskManagerPlugin = class extends import_obsidian2.Plugin {
   }
   onunload() {
     this.taskStateByPath.clear();
+    this.statusByPath.clear();
     this.pendingPaths.clear();
     console.log("Unloading Task Manager plugin");
   }
@@ -442,34 +529,44 @@ var TaskManagerPlugin = class extends import_obsidian2.Plugin {
   }
   async primeTaskState() {
     const markdownFiles = this.app.vault.getMarkdownFiles();
+    this.statusByPath.clear();
     for (const file of markdownFiles) {
       const content = await this.app.vault.cachedRead(file);
       this.taskStateByPath.set(file.path, extractTaskState(content, this.settings.nextActionTag));
+      this.statusByPath.set(file.path, this.readStatusValue(content));
     }
   }
   async handleFileModify(file) {
-    var _a;
+    var _a, _b;
     if (file.extension !== "md" || this.pendingPaths.has(file.path)) {
       return;
     }
     const content = await this.app.vault.cachedRead(file);
     const nextState = extractTaskState(content, this.settings.nextActionTag);
     const previousState = (_a = this.taskStateByPath.get(file.path)) != null ? _a : [];
+    const previousStatus = (_b = this.statusByPath.get(file.path)) != null ? _b : null;
+    const currentStatus = this.readStatusValue(content);
     const completion = findNewlyCompletedTask(previousState, nextState);
     const uncompleted = findNewlyUncompletedTask(previousState, nextState);
     const deletedTaggedTaskLine = findDeletedTaggedTask(previousState, nextState);
     this.taskStateByPath.set(file.path, nextState);
+    this.statusByPath.set(file.path, currentStatus);
     if (completion !== null) {
       await this.applyCompletionRules(file, content, completion);
+      await this.routeAfterStatusChange(file, previousStatus);
       return;
     }
     if (uncompleted !== null) {
       await this.applyUncompletionRules(file, content, uncompleted);
+      await this.routeAfterStatusChange(file, previousStatus);
       return;
     }
     if (deletedTaggedTaskLine !== null) {
       await this.applyDeletedTagRules(file, content, deletedTaggedTaskLine);
+      await this.routeAfterStatusChange(file, previousStatus);
+      return;
     }
+    await this.routeAfterStatusChange(file, previousStatus);
   }
   async processCurrentFile() {
     const file = this.app.workspace.getActiveFile();
@@ -477,23 +574,32 @@ var TaskManagerPlugin = class extends import_obsidian2.Plugin {
       new import_obsidian2.Notice("No active file.");
       return;
     }
-    await this.reconcileSingleFile(file);
-    new import_obsidian2.Notice(`Processed ${file.name}.`);
+    try {
+      const result = await this.processAndRouteFile(file);
+      new import_obsidian2.Notice(result);
+    } catch (error) {
+      new import_obsidian2.Notice(error instanceof Error ? error.message : "Failed to process file.");
+    }
   }
   async processTasks() {
-    const projectsFolder = this.settings.projectsFolder;
-    if (!projectsFolder) {
-      new import_obsidian2.Notice("Set Projects Folder in Task Manager settings first.");
+    const { projectsFolder, completedProjectsFolder, waitingProjectsFolder, scheduledProjectsFolder, somedayMaybeProjectsFolder } = this.settings;
+    const hasAnyFolder = [projectsFolder, completedProjectsFolder, waitingProjectsFolder, scheduledProjectsFolder, somedayMaybeProjectsFolder].some(Boolean);
+    if (!hasAnyFolder) {
+      new import_obsidian2.Notice("Set at least one task folder in Task Manager settings first.");
       return;
     }
-    const count = await processProjectsFolder({
-      settings: this.settings,
-      getMarkdownFiles: () => this.app.vault.getMarkdownFiles(),
-      reconcileOneFile: async (file) => {
-        await this.reconcileSingleFile(file);
-      }
-    });
-    new import_obsidian2.Notice(`Processed ${count} project file${count === 1 ? "" : "s"}.`);
+    try {
+      const count = await processProjectsFolder({
+        settings: this.settings,
+        getMarkdownFiles: () => this.app.vault.getMarkdownFiles(),
+        reconcileOneFile: async (file) => {
+          await this.processAndRouteFile(file);
+        }
+      });
+      new import_obsidian2.Notice(`Processed ${count} project file${count === 1 ? "" : "s"}.`);
+    } catch (error) {
+      new import_obsidian2.Notice(error instanceof Error ? error.message : "Failed to process tasks.");
+    }
   }
   async reconcileSingleFile(file) {
     await reconcileFile({
@@ -506,6 +612,278 @@ var TaskManagerPlugin = class extends import_obsidian2.Plugin {
         this.taskStateByPath.set(filePath, nextState);
       }
     });
+  }
+  async processAndRouteFile(file) {
+    const initialContent = await this.app.vault.cachedRead(file);
+    const initialStatus = this.readStatusValue(initialContent);
+    const hasOpenTasks = extractTaskState(initialContent, this.settings.nextActionTag).some((task) => task.status === "open");
+    const predictedStatus = this.predictFinalStatus(initialStatus, hasOpenTasks);
+    this.assertConfiguredDestinationForStatus(predictedStatus);
+    await this.reconcileSingleFile(file);
+    const moveResult = await this.routeFileByStatus(file);
+    return moveResult != null ? moveResult : `Processed ${file.name}.`;
+  }
+  async routeAfterStatusChange(file, previousStatus) {
+    const latestContent = await this.app.vault.cachedRead(file);
+    const latestStatus = this.readStatusValue(latestContent);
+    this.statusByPath.set(file.path, latestStatus);
+    if (latestStatus === previousStatus) {
+      return;
+    }
+    try {
+      this.assertConfiguredDestinationForStatus(latestStatus);
+      await this.routeFileByStatus(file, latestStatus);
+    } catch (error) {
+      new import_obsidian2.Notice(error instanceof Error ? error.message : "Failed to route file after status change.");
+    }
+  }
+  async routeFileByStatus(file, statusOverride) {
+    const status = statusOverride != null ? statusOverride : this.readStatusValue(await this.app.vault.cachedRead(file));
+    if (!status || !this.isRoutableStatus(status)) {
+      return null;
+    }
+    const destinationRoot = this.getDestinationRootForStatus(status);
+    if (!destinationRoot) {
+      throw new Error(`Set destination folder for status '${status}' in Task Manager settings.`);
+    }
+    const destinationPath = this.buildDestinationPath(file, destinationRoot);
+    if (destinationPath === file.path) {
+      return null;
+    }
+    await this.ensureParentFoldersExist(destinationPath);
+    const destinationEntry = this.app.vault.getAbstractFileByPath(destinationPath);
+    if (destinationEntry instanceof import_obsidian2.TFolder) {
+      throw new Error(`Cannot move '${file.path}' because '${destinationPath}' is a folder.`);
+    }
+    if (destinationEntry instanceof import_obsidian2.TFile) {
+      const shouldMerge = await this.promptMergeOrSkip(file.path, destinationPath);
+      if (!shouldMerge) {
+        return `Skipped ${file.name} (destination exists).`;
+      }
+      await this.mergeIntoExistingFile(file, destinationEntry);
+      return `Merged ${file.name} into ${destinationPath}.`;
+    }
+    const sourcePath = file.path;
+    await this.app.fileManager.renameFile(file, destinationPath);
+    this.rekeyTaskState(sourcePath, destinationPath);
+    await this.deleteEmptyParentFolders(sourcePath);
+    return `Moved ${file.name} to ${destinationRoot}.`;
+  }
+  readStatusValue(content) {
+    const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    if (!frontmatterMatch) {
+      return null;
+    }
+    const statusField = this.settings.statusField;
+    const fieldRegex = new RegExp(`^\\s*${this.escapeRegExp(statusField)}\\s*:\\s*(.*?)\\s*$`, "i");
+    const lines = frontmatterMatch[1].split(/\r?\n/);
+    for (const line of lines) {
+      const match = line.match(fieldRegex);
+      if (!match) {
+        continue;
+      }
+      return match[1].replace(/^['\"]|['\"]$/g, "").trim().toLowerCase();
+    }
+    return null;
+  }
+  predictFinalStatus(currentStatus, hasOpenTasks) {
+    if (hasOpenTasks) {
+      if (currentStatus !== null && currentStatus !== "completed") {
+        return currentStatus;
+      }
+      return "todo";
+    }
+    return "completed";
+  }
+  assertConfiguredDestinationForStatus(status) {
+    if (!status || !this.isRoutableStatus(status)) {
+      return;
+    }
+    const destinationRoot = this.getDestinationRootForStatus(status);
+    if (!destinationRoot) {
+      throw new Error(`Set destination folder for status '${status}' in Task Manager settings.`);
+    }
+  }
+  getDestinationRootForStatus(status) {
+    switch (status) {
+      case "todo":
+        return this.settings.projectsFolder;
+      case "completed":
+        return this.settings.completedProjectsFolder;
+      case "waiting":
+        return this.settings.waitingProjectsFolder;
+      case "scheduled":
+        return this.settings.scheduledProjectsFolder;
+      case "someday-maybe":
+        return this.settings.somedayMaybeProjectsFolder;
+      default:
+        return "";
+    }
+  }
+  buildDestinationPath(file, destinationRoot) {
+    var _a;
+    const relativePath = (_a = this.getRelativeProjectPath(file.path)) != null ? _a : file.name;
+    return this.joinPath(destinationRoot, relativePath);
+  }
+  getRelativeProjectPath(filePath) {
+    const matchingRoot = this.getTaskFolderRoots().filter((root) => filePath.startsWith(`${root}/`)).sort((a, b) => b.length - a.length)[0];
+    if (!matchingRoot) {
+      return null;
+    }
+    return filePath.slice(matchingRoot.length + 1);
+  }
+  joinPath(root, childPath) {
+    const normalizedRoot = root.replace(/\/+$/g, "");
+    const normalizedChild = childPath.replace(/^\/+/, "");
+    return normalizedRoot ? `${normalizedRoot}/${normalizedChild}` : normalizedChild;
+  }
+  async ensureParentFoldersExist(targetFilePath) {
+    const parentPath = this.getParentPath(targetFilePath);
+    if (!parentPath) {
+      return;
+    }
+    const parts = parentPath.split("/").filter(Boolean);
+    let currentPath = "";
+    for (const part of parts) {
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      const existing = this.app.vault.getAbstractFileByPath(currentPath);
+      if (!existing) {
+        await this.app.vault.createFolder(currentPath);
+        continue;
+      }
+      if (existing instanceof import_obsidian2.TFile) {
+        throw new Error(`Cannot create folder '${currentPath}' because a file already exists at that path.`);
+      }
+    }
+  }
+  getParentPath(path) {
+    const slashIndex = path.lastIndexOf("/");
+    return slashIndex === -1 ? "" : path.slice(0, slashIndex);
+  }
+  async mergeIntoExistingFile(sourceFile, destinationFile) {
+    const sourcePath = sourceFile.path;
+    const destinationContent = await this.app.vault.cachedRead(destinationFile);
+    const sourceContent = await this.app.vault.cachedRead(sourceFile);
+    const mergedContent = destinationContent.includes(sourceContent) ? destinationContent : `${destinationContent.trimEnd()}
+
+---
+
+${sourceContent}`;
+    this.pendingPaths.add(destinationFile.path);
+    this.pendingPaths.add(sourceFile.path);
+    try {
+      await this.app.vault.modify(destinationFile, mergedContent);
+      await this.app.vault.delete(sourceFile);
+      this.taskStateByPath.delete(sourceFile.path);
+      this.statusByPath.delete(sourceFile.path);
+      this.taskStateByPath.set(
+        destinationFile.path,
+        extractTaskState(mergedContent, this.settings.nextActionTag)
+      );
+      this.statusByPath.set(destinationFile.path, this.readStatusValue(mergedContent));
+      await this.deleteEmptyParentFolders(sourcePath);
+    } finally {
+      window.setTimeout(() => {
+        this.pendingPaths.delete(destinationFile.path);
+        this.pendingPaths.delete(sourceFile.path);
+      }, 0);
+    }
+  }
+  getTaskFolderRoots() {
+    const roots = [
+      this.settings.projectsFolder,
+      this.settings.completedProjectsFolder,
+      this.settings.waitingProjectsFolder,
+      this.settings.scheduledProjectsFolder,
+      this.settings.somedayMaybeProjectsFolder
+    ].filter(Boolean);
+    return [...new Set(roots)];
+  }
+  async deleteEmptyParentFolders(sourceFilePath) {
+    const protectedRoots = new Set(this.getTaskFolderRoots());
+    let currentPath = this.getParentPath(sourceFilePath);
+    while (currentPath) {
+      if (protectedRoots.has(currentPath)) {
+        return;
+      }
+      const entry = this.app.vault.getAbstractFileByPath(currentPath);
+      if (!(entry instanceof import_obsidian2.TFolder)) {
+        return;
+      }
+      const hasDescendants = this.app.vault.getAllLoadedFiles().some((candidate) => candidate.path !== currentPath && candidate.path.startsWith(`${currentPath}/`));
+      if (hasDescendants) {
+        return;
+      }
+      await this.app.vault.delete(entry, true);
+      currentPath = this.getParentPath(currentPath);
+    }
+  }
+  rekeyTaskState(oldPath, newPath) {
+    var _a;
+    const existing = this.taskStateByPath.get(oldPath);
+    this.taskStateByPath.delete(oldPath);
+    if (existing) {
+      this.taskStateByPath.set(newPath, existing);
+    }
+    const existingStatus = (_a = this.statusByPath.get(oldPath)) != null ? _a : null;
+    this.statusByPath.delete(oldPath);
+    this.statusByPath.set(newPath, existingStatus);
+  }
+  async promptMergeOrSkip(sourcePath, destinationPath) {
+    return await new Promise((resolve) => {
+      class MergeConflictModal extends import_obsidian2.Modal {
+        constructor() {
+          super(...arguments);
+          this.resolved = false;
+        }
+        onOpen() {
+          const { contentEl } = this;
+          contentEl.empty();
+          const title = document.createElement("h3");
+          title.textContent = "File Already Exists";
+          contentEl.appendChild(title);
+          const message = document.createElement("p");
+          message.textContent = "A destination file already exists. Choose how to proceed:";
+          contentEl.appendChild(message);
+          const sourceLabel = document.createElement("p");
+          sourceLabel.textContent = `Source: ${sourcePath}`;
+          contentEl.appendChild(sourceLabel);
+          const destinationLabel = document.createElement("p");
+          destinationLabel.textContent = `Destination: ${destinationPath}`;
+          contentEl.appendChild(destinationLabel);
+          const actions = document.createElement("div");
+          actions.style.display = "flex";
+          actions.style.gap = "8px";
+          actions.style.marginTop = "12px";
+          const mergeButton = document.createElement("button");
+          mergeButton.textContent = "Merge";
+          mergeButton.addEventListener("click", () => {
+            this.resolved = true;
+            resolve(true);
+            this.close();
+          });
+          const skipButton = document.createElement("button");
+          skipButton.textContent = "Do Nothing";
+          skipButton.addEventListener("click", () => {
+            this.resolved = true;
+            resolve(false);
+            this.close();
+          });
+          actions.appendChild(mergeButton);
+          actions.appendChild(skipButton);
+          contentEl.appendChild(actions);
+        }
+        onClose() {
+          if (!this.resolved) {
+            resolve(false);
+          }
+        }
+      }
+      new MergeConflictModal(this.app).open();
+    });
+  }
+  escapeRegExp(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
   async applyCompletionRules(file, content, completedLine) {
     await applyCompletionRules({
@@ -554,6 +932,7 @@ var TaskManagerPlugin = class extends import_obsidian2.Plugin {
     try {
       await this.app.vault.modify(file, content);
       this.taskStateByPath.set(file.path, extractTaskState(content, this.settings.nextActionTag));
+      this.statusByPath.set(file.path, this.readStatusValue(content));
     } finally {
       window.setTimeout(() => {
         this.pendingPaths.delete(file.path);
@@ -566,6 +945,7 @@ var TaskManagerPlugin = class extends import_obsidian2.Plugin {
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
         frontmatter[this.settings.statusField] = status;
       });
+      this.statusByPath.set(file.path, status);
     } finally {
       window.setTimeout(() => {
         this.pendingPaths.delete(file.path);
@@ -573,6 +953,8 @@ var TaskManagerPlugin = class extends import_obsidian2.Plugin {
     }
   }
 };
+_TaskManagerPlugin.ROUTABLE_STATUSES = ["todo", "completed", "waiting", "scheduled", "someday-maybe"];
+var TaskManagerPlugin = _TaskManagerPlugin;
 var BaseTaskManagerSettingTab = class extends import_obsidian2.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);

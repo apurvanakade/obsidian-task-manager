@@ -5,13 +5,27 @@
 1. Open Obsidian and enable the `Task Manager` plugin.
 2. Open plugin settings and configure:
    - `Projects Folder`: root folder to scan for project notes.
-   - `Next action tag`: tag applied to the current actionable task (default `#next-action`).
-   - `Completed status field`: frontmatter field name to update (default `status`).
-3. Run the `Process tasks` command from the Command Palette:
-   - Scans all Markdown files under `Projects Folder` recursively.
-   - Ensures each file has at most one next-action tag on an incomplete task.
-   - Sets frontmatter status to `todo` if an incomplete task exists, otherwise `completed`.
-4. Run `Process file` to apply the same reconciliation to only the active note.
+   - `Completed Projects Folder`: destination folder for completed projects.
+   - `Waiting Projects Folder`: destination folder for waiting projects.
+   - `Scheduled Projects Folder`: destination folder for scheduled projects.
+   - `Someday-Maybe Projects Folder`: destination folder for someday-maybe projects.
+   - `Next Action Tag`: tag applied to the current actionable task (default `#next-action`).
+   - `Completed Status Field`: frontmatter field name to update (default `status`).
+3. Run the `Process Tasks` command from the Command Palette:
+   - Applies `Process file` behavior to all Markdown files under `Projects Folder` recursively.
+4. Run `Process file` to process only the active note:
+   - Reconciles next-action tags in the file.
+   - If the file still has open tasks and current status is not `completed`, status is preserved.
+   - Routes the file by status:
+      - `todo` -> `Projects Folder`
+      - `completed` -> `Completed Projects Folder`
+      - `waiting` -> `Waiting Projects Folder`
+      - `scheduled` -> `Scheduled Projects Folder`
+      - `someday-maybe` -> `Someday-Maybe Projects Folder`
+   - Preserves relative hierarchy from `Projects Folder` inside destination roots.
+   - Creates missing destination subfolders as needed.
+   - If destination file exists, prompts to merge or do nothing.
+   - If a required destination folder is not configured, throws an error and does nothing.
 5. During normal editing, the plugin reacts to task changes automatically:
    - **Task completed** (`[ ]` → `[x]`): stamps completion metadata on the completed task and moves the next-action tag to the first incomplete task anywhere in the file; if none remain, sets status to `completed`.
    - **Recurring tasks**: if a completed task contains `[repeat:: ...]` or `[repeats:: ...]`, the plugin creates a new open copy above the completed task with a computed due date:

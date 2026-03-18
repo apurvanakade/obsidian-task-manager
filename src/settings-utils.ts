@@ -2,12 +2,20 @@ export type TaskManagerSettings = {
   nextActionTag: string;
   statusField: string;
   projectsFolder: string;
+  completedProjectsFolder: string;
+  waitingProjectsFolder: string;
+  scheduledProjectsFolder: string;
+  somedayMaybeProjectsFolder: string;
 };
 
 export const DEFAULT_SETTINGS: TaskManagerSettings = {
   nextActionTag: "#next-action",
   statusField: "status",
-  projectsFolder: ""
+  projectsFolder: "",
+  completedProjectsFolder: "",
+  waitingProjectsFolder: "",
+  scheduledProjectsFolder: "",
+  somedayMaybeProjectsFolder: ""
 };
 
 function normalizeTag(tag: string | null | undefined): string {
@@ -34,6 +42,10 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
     ...rawSettings,
     nextActionTag: normalizeTag(rawSettings.nextActionTag),
     statusField: normalizeStatusField(rawSettings.statusField),
-    projectsFolder: normalizeFolder(rawSettings.projectsFolder)
+    projectsFolder: normalizeFolder(rawSettings.projectsFolder),
+    completedProjectsFolder: normalizeFolder(rawSettings.completedProjectsFolder),
+    waitingProjectsFolder: normalizeFolder(rawSettings.waitingProjectsFolder),
+    scheduledProjectsFolder: normalizeFolder(rawSettings.scheduledProjectsFolder),
+    somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder)
   };
 }

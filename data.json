@@ -1,5 +1,9 @@
 {
   "nextActionTag": "#next-action",
   "statusField": "status",
-  "projectsFolder": "Projects"
+  "projectsFolder": "Projects",
+  "completedProjectsFolder": "Completed",
+  "waitingProjectsFolder": "Waiting",
+  "scheduledProjectsFolder": "Scheduled",
+  "somedayMaybeProjectsFolder": "Someday-Maybe"
 }
