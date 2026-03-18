@@ -4,12 +4,14 @@ import {
   extractTaskState,
   findDeletedTaggedTask,
   findNewlyCompletedTask,
+  findNewlyUncompletedTask,
   TaskState
 } from "./src/task-utils";
 import { TaskManagerSettingTabRenderer } from "./src/settings-ui";
 import {
   applyCompletionRules,
   applyDeletedTagRules,
+  applyUncompletionRules,
   initializeProjectsFolder,
   reconcileFile
 } from "./src/reconciler";
@@ -83,12 +85,18 @@ export default class TaskManagerPlugin extends Plugin {
     const nextState = extractTaskState(content, this.settings.nextActionTag);
     const previousState = this.taskStateByPath.get(file.path) ?? [];
     const completion = findNewlyCompletedTask(previousState, nextState);
+    const uncompleted = findNewlyUncompletedTask(previousState, nextState);
     const deletedTaggedTaskLine = findDeletedTaggedTask(previousState, nextState);
 
     this.taskStateByPath.set(file.path, nextState);
 
     if (completion !== null) {
-      await this.applyCompletionRules(file, content, completion);
+      await this.applyCompletionRules(file, content, completion, previousState, nextState);
+      return;
+    }
+
+    if (uncompleted !== null) {
+      await this.applyUncompletionRules(file, content, uncompleted);
       return;
     }
 
@@ -124,11 +132,34 @@ export default class TaskManagerPlugin extends Plugin {
     new Notice(`Initialized ${count} project file${count === 1 ? "" : "s"}.`);
   }
 
-  private async applyCompletionRules(file: TFile, content: string, completedLine: number): Promise<void> {
+  private async applyCompletionRules(
+    file: TFile,
+    content: string,
+    completedLine: number,
+    previousState: TaskState[],
+    nextState: TaskState[]
+  ): Promise<void> {
     await applyCompletionRules({
       file,
       content,
       completedLine,
+      previousState,
+      nextState,
+      settings: this.settings,
+      readFile: (target) => this.app.vault.cachedRead(target),
+      writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent),
+      setFileStatus: (target, status) => this.setFileStatus(target, status),
+      setTaskState: (filePath, nextState) => {
+        this.taskStateByPath.set(filePath, nextState);
+      }
+    });
+  }
+
+  private async applyUncompletionRules(file: TFile, content: string, uncompletedLine: number): Promise<void> {
+    await applyUncompletionRules({
+      file,
+      content,
+      uncompletedLine,
       settings: this.settings,
       readFile: (target) => this.app.vault.cachedRead(target),
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent),

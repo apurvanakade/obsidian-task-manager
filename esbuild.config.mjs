@@ -1,8 +1,12 @@
 import esbuild from "esbuild";
+import { builtinModules } from "node:module";
 import process from "node:process";
-import builtins from "builtin-modules";
 
 const production = process.argv[2] === "production";
+const builtins = Array.from(new Set([
+  ...builtinModules,
+  ...builtinModules.map((name) => `node:${name.replace(/^node:/, "")}`)
+]));
 
 const context = await esbuild.context({
   entryPoints: ["main.ts"],
