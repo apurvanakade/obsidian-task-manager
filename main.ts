@@ -12,7 +12,7 @@ import {
   applyCompletionRules,
   applyDeletedTagRules,
   applyUncompletionRules,
-  initializeProjectsFolder,
+  processProjectsFolder,
   reconcileFile
 } from "./src/reconciler";
 
@@ -29,10 +29,10 @@ export default class TaskManagerPlugin extends Plugin {
     console.log("Loading Task Manager plugin");
     this.addSettingTab(new BaseTaskManagerSettingTab(this.app, this));
     this.addCommand({
-      id: "initialize-projects-folder",
+      id: "process-tasks",
       name: "Process tasks",
       callback: () => {
-        void this.initializeProjectsFolder();
+        void this.processTasks();
       }
     });
     this.addCommand({
@@ -119,6 +119,30 @@ export default class TaskManagerPlugin extends Plugin {
       return;
     }
 
+    await this.reconcileSingleFile(file);
+
+    new Notice(`Processed ${file.name}.`);
+  }
+
+  private async processTasks(): Promise<void> {
+    const projectsFolder = this.settings.projectsFolder;
+    if (!projectsFolder) {
+      new Notice("Set Projects Folder in Task Manager settings first.");
+      return;
+    }
+
+    const count = await processProjectsFolder({
+      settings: this.settings,
+      getMarkdownFiles: () => this.app.vault.getMarkdownFiles(),
+      reconcileOneFile: async (file) => {
+        await this.reconcileSingleFile(file);
+      }
+    });
+
+    new Notice(`Processed ${count} project file${count === 1 ? "" : "s"}.`);
+  }
+
+  private async reconcileSingleFile(file: TFile): Promise<void> {
     await reconcileFile({
       file,
       settings: this.settings,
@@ -129,35 +153,6 @@ export default class TaskManagerPlugin extends Plugin {
         this.taskStateByPath.set(filePath, nextState);
       }
     });
-
-    new Notice(`Processed ${file.name}.`);
-  }
-
-  private async initializeProjectsFolder(): Promise<void> {
-    const projectsFolder = this.settings.projectsFolder;
-    if (!projectsFolder) {
-      new Notice("Set Projects Folder in Task Manager settings first.");
-      return;
-    }
-
-    const count = await initializeProjectsFolder({
-      settings: this.settings,
-      getMarkdownFiles: () => this.app.vault.getMarkdownFiles(),
-      reconcileOneFile: async (file) => {
-        await reconcileFile({
-          file,
-          settings: this.settings,
-          readFile: (target) => this.app.vault.cachedRead(target),
-          writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent),
-          setFileStatus: (target, status) => this.setFileStatus(target, status),
-          setTaskState: (filePath, nextState) => {
-            this.taskStateByPath.set(filePath, nextState);
-          }
-        });
-      }
-    });
-
-    new Notice(`Initialized ${count} project file${count === 1 ? "" : "s"}.`);
   }
 
   private async applyCompletionRules(

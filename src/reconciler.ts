@@ -33,24 +33,39 @@ type UncompletionContext = ReconcilerContext & {
   uncompletedLine: number;
 };
 
-type InitializeContext = {
+type ProcessTasksContext = {
   settings: TaskManagerSettings;
   getMarkdownFiles: () => TFile[];
   reconcileOneFile: (file: TFile) => Promise<void>;
 };
+
+type RepeatRule = "day" | "week" | "month" | "year";
 
 function isInProjectsFolder(filePath: string, projectsFolder: string): boolean {
   return filePath === projectsFolder || filePath.startsWith(`${projectsFolder}/`);
 }
 
 export async function applyCompletionRules(context: CompletionContext): Promise<void> {
-  const { file, content, completedLine, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
+  const { file, content, completedLine, settings, writeFileContent, setFileStatus, setTaskState } = context;
   const lines = content.split(/\r?\n/);
+  const nextLines = [...lines];
+  const sourceTaskLine = lines[completedLine];
+  let completedLineIndex = completedLine;
 
-  const nextTaskLine = findFirstIncompleteTaskLine(lines);
-  const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
+  const repeatRule = getRepeatRule(sourceTaskLine);
+  if (repeatRule !== null) {
+    const repeatedTaskLine = buildRepeatedTaskLine(sourceTaskLine, repeatRule);
+    if (repeatedTaskLine !== null) {
+      nextLines.splice(completedLine, 0, repeatedTaskLine);
+      completedLineIndex += 1;
+    }
+  }
+
   // Stamp completion metadata on the completed task.
-  cleanedLines[completedLine] = addCompletionFields(cleanedLines[completedLine]);
+  nextLines[completedLineIndex] = addCompletionFields(nextLines[completedLineIndex]);
+
+  const cleanedLines = stripNextActionTags(nextLines, settings.nextActionTag);
+  const nextTaskLine = findFirstIncompleteTaskLine(cleanedLines);
   const newStatus = nextTaskLine === null ? "completed" : "todo";
 
   let updatedContent = cleanedLines.join("\n");
@@ -64,13 +79,11 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
   }
 
   await setFileStatus(file, newStatus);
-
-  const refreshedContent = await readFile(file);
-  setTaskState(file.path, extractTaskState(refreshedContent, settings.nextActionTag));
+  setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
 }
 
 export async function applyUncompletionRules(context: UncompletionContext): Promise<void> {
-  const { file, content, uncompletedLine, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
+  const { file, content, uncompletedLine, settings, writeFileContent, setFileStatus, setTaskState } = context;
   const lines = content.split(/\r?\n/);
   // Reopened tasks must lose completion metadata.
   lines[uncompletedLine] = stripCompletionFields(lines[uncompletedLine]);
@@ -83,8 +96,7 @@ export async function applyUncompletionRules(context: UncompletionContext): Prom
     }
 
     await setFileStatus(file, "todo");
-    const refreshedContent = await readFile(file);
-    setTaskState(file.path, extractTaskState(refreshedContent, settings.nextActionTag));
+    setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
     return;
   }
 
@@ -96,20 +108,18 @@ export async function applyUncompletionRules(context: UncompletionContext): Prom
   }
 
   await setFileStatus(file, "todo");
-  const refreshedContent = await readFile(file);
-  setTaskState(file.path, extractTaskState(refreshedContent, settings.nextActionTag));
+  setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
 }
 
 export async function applyDeletedTagRules(context: DeletedTagContext): Promise<void> {
-  const { file, content, deletedTaggedTaskLine, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
+  const { file, content, deletedTaggedTaskLine, settings, writeFileContent, setFileStatus, setTaskState } = context;
   const lines = content.split(/\r?\n/);
   const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
   const previousTaskLine = findPreviousIncompleteTaskLine(cleanedLines, deletedTaggedTaskLine);
 
   if (previousTaskLine === null) {
     await setFileStatus(file, "completed");
-    const refreshedContent = await readFile(file);
-    setTaskState(file.path, extractTaskState(refreshedContent, settings.nextActionTag));
+    setTaskState(file.path, extractTaskState(content, settings.nextActionTag));
     return;
   }
 
@@ -119,8 +129,7 @@ export async function applyDeletedTagRules(context: DeletedTagContext): Promise<
   }
 
   await setFileStatus(file, "todo");
-  const refreshedContent = await readFile(file);
-  setTaskState(file.path, extractTaskState(refreshedContent, settings.nextActionTag));
+  setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
 }
 
 export async function reconcileFile(context: ReconcilerContext): Promise<void> {
@@ -142,11 +151,10 @@ export async function reconcileFile(context: ReconcilerContext): Promise<void> {
   }
 
   await setFileStatus(file, nextStatus);
-  const refreshedContent = await readFile(file);
-  setTaskState(file.path, extractTaskState(refreshedContent, settings.nextActionTag));
+  setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
 }
 
-export async function initializeProjectsFolder(context: InitializeContext): Promise<number> {
+export async function processProjectsFolder(context: ProcessTasksContext): Promise<number> {
   const files = context.getMarkdownFiles().filter((file) => isInProjectsFolder(file.path, context.settings.projectsFolder));
   for (const file of files) {
     await context.reconcileOneFile(file);
@@ -156,11 +164,7 @@ export async function initializeProjectsFolder(context: InitializeContext): Prom
 }
 
 function getCompletionDateString(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return formatDate(new Date());
 }
 
 function getCompletionTimeString(): string {
@@ -180,4 +184,64 @@ function stripCompletionFields(line: string): string {
   return line
     .replace(/\s*\[completion-date::[^\]]*\]/g, "")
     .replace(/\s*\[completion-time::[^\]]*\]/g, "");
+}
+
+function getRepeatRule(line: string): RepeatRule | null {
+  const match = line.match(/\[(?:repeat|repeats)::\s*every\s+(day|week|month|year)\s*\]/i);
+  return match ? (match[1].toLowerCase() as RepeatRule) : null;
+}
+
+function buildRepeatedTaskLine(completedLine: string, repeatRule: RepeatRule): string | null {
+  const cleaned = stripCompletionFields(completedLine);
+  if (!cleaned.match(/^(\s*[-*+]\s+\[)[^\]](\]\s*)/)) {
+    return null;
+  }
+
+  const openTask = cleaned.replace(/^(\s*[-*+]\s+\[)[^\]](\]\s*)/, "$1 $2");
+  const taskBodyWithoutDue = openTask.replace(/\s*\[due::\s*[^\]]*\]/g, "").trimEnd();
+  const dueDate = getRepeatDueDate(repeatRule);
+  return `${taskBodyWithoutDue} [due:: ${dueDate}]`;
+}
+
+function getRepeatDueDate(repeatRule: RepeatRule): string {
+  const now = new Date();
+
+  switch (repeatRule) {
+    case "day":
+      return formatDate(addDays(now, 1));
+    case "week":
+      return formatDate(addDays(now, 7));
+    case "month":
+      return formatDate(addMonthsClamped(now, 1));
+    case "year":
+      return formatDate(addMonthsClamped(now, 12));
+    default:
+      return formatDate(now);
+  }
+}
+
+function addDays(baseDate: Date, days: number): Date {
+  const nextDate = new Date(baseDate);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+}
+
+function addMonthsClamped(baseDate: Date, monthsToAdd: number): Date {
+  const startYear = baseDate.getFullYear();
+  const startMonth = baseDate.getMonth();
+  const targetMonthIndex = startMonth + monthsToAdd;
+  const targetYear = startYear + Math.floor(targetMonthIndex / 12);
+  const targetMonth = ((targetMonthIndex % 12) + 12) % 12;
+  const day = baseDate.getDate();
+  const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const clampedDay = Math.min(day, lastDayOfTargetMonth);
+
+  return new Date(targetYear, targetMonth, clampedDay);
+}
+
+function formatDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }

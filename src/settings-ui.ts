@@ -23,7 +23,7 @@ export class TaskManagerSettingTabRenderer {
 
     new Setting(containerEl)
       .setName("Projects Folder")
-      .setDesc("Folder scanned recursively by the Initialize command. Use Browse to pick a vault path.")
+      .setDesc("Folder scanned recursively by the Process tasks command. Use Browse to pick a vault path.")
       .addText((text) => {
         this.configureFolderTextInput(text, settings.projectsFolder);
       })

@@ -171,7 +171,7 @@ var TaskManagerSettingTabRenderer = class {
     const { containerEl } = this.baseSettingTab;
     const settings = this.plugin.getSettings();
     containerEl.empty();
-    new import_obsidian.Setting(containerEl).setName("Projects Folder").setDesc("Folder scanned recursively by the Initialize command. Use Browse to pick a vault path.").addText((text) => {
+    new import_obsidian.Setting(containerEl).setName("Projects Folder").setDesc("Folder scanned recursively by the Process tasks command. Use Browse to pick a vault path.").addText((text) => {
       this.configureFolderTextInput(text, settings.projectsFolder);
     }).addButton((button) => {
       button.setButtonText("Browse").onClick(() => {
@@ -227,11 +227,22 @@ function isInProjectsFolder(filePath, projectsFolder) {
   return filePath === projectsFolder || filePath.startsWith(`${projectsFolder}/`);
 }
 async function applyCompletionRules(context) {
-  const { file, content, completedLine, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
+  const { file, content, completedLine, settings, writeFileContent, setFileStatus, setTaskState } = context;
   const lines = content.split(/\r?\n/);
-  const nextTaskLine = findFirstIncompleteTaskLine(lines);
-  const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
-  cleanedLines[completedLine] = addCompletionFields(cleanedLines[completedLine]);
+  const nextLines = [...lines];
+  const sourceTaskLine = lines[completedLine];
+  let completedLineIndex = completedLine;
+  const repeatRule = getRepeatRule(sourceTaskLine);
+  if (repeatRule !== null) {
+    const repeatedTaskLine = buildRepeatedTaskLine(sourceTaskLine, repeatRule);
+    if (repeatedTaskLine !== null) {
+      nextLines.splice(completedLine, 0, repeatedTaskLine);
+      completedLineIndex += 1;
+    }
+  }
+  nextLines[completedLineIndex] = addCompletionFields(nextLines[completedLineIndex]);
+  const cleanedLines = stripNextActionTags(nextLines, settings.nextActionTag);
+  const nextTaskLine = findFirstIncompleteTaskLine(cleanedLines);
   const newStatus = nextTaskLine === null ? "completed" : "todo";
   let updatedContent = cleanedLines.join("\n");
   if (nextTaskLine !== null) {
@@ -241,11 +252,10 @@ async function applyCompletionRules(context) {
     await writeFileContent(file, updatedContent);
   }
   await setFileStatus(file, newStatus);
-  const refreshedContent = await readFile(file);
-  setTaskState(file.path, extractTaskState(refreshedContent, settings.nextActionTag));
+  setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
 }
 async function applyUncompletionRules(context) {
-  const { file, content, uncompletedLine, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
+  const { file, content, uncompletedLine, settings, writeFileContent, setFileStatus, setTaskState } = context;
   const lines = content.split(/\r?\n/);
   lines[uncompletedLine] = stripCompletionFields(lines[uncompletedLine]);
   const firstIncompleteTaskLine = findFirstIncompleteTaskLine(lines);
@@ -255,8 +265,7 @@ async function applyUncompletionRules(context) {
       await writeFileContent(file, updatedContent2);
     }
     await setFileStatus(file, "todo");
-    const refreshedContent2 = await readFile(file);
-    setTaskState(file.path, extractTaskState(refreshedContent2, settings.nextActionTag));
+    setTaskState(file.path, extractTaskState(updatedContent2, settings.nextActionTag));
     return;
   }
   const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
@@ -265,18 +274,16 @@ async function applyUncompletionRules(context) {
     await writeFileContent(file, updatedContent);
   }
   await setFileStatus(file, "todo");
-  const refreshedContent = await readFile(file);
-  setTaskState(file.path, extractTaskState(refreshedContent, settings.nextActionTag));
+  setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
 }
 async function applyDeletedTagRules(context) {
-  const { file, content, deletedTaggedTaskLine, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
+  const { file, content, deletedTaggedTaskLine, settings, writeFileContent, setFileStatus, setTaskState } = context;
   const lines = content.split(/\r?\n/);
   const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
   const previousTaskLine = findPreviousIncompleteTaskLine(cleanedLines, deletedTaggedTaskLine);
   if (previousTaskLine === null) {
     await setFileStatus(file, "completed");
-    const refreshedContent2 = await readFile(file);
-    setTaskState(file.path, extractTaskState(refreshedContent2, settings.nextActionTag));
+    setTaskState(file.path, extractTaskState(content, settings.nextActionTag));
     return;
   }
   const updatedContent = addNextActionTag(cleanedLines, previousTaskLine, settings.nextActionTag);
@@ -284,8 +291,7 @@ async function applyDeletedTagRules(context) {
     await writeFileContent(file, updatedContent);
   }
   await setFileStatus(file, "todo");
-  const refreshedContent = await readFile(file);
-  setTaskState(file.path, extractTaskState(refreshedContent, settings.nextActionTag));
+  setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
 }
 async function reconcileFile(context) {
   const { file, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
@@ -303,10 +309,9 @@ async function reconcileFile(context) {
     await writeFileContent(file, updatedContent);
   }
   await setFileStatus(file, nextStatus);
-  const refreshedContent = await readFile(file);
-  setTaskState(file.path, extractTaskState(refreshedContent, settings.nextActionTag));
+  setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
 }
-async function initializeProjectsFolder(context) {
+async function processProjectsFolder(context) {
   const files = context.getMarkdownFiles().filter((file) => isInProjectsFolder(file.path, context.settings.projectsFolder));
   for (const file of files) {
     await context.reconcileOneFile(file);
@@ -314,11 +319,7 @@ async function initializeProjectsFolder(context) {
   return files.length;
 }
 function getCompletionDateString() {
-  const now = /* @__PURE__ */ new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return formatDate(/* @__PURE__ */ new Date());
 }
 function getCompletionTimeString() {
   const now = /* @__PURE__ */ new Date();
@@ -333,6 +334,57 @@ function addCompletionFields(line) {
 }
 function stripCompletionFields(line) {
   return line.replace(/\s*\[completion-date::[^\]]*\]/g, "").replace(/\s*\[completion-time::[^\]]*\]/g, "");
+}
+function getRepeatRule(line) {
+  const match = line.match(/\[(?:repeat|repeats)::\s*every\s+(day|week|month|year)\s*\]/i);
+  return match ? match[1].toLowerCase() : null;
+}
+function buildRepeatedTaskLine(completedLine, repeatRule) {
+  const cleaned = stripCompletionFields(completedLine);
+  if (!cleaned.match(/^(\s*[-*+]\s+\[)[^\]](\]\s*)/)) {
+    return null;
+  }
+  const openTask = cleaned.replace(/^(\s*[-*+]\s+\[)[^\]](\]\s*)/, "$1 $2");
+  const taskBodyWithoutDue = openTask.replace(/\s*\[due::\s*[^\]]*\]/g, "").trimEnd();
+  const dueDate = getRepeatDueDate(repeatRule);
+  return `${taskBodyWithoutDue} [due:: ${dueDate}]`;
+}
+function getRepeatDueDate(repeatRule) {
+  const now = /* @__PURE__ */ new Date();
+  switch (repeatRule) {
+    case "day":
+      return formatDate(addDays(now, 1));
+    case "week":
+      return formatDate(addDays(now, 7));
+    case "month":
+      return formatDate(addMonthsClamped(now, 1));
+    case "year":
+      return formatDate(addMonthsClamped(now, 12));
+    default:
+      return formatDate(now);
+  }
+}
+function addDays(baseDate, days) {
+  const nextDate = new Date(baseDate);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+}
+function addMonthsClamped(baseDate, monthsToAdd) {
+  const startYear = baseDate.getFullYear();
+  const startMonth = baseDate.getMonth();
+  const targetMonthIndex = startMonth + monthsToAdd;
+  const targetYear = startYear + Math.floor(targetMonthIndex / 12);
+  const targetMonth = (targetMonthIndex % 12 + 12) % 12;
+  const day = baseDate.getDate();
+  const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const clampedDay = Math.min(day, lastDayOfTargetMonth);
+  return new Date(targetYear, targetMonth, clampedDay);
+}
+function formatDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 // main.ts
@@ -349,10 +401,10 @@ var TaskManagerPlugin = class extends import_obsidian2.Plugin {
     console.log("Loading Task Manager plugin");
     this.addSettingTab(new BaseTaskManagerSettingTab(this.app, this));
     this.addCommand({
-      id: "initialize-projects-folder",
+      id: "process-tasks",
       name: "Process tasks",
       callback: () => {
-        void this.initializeProjectsFolder();
+        void this.processTasks();
       }
     });
     this.addCommand({
@@ -425,6 +477,25 @@ var TaskManagerPlugin = class extends import_obsidian2.Plugin {
       new import_obsidian2.Notice("No active file.");
       return;
     }
+    await this.reconcileSingleFile(file);
+    new import_obsidian2.Notice(`Processed ${file.name}.`);
+  }
+  async processTasks() {
+    const projectsFolder = this.settings.projectsFolder;
+    if (!projectsFolder) {
+      new import_obsidian2.Notice("Set Projects Folder in Task Manager settings first.");
+      return;
+    }
+    const count = await processProjectsFolder({
+      settings: this.settings,
+      getMarkdownFiles: () => this.app.vault.getMarkdownFiles(),
+      reconcileOneFile: async (file) => {
+        await this.reconcileSingleFile(file);
+      }
+    });
+    new import_obsidian2.Notice(`Processed ${count} project file${count === 1 ? "" : "s"}.`);
+  }
+  async reconcileSingleFile(file) {
     await reconcileFile({
       file,
       settings: this.settings,
@@ -435,31 +506,6 @@ var TaskManagerPlugin = class extends import_obsidian2.Plugin {
         this.taskStateByPath.set(filePath, nextState);
       }
     });
-    new import_obsidian2.Notice(`Processed ${file.name}.`);
-  }
-  async initializeProjectsFolder() {
-    const projectsFolder = this.settings.projectsFolder;
-    if (!projectsFolder) {
-      new import_obsidian2.Notice("Set Projects Folder in Task Manager settings first.");
-      return;
-    }
-    const count = await initializeProjectsFolder({
-      settings: this.settings,
-      getMarkdownFiles: () => this.app.vault.getMarkdownFiles(),
-      reconcileOneFile: async (file) => {
-        await reconcileFile({
-          file,
-          settings: this.settings,
-          readFile: (target) => this.app.vault.cachedRead(target),
-          writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent),
-          setFileStatus: (target, status) => this.setFileStatus(target, status),
-          setTaskState: (filePath, nextState) => {
-            this.taskStateByPath.set(filePath, nextState);
-          }
-        });
-      }
-    });
-    new import_obsidian2.Notice(`Initialized ${count} project file${count === 1 ? "" : "s"}.`);
   }
   async applyCompletionRules(file, content, completedLine) {
     await applyCompletionRules({
