@@ -1,24 +1,31 @@
-const { FuzzySuggestModal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder } = require("obsidian");
-
-const TASK_LINE_REGEX = /^(\s*[-*+]\s+\[( |x|X)\]\s+)(.*)$/;
-const DEFAULT_SETTINGS = {
-  nextActionTag: "#next-action",
-  statusField: "status",
-  projectsFolder: ""
-};
+const { Notice, Plugin, PluginSettingTab, TFile } = require("obsidian");
+const { normalizeSettings } = require("./runtime/settings-utils");
+const {
+  extractTaskState,
+  findNewlyCompletedTask,
+  findDeletedTaggedTask
+} = require("./runtime/task-utils");
+const {
+  applyCompletionRules,
+  applyDeletedTagRules,
+  initializeProjectsFolder,
+  reconcileFile
+} = require("./runtime/reconciler");
+const { TaskManagerSettingTab } = require("./runtime/settings-ui");
 
 module.exports = class TaskManagerPlugin extends Plugin {
   constructor(app, manifest) {
     super(app, manifest);
     this.taskStateByPath = new Map();
+    // Prevent re-processing of writes triggered by this plugin itself.
     this.pendingPaths = new Set();
-    this.settings = DEFAULT_SETTINGS;
+    this.settings = normalizeSettings({});
   }
 
   async onload() {
     await this.loadSettings();
     console.log("Loading Task Manager plugin");
-    this.addSettingTab(new TaskManagerSettingTab(this.app, this));
+    this.addSettingTab(new BaseTaskManagerSettingTab(this.app, this));
     this.addCommand({
       id: "initialize-projects-folder",
       name: "Initialize",
@@ -40,19 +47,11 @@ module.exports = class TaskManagerPlugin extends Plugin {
 
   async loadSettings() {
     const loadedData = await this.loadData();
-    this.settings = {
-      ...DEFAULT_SETTINGS,
-      ...loadedData
-    };
-    this.settings.nextActionTag = this.normalizeTag(this.settings.nextActionTag);
-    this.settings.statusField = this.normalizeStatusField(this.settings.statusField);
-    this.settings.projectsFolder = this.normalizeFolder(this.settings.projectsFolder);
+    this.settings = normalizeSettings(loadedData || {});
   }
 
   async saveSettings() {
-    this.settings.nextActionTag = this.normalizeTag(this.settings.nextActionTag);
-    this.settings.statusField = this.normalizeStatusField(this.settings.statusField);
-    this.settings.projectsFolder = this.normalizeFolder(this.settings.projectsFolder);
+    this.settings = normalizeSettings(this.settings);
     await this.saveData(this.settings);
     await this.primeTaskState();
   }
@@ -71,7 +70,7 @@ module.exports = class TaskManagerPlugin extends Plugin {
 
     for (const file of markdownFiles) {
       const content = await this.app.vault.cachedRead(file);
-      this.taskStateByPath.set(file.path, this.extractTaskState(content));
+      this.taskStateByPath.set(file.path, extractTaskState(content, this.settings.nextActionTag));
     }
   }
 
@@ -85,10 +84,10 @@ module.exports = class TaskManagerPlugin extends Plugin {
     }
 
     const content = await this.app.vault.cachedRead(file);
-    const nextState = this.extractTaskState(content);
+    const nextState = extractTaskState(content, this.settings.nextActionTag);
     const previousState = this.taskStateByPath.get(file.path) || [];
-    const completion = this.findNewlyCompletedTask(previousState, nextState);
-    const deletedTaggedTaskLine = this.findDeletedTaggedTask(previousState, nextState);
+    const completion = findNewlyCompletedTask(previousState, nextState);
+    const deletedTaggedTaskLine = findDeletedTaggedTask(previousState, nextState);
 
     this.taskStateByPath.set(file.path, nextState);
 
@@ -109,226 +108,57 @@ module.exports = class TaskManagerPlugin extends Plugin {
       return;
     }
 
-    const files = this.app.vault.getMarkdownFiles().filter((file) => this.isInProjectsFolder(file));
-    for (const file of files) {
-      await this.reconcileFile(file);
-    }
-
-    new Notice(`Initialized ${files.length} project file${files.length === 1 ? "" : "s"}.`);
-  }
-
-  extractTaskState(content) {
-    const lines = content.split(/\r?\n/);
-    const taskState = [];
-
-    for (let index = 0; index < lines.length; index += 1) {
-      const match = lines[index].match(TASK_LINE_REGEX);
-      if (!match) {
-        continue;
+    const count = await initializeProjectsFolder({
+      settings: this.settings,
+      getMarkdownFiles: () => this.app.vault.getMarkdownFiles(),
+      reconcileOneFile: async (file) => {
+        await reconcileFile({
+          file,
+          settings: this.settings,
+          readFile: (target) => this.app.vault.cachedRead(target),
+          writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent),
+          setFileStatus: (target, status) => this.setFileStatus(target, status),
+          setTaskState: (filePath, nextState) => {
+            this.taskStateByPath.set(filePath, nextState);
+          },
+          extractTaskState
+        });
       }
+    });
 
-      taskState.push({
-        line: index,
-        completed: match[2].toLowerCase() === "x",
-        hasNextAction: this.lineHasTag(lines[index])
-      });
-    }
-
-    return taskState;
-  }
-
-  findNewlyCompletedTask(previousState, nextState) {
-    const previousByLine = new Map(previousState.map((task) => [task.line, task.completed]));
-
-    for (const task of nextState) {
-      const wasCompleted = previousByLine.get(task.line);
-      if (wasCompleted === false && task.completed) {
-        return task.line;
-      }
-    }
-
-    return null;
-  }
-
-  findDeletedTaggedTask(previousState, nextState) {
-    const previousTaggedTask = previousState.find((task) => task.hasNextAction);
-    if (!previousTaggedTask) {
-      return null;
-    }
-
-    const hasCurrentTaggedTask = nextState.some((task) => task.hasNextAction);
-    if (hasCurrentTaggedTask) {
-      return null;
-    }
-
-    const sameLineStillExists = nextState.some((task) => task.line === previousTaggedTask.line);
-    if (sameLineStillExists) {
-      return null;
-    }
-
-    return previousTaggedTask.line;
+    new Notice(`Initialized ${count} project file${count === 1 ? "" : "s"}.`);
   }
 
   async applyCompletionRules(file, content, completedLine) {
-    const lines = content.split(/\r?\n/);
-    const nextTaskLine = this.findNextIncompleteTaskLine(lines, completedLine);
-    const cleanedLines = this.stripNextActionTags(lines);
-    let updatedContent = cleanedLines.join("\n");
-
-    if (nextTaskLine !== null) {
-      updatedContent = this.addNextActionTag(cleanedLines, nextTaskLine);
-    }
-
-    if (updatedContent !== content) {
-      await this.writeFileContent(file, updatedContent);
-    }
-
-    await this.setFileStatus(file, nextTaskLine === null ? "completed" : "todo");
-    const refreshedContent = await this.app.vault.cachedRead(file);
-    this.taskStateByPath.set(file.path, this.extractTaskState(refreshedContent));
-  }
-
-  async applyDeletedTagRules(file, content, deletedTaggedTaskLine) {
-    const lines = content.split(/\r?\n/);
-    const cleanedLines = this.stripNextActionTags(lines);
-    const previousTaskLine = this.findPreviousIncompleteTaskLine(cleanedLines, deletedTaggedTaskLine);
-
-    if (previousTaskLine === null) {
-      await this.setFileStatus(file, "completed");
-      const refreshedContent = await this.app.vault.cachedRead(file);
-      this.taskStateByPath.set(file.path, this.extractTaskState(refreshedContent));
-      return;
-    }
-
-    const updatedContent = this.addNextActionTag(cleanedLines, previousTaskLine);
-    if (updatedContent !== content) {
-      await this.writeFileContent(file, updatedContent);
-    }
-
-    await this.setFileStatus(file, "todo");
-    const refreshedContent = await this.app.vault.cachedRead(file);
-    this.taskStateByPath.set(file.path, this.extractTaskState(refreshedContent));
-  }
-
-  async reconcileFile(file) {
-    const content = await this.app.vault.cachedRead(file);
-    const lines = content.split(/\r?\n/);
-    const cleanedLines = this.stripNextActionTags(lines);
-    const firstIncompleteTaskLine = this.findFirstIncompleteTaskLine(cleanedLines);
-    let updatedContent = cleanedLines.join("\n");
-    let nextStatus = "completed";
-
-    if (firstIncompleteTaskLine !== null) {
-      updatedContent = this.addNextActionTag(cleanedLines, firstIncompleteTaskLine);
-      nextStatus = "todo";
-    }
-
-    if (updatedContent !== content) {
-      await this.writeFileContent(file, updatedContent);
-    }
-
-    await this.setFileStatus(file, nextStatus);
-    const refreshedContent = await this.app.vault.cachedRead(file);
-    this.taskStateByPath.set(file.path, this.extractTaskState(refreshedContent));
-  }
-
-  findNextIncompleteTaskLine(lines, completedLine) {
-    for (let index = completedLine + 1; index < lines.length; index += 1) {
-      const match = lines[index].match(TASK_LINE_REGEX);
-      if (!match) {
-        continue;
-      }
-
-      if (match[2] === " ") {
-        return index;
-      }
-    }
-
-    return null;
-  }
-
-  findPreviousIncompleteTaskLine(lines, referenceLine) {
-    for (let index = Math.min(referenceLine - 1, lines.length - 1); index >= 0; index -= 1) {
-      const match = lines[index].match(TASK_LINE_REGEX);
-      if (!match) {
-        continue;
-      }
-
-      if (match[2] === " ") {
-        return index;
-      }
-    }
-
-    return this.findFirstIncompleteTaskLine(lines);
-  }
-
-  findFirstIncompleteTaskLine(lines) {
-    for (let index = 0; index < lines.length; index += 1) {
-      const match = lines[index].match(TASK_LINE_REGEX);
-      if (match && match[2] === " ") {
-        return index;
-      }
-    }
-
-    return null;
-  }
-
-  stripNextActionTags(lines) {
-    return lines.map((line) => {
-      if (!this.lineHasTag(line) || !line.match(TASK_LINE_REGEX)) {
-        return line;
-      }
-
-      return line.replace(this.getTagReplaceRegex(), "");
+    await applyCompletionRules({
+      file,
+      content,
+      completedLine,
+      settings: this.settings,
+      readFile: (target) => this.app.vault.cachedRead(target),
+      writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent),
+      setFileStatus: (target, status) => this.setFileStatus(target, status),
+      setTaskState: (filePath, nextState) => {
+        this.taskStateByPath.set(filePath, nextState);
+      },
+      extractTaskState
     });
   }
 
-  addNextActionTag(lines, targetLine) {
-    const nextLines = [...lines];
-    const targetLineContent = nextLines[targetLine];
-    if (!this.lineHasTag(targetLineContent)) {
-      nextLines[targetLine] = `${targetLineContent} ${this.settings.nextActionTag}`;
-    }
-
-    return nextLines.join("\n");
-  }
-
-  lineHasTag(line) {
-    return this.getTagPresenceRegex().test(line);
-  }
-
-  getTagPresenceRegex() {
-    return new RegExp(`(^|\\s)${this.escapeRegExp(this.settings.nextActionTag)}(?=$|\\s)`);
-  }
-
-  getTagReplaceRegex() {
-    return new RegExp(`\\s+${this.escapeRegExp(this.settings.nextActionTag)}(?=$|\\s)`, "g");
-  }
-
-  normalizeTag(tag) {
-    const trimmedTag = tag.trim();
-    if (!trimmedTag) {
-      return DEFAULT_SETTINGS.nextActionTag;
-    }
-
-    return trimmedTag.startsWith("#") ? trimmedTag : `#${trimmedTag}`;
-  }
-
-  normalizeStatusField(field) {
-    const trimmedField = field.trim();
-    return trimmedField || DEFAULT_SETTINGS.statusField;
-  }
-
-  normalizeFolder(folder) {
-    return folder.trim().replace(/^\/+|\/+$/g, "");
-  }
-
-  isInProjectsFolder(file) {
-    return file.path === this.settings.projectsFolder || file.path.startsWith(`${this.settings.projectsFolder}/`);
-  }
-
-  escapeRegExp(value) {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  async applyDeletedTagRules(file, content, deletedTaggedTaskLine) {
+    await applyDeletedTagRules({
+      file,
+      content,
+      deletedTaggedTaskLine,
+      settings: this.settings,
+      readFile: (target) => this.app.vault.cachedRead(target),
+      writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent),
+      setFileStatus: (target, status) => this.setFileStatus(target, status),
+      setTaskState: (filePath, nextState) => {
+        this.taskStateByPath.set(filePath, nextState);
+      },
+      extractTaskState
+    });
   }
 
   async writeFileContent(file, content) {
@@ -336,7 +166,7 @@ module.exports = class TaskManagerPlugin extends Plugin {
 
     try {
       await this.app.vault.modify(file, content);
-      this.taskStateByPath.set(file.path, this.extractTaskState(content));
+      this.taskStateByPath.set(file.path, extractTaskState(content, this.settings.nextActionTag));
     } finally {
       window.setTimeout(() => {
         this.pendingPaths.delete(file.path);
@@ -359,90 +189,13 @@ module.exports = class TaskManagerPlugin extends Plugin {
   }
 };
 
-class TaskManagerSettingTab extends PluginSettingTab {
+class BaseTaskManagerSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
-    this.plugin = plugin;
+    this.settingsTab = new TaskManagerSettingTab(this, plugin);
   }
 
   display() {
-    const { containerEl } = this;
-    const settings = this.plugin.getSettings();
-    containerEl.empty();
-
-    new Setting(containerEl)
-      .setName("Projects Folder")
-      .setDesc("Folder scanned recursively by the Initialize command. Use Browse to pick a vault path.")
-      .addText((text) => {
-        this.configureFolderTextInput(text, settings.projectsFolder);
-      })
-      .addButton((button) => {
-        button
-          .setButtonText("Browse")
-          .onClick(() => {
-            new ProjectsFolderSuggestModal(this.app, async (folderPath) => {
-              await this.plugin.updateSetting("projectsFolder", folderPath);
-              this.display();
-            }).open();
-          });
-      });
-
-    new Setting(containerEl)
-      .setName("Next action tag")
-      .setDesc("Tag added to the active next task.")
-      .addText((text) => {
-        text
-          .setPlaceholder("#next-action")
-          .setValue(settings.nextActionTag)
-          .onChange(async (value) => {
-            await this.plugin.updateSetting("nextActionTag", value);
-          });
-      });
-
-    new Setting(containerEl)
-      .setName("Completed status field")
-      .setDesc("Frontmatter field updated when the file has no remaining incomplete tasks.")
-      .addText((text) => {
-        text
-          .setPlaceholder("status")
-          .setValue(settings.statusField)
-          .onChange(async (value) => {
-            await this.plugin.updateSetting("statusField", value);
-          });
-      });
-  }
-
-  configureFolderTextInput(text, folderPath) {
-    text
-      .setPlaceholder("Projects")
-      .setValue(folderPath)
-      .onChange(async (value) => {
-        await this.plugin.updateSetting("projectsFolder", value);
-      });
-  }
-}
-
-class ProjectsFolderSuggestModal extends FuzzySuggestModal {
-  constructor(app, onChoose) {
-    super(app);
-    this.onChoose = onChoose;
-    this.setPlaceholder("Select a folder");
-  }
-
-  getItems() {
-    const folders = this.app.vault.getAllLoadedFiles()
-      .filter((file) => file instanceof TFolder)
-      .map((folder) => folder.path)
-      .sort((left, right) => left.localeCompare(right));
-
-    return ["", ...folders];
-  }
-
-  getItemText(folderPath) {
-    return folderPath || "/";
-  }
-
-  onChooseItem(folderPath) {
-    void this.onChoose(folderPath);
+    this.settingsTab.display();
   }
 }
