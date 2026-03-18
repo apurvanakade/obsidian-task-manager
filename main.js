@@ -369,10 +369,10 @@ function getCompletionTimeString() {
 }
 function addCompletionFields(line) {
   const cleaned = stripCompletionFields(line);
-  return `${cleaned} [completion:: ${getCompletionDateString()}] [completition-time:: ${getCompletionTimeString()}]`;
+  return `${cleaned} [completion-date:: ${getCompletionDateString()}] [completion-time:: ${getCompletionTimeString()}]`;
 }
 function stripCompletionFields(line) {
-  return line.replace(/\s*\[completion::[^\]]*\]/g, "").replace(/\s*\[completition-time::[^\]]*\]/g, "");
+  return line.replace(/\s*\[completion-date::[^\]]*\]/g, "").replace(/\s*\[completion-time::[^\]]*\]/g, "");
 }
 
 // main.ts

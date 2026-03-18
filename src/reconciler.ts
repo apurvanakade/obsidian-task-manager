@@ -220,11 +220,11 @@ function getCompletionTimeString(): string {
 
 function addCompletionFields(line: string): string {
   const cleaned = stripCompletionFields(line);
-  return `${cleaned} [completion:: ${getCompletionDateString()}] [completition-time:: ${getCompletionTimeString()}]`;
+  return `${cleaned} [completion-date:: ${getCompletionDateString()}] [completion-time:: ${getCompletionTimeString()}]`;
 }
 
 function stripCompletionFields(line: string): string {
   return line
-    .replace(/\s*\[completion::[^\]]*\]/g, "")
-    .replace(/\s*\[completition-time::[^\]]*\]/g, "");
+    .replace(/\s*\[completion-date::[^\]]*\]/g, "")
+    .replace(/\s*\[completion-time::[^\]]*\]/g, "");
 }

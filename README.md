@@ -21,7 +21,7 @@
 
 When a task becomes completed, the plugin appends:
 
-- `[completion:: YYYY-MM-DD]`
+- `[completion-date:: YYYY-MM-DD]`
 - `[completition-time:: HH:MM:SS]`
 
 ## Code Organization
