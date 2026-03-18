@@ -1,7 +1,7 @@
 {
   "name": "task-manager",
   "version": "0.0.1",
-  "description": "A blank Obsidian plugin scaffold.",
+  "description": "Task Manager plugin for Obsidian.",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
@@ -11,7 +11,7 @@
     "obsidian",
     "plugin"
   ],
-  "author": "Apurva",
+  "author": "Apurva Nakade",
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.16.5",

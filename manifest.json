@@ -3,8 +3,8 @@
   "name": "Task Manager",
   "version": "0.0.1",
   "minAppVersion": "1.5.0",
-  "description": "A blank Obsidian plugin scaffold.",
-  "author": "Apurva",
+  "description": "Task Manager plugin for Obsidian.",
+  "author": "Apurva Nakade",
   "authorUrl": "",
   "isDesktopOnly": false
 }
