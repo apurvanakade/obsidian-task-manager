@@ -1,4 +1,4 @@
-import { App, Plugin, PluginSettingTab, Setting, TFile } from "obsidian";
+import { App, FuzzySuggestModal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, TextComponent } from "obsidian";
 
 const TASK_LINE_REGEX = /^(\s*[-*+]\s+\[( |x|X)\]\s+)(.*)$/;
 
@@ -11,11 +11,13 @@ type TaskState = {
 type TaskManagerSettings = {
   nextActionTag: string;
   statusField: string;
+  projectsFolder: string;
 };
 
 const DEFAULT_SETTINGS: TaskManagerSettings = {
   nextActionTag: "#next-action",
-  statusField: "status"
+  statusField: "status",
+  projectsFolder: ""
 };
 
 export default class TaskManagerPlugin extends Plugin {
@@ -29,6 +31,13 @@ export default class TaskManagerPlugin extends Plugin {
     await this.loadSettings();
     console.log("Loading Task Manager plugin");
     this.addSettingTab(new TaskManagerSettingTab(this.app, this));
+    this.addCommand({
+      id: "initialize-projects-folder",
+      name: "Initialize",
+      callback: () => {
+        void this.initializeProjectsFolder();
+      }
+    });
     this.registerEvent(this.app.vault.on("modify", (file) => {
       void this.handleFileModify(file);
     }));
@@ -42,20 +51,31 @@ export default class TaskManagerPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    const loadedData = await this.loadData();
+    const loadedData = await this.loadData() as Partial<TaskManagerSettings> | null;
     this.settings = {
       ...DEFAULT_SETTINGS,
-      ...loadedData
+      ...(loadedData ?? {})
     };
     this.settings.nextActionTag = this.normalizeTag(this.settings.nextActionTag);
     this.settings.statusField = this.normalizeStatusField(this.settings.statusField);
+    this.settings.projectsFolder = this.normalizeFolder(this.settings.projectsFolder);
   }
 
   async saveSettings(): Promise<void> {
     this.settings.nextActionTag = this.normalizeTag(this.settings.nextActionTag);
     this.settings.statusField = this.normalizeStatusField(this.settings.statusField);
+    this.settings.projectsFolder = this.normalizeFolder(this.settings.projectsFolder);
     await this.saveData(this.settings);
     await this.primeTaskState();
+  }
+
+  getSettings(): TaskManagerSettings {
+    return { ...this.settings };
+  }
+
+  async updateSetting<K extends keyof TaskManagerSettings>(key: K, value: TaskManagerSettings[K]): Promise<void> {
+    this.settings[key] = value;
+    await this.saveSettings();
   }
 
   private async primeTaskState(): Promise<void> {
@@ -92,6 +112,21 @@ export default class TaskManagerPlugin extends Plugin {
     if (deletedTaggedTaskLine !== null) {
       await this.applyDeletedTagRules(file, content, deletedTaggedTaskLine);
     }
+  }
+
+  private async initializeProjectsFolder(): Promise<void> {
+    const projectsFolder = this.settings.projectsFolder;
+    if (!projectsFolder) {
+      new Notice("Set Projects Folder in Task Manager settings first.");
+      return;
+    }
+
+    const files = this.app.vault.getMarkdownFiles().filter((file) => this.isInProjectsFolder(file));
+    for (const file of files) {
+      await this.reconcileFile(file);
+    }
+
+    new Notice(`Initialized ${files.length} project file${files.length === 1 ? "" : "s"}.`);
   }
 
   private extractTaskState(content: string): TaskState[] {
@@ -158,14 +193,11 @@ export default class TaskManagerPlugin extends Plugin {
 
     if (updatedContent !== content) {
       await this.writeFileContent(file, updatedContent);
-      content = updatedContent;
     }
 
-    if (nextTaskLine === null) {
-      await this.setFileStatusCompleted(file);
-      const refreshedContent = await this.app.vault.cachedRead(file);
-      this.taskStateByPath.set(file.path, this.extractTaskState(refreshedContent));
-    }
+    await this.setFileStatus(file, nextTaskLine === null ? "completed" : "todo");
+    const refreshedContent = await this.app.vault.cachedRead(file);
+    this.taskStateByPath.set(file.path, this.extractTaskState(refreshedContent));
   }
 
   private async applyDeletedTagRules(file: TFile, content: string, deletedTaggedTaskLine: number): Promise<void> {
@@ -174,6 +206,9 @@ export default class TaskManagerPlugin extends Plugin {
     const previousTaskLine = this.findPreviousIncompleteTaskLine(cleanedLines, deletedTaggedTaskLine);
 
     if (previousTaskLine === null) {
+      await this.setFileStatus(file, "completed");
+      const refreshedContent = await this.app.vault.cachedRead(file);
+      this.taskStateByPath.set(file.path, this.extractTaskState(refreshedContent));
       return;
     }
 
@@ -181,6 +216,32 @@ export default class TaskManagerPlugin extends Plugin {
     if (updatedContent !== content) {
       await this.writeFileContent(file, updatedContent);
     }
+
+    await this.setFileStatus(file, "todo");
+    const refreshedContent = await this.app.vault.cachedRead(file);
+    this.taskStateByPath.set(file.path, this.extractTaskState(refreshedContent));
+  }
+
+  private async reconcileFile(file: TFile): Promise<void> {
+    const content = await this.app.vault.cachedRead(file);
+    const lines = content.split(/\r?\n/);
+    const cleanedLines = this.stripNextActionTags(lines);
+    const firstIncompleteTaskLine = this.findFirstIncompleteTaskLine(cleanedLines);
+    let updatedContent = cleanedLines.join("\n");
+    let nextStatus = "completed";
+
+    if (firstIncompleteTaskLine !== null) {
+      updatedContent = this.addNextActionTag(cleanedLines, firstIncompleteTaskLine);
+      nextStatus = "todo";
+    }
+
+    if (updatedContent !== content) {
+      await this.writeFileContent(file, updatedContent);
+    }
+
+    await this.setFileStatus(file, nextStatus);
+    const refreshedContent = await this.app.vault.cachedRead(file);
+    this.taskStateByPath.set(file.path, this.extractTaskState(refreshedContent));
   }
 
   private findNextIncompleteTaskLine(lines: string[], completedLine: number): number | null {
@@ -270,6 +331,14 @@ export default class TaskManagerPlugin extends Plugin {
     return trimmedField || DEFAULT_SETTINGS.statusField;
   }
 
+  private normalizeFolder(folder: string): string {
+    return folder.trim().replace(/^\/+|\/+$/g, "");
+  }
+
+  private isInProjectsFolder(file: TFile): boolean {
+    return file.path === this.settings.projectsFolder || file.path.startsWith(`${this.settings.projectsFolder}/`);
+  }
+
   private escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
@@ -287,12 +356,12 @@ export default class TaskManagerPlugin extends Plugin {
     }
   }
 
-  private async setFileStatusCompleted(file: TFile): Promise<void> {
+  private async setFileStatus(file: TFile, status: string): Promise<void> {
     this.pendingPaths.add(file.path);
 
     try {
       await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, string>) => {
-        frontmatter[this.settings.statusField] = "completed";
+        frontmatter[this.settings.statusField] = status;
       });
     } finally {
       window.setTimeout(() => {
@@ -312,7 +381,25 @@ class TaskManagerSettingTab extends PluginSettingTab {
 
   display(): void {
     const { containerEl } = this;
+    const settings = this.plugin.getSettings();
     containerEl.empty();
+
+    new Setting(containerEl)
+      .setName("Projects Folder")
+      .setDesc("Folder scanned recursively by the Initialize command. Use Browse to pick a vault path.")
+      .addText((text) => {
+        this.configureFolderTextInput(text, settings.projectsFolder);
+      })
+      .addButton((button) => {
+        button
+          .setButtonText("Browse")
+          .onClick(() => {
+            new ProjectsFolderSuggestModal(this.app, async (folderPath) => {
+              await this.plugin.updateSetting("projectsFolder", folderPath);
+              this.display();
+            }).open();
+          });
+      });
 
     new Setting(containerEl)
       .setName("Next action tag")
@@ -320,24 +407,58 @@ class TaskManagerSettingTab extends PluginSettingTab {
       .addText((text) => {
         text
           .setPlaceholder("#next-action")
-          .setValue(this.plugin["settings"].nextActionTag)
+          .setValue(settings.nextActionTag)
           .onChange(async (value) => {
-            this.plugin["settings"].nextActionTag = value;
-            await this.plugin.saveSettings();
+            await this.plugin.updateSetting("nextActionTag", value);
           });
       });
 
     new Setting(containerEl)
       .setName("Completed status field")
-      .setDesc("Frontmatter field updated when the file has no later incomplete tasks.")
+      .setDesc("Frontmatter field updated when the file has no remaining incomplete tasks.")
       .addText((text) => {
         text
           .setPlaceholder("status")
-          .setValue(this.plugin["settings"].statusField)
+          .setValue(settings.statusField)
           .onChange(async (value) => {
-            this.plugin["settings"].statusField = value;
-            await this.plugin.saveSettings();
+            await this.plugin.updateSetting("statusField", value);
           });
       });
+  }
+
+  private configureFolderTextInput(text: TextComponent, folderPath: string): void {
+    text
+      .setPlaceholder("Projects")
+      .setValue(folderPath)
+      .onChange(async (value) => {
+        await this.plugin.updateSetting("projectsFolder", value);
+      });
+  }
+}
+
+class ProjectsFolderSuggestModal extends FuzzySuggestModal<string> {
+  private readonly onChoose: (folderPath: string) => Promise<void>;
+
+  constructor(app: App, onChoose: (folderPath: string) => Promise<void>) {
+    super(app);
+    this.onChoose = onChoose;
+    this.setPlaceholder("Select a folder");
+  }
+
+  getItems(): string[] {
+    const folders = this.app.vault.getAllLoadedFiles()
+      .filter((file): file is TFolder => file instanceof TFolder)
+      .map((folder) => folder.path)
+      .sort((left, right) => left.localeCompare(right));
+
+    return ["", ...folders];
+  }
+
+  getItemText(folderPath: string): string {
+    return folderPath || "/";
+  }
+
+  onChooseItem(folderPath: string): void {
+    void this.onChoose(folderPath);
   }
 }
