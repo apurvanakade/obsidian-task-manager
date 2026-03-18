@@ -6,7 +6,7 @@ const DEFAULT_SETTINGS = {
   projectsFolder: ""
 };
 
-const TASK_LINE_REGEX = /^(\s*[-*+]\s+\[( |x|X)\]\s+)(.*)$/;
+const TASK_LINE_REGEX = /^(\s*[-*+]\s+\[( |\/|x|X)\]\s+)(.*)$/;
 
 function normalizeSettings(rawSettings) {
   return {
@@ -40,6 +40,13 @@ function extractTaskState(content, nextActionTag) {
   const lines = content.split(/\r?\n/);
   const taskState = [];
 
+  function getTaskStatus(checkboxChar) {
+    const char = checkboxChar.toLowerCase();
+    if (char === "x") return "completed";
+    if (char === "/") return "started";
+    return "open";
+  }
+
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(TASK_LINE_REGEX);
     if (!match) {
@@ -48,7 +55,7 @@ function extractTaskState(content, nextActionTag) {
 
     taskState.push({
       line: index,
-      completed: match[2].toLowerCase() === "x",
+      status: getTaskStatus(match[2]),
       hasNextAction: lineHasTag(lines[index], nextActionTag)
     });
   }
@@ -57,11 +64,12 @@ function extractTaskState(content, nextActionTag) {
 }
 
 function findNewlyCompletedTask(previousState, nextState) {
-  const previousByLine = new Map(previousState.map((task) => [task.line, task.completed]));
+  const previousByLine = new Map(previousState.map((task) => [task.line, task.status]));
 
   for (const task of nextState) {
-    const wasCompleted = previousByLine.get(task.line);
-    if (wasCompleted === false && task.completed) {
+    const wasStatus = previousByLine.get(task.line);
+    // Detect transition from open/started to completed
+    if ((wasStatus === "open" || wasStatus === "started") && task.status === "completed") {
       return task.line;
     }
   }
@@ -70,11 +78,12 @@ function findNewlyCompletedTask(previousState, nextState) {
 }
 
 function findNewlyUncompletedTask(previousState, nextState) {
-  const previousByLine = new Map(previousState.map((task) => [task.line, task.completed]));
+  const previousByLine = new Map(previousState.map((task) => [task.line, task.status]));
 
   for (const task of nextState) {
-    const wasCompleted = previousByLine.get(task.line);
-    if (wasCompleted === true && !task.completed) {
+    const wasStatus = previousByLine.get(task.line);
+    // Detect transition from completed to open/started
+    if (wasStatus === "completed" && (task.status === "open" || task.status === "started")) {
       return task.line;
     }
   }
@@ -104,7 +113,8 @@ function findDeletedTaggedTask(previousState, nextState) {
 function findNextIncompleteTaskLine(lines, completedLine) {
   for (let index = completedLine + 1; index < lines.length; index += 1) {
     const match = lines[index].match(TASK_LINE_REGEX);
-    if (match?.[2] === " ") {
+    // Match open or started tasks (anything except completed)
+    if (match && match[2].toLowerCase() !== "x") {
       return index;
     }
   }
@@ -115,7 +125,8 @@ function findNextIncompleteTaskLine(lines, completedLine) {
 function findPreviousIncompleteTaskLine(lines, referenceLine) {
   for (let index = Math.min(referenceLine - 1, lines.length - 1); index >= 0; index -= 1) {
     const match = lines[index].match(TASK_LINE_REGEX);
-    if (match?.[2] === " ") {
+    // Match open or started tasks (anything except completed)
+    if (match && match[2].toLowerCase() !== "x") {
       return index;
     }
   }
@@ -126,7 +137,8 @@ function findPreviousIncompleteTaskLine(lines, referenceLine) {
 function findFirstIncompleteTaskLine(lines) {
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(TASK_LINE_REGEX);
-    if (match?.[2] === " ") {
+    // Match open or started tasks (anything except completed)
+    if (match && match[2].toLowerCase() !== "x") {
       return index;
     }
   }
@@ -199,6 +211,25 @@ function stripCompletionFields(line) {
   return line
     .replace(/\s*\[completion::[^\]]*\]/g, "")
     .replace(/\s*\[completition-time::[^\]]*\]/g, "");
+}
+
+function setTaskStatus(line, status) {
+  // Replace [x], [X], [ ], or [/] with the new status symbol.
+  // Match the checkbox part and replace only the symbol inside.
+  const checkboxRegex = /^(\s*[-*+]\s+\[)[ /xX](\]\s+)(.*)$/;
+  const match = line.match(checkboxRegex);
+  if (!match) {
+    return line; // Not a task line
+  }
+
+  const symbol = status === "completed" ? "x" : status === "started" ? "/" : " ";
+  return `${match[1]}${symbol}${match[2]}${match[3]}`;
+}
+
+function didSkipStartedState(previousState, completedLine) {
+  const prevTask = previousState.find((t) => t.line === completedLine);
+  // If the task was open and is now completed, it skipped the started state
+  return prevTask && prevTask.status === "open";
 }
 
 // Updates or inserts a YAML frontmatter field directly in a markdown string,
@@ -298,7 +329,7 @@ module.exports = class TaskManagerPlugin extends Plugin {
     this.taskStateByPath.set(file.path, nextState);
 
     if (completion !== null) {
-      await this.applyCompletionRules(file, content, completion);
+      await this.applyCompletionRules(file, content, completion, previousState, nextState);
       return;
     }
 
@@ -328,8 +359,23 @@ module.exports = class TaskManagerPlugin extends Plugin {
     new Notice(`Initialized ${files.length} project file${files.length === 1 ? "" : "s"}.`);
   }
 
-  async applyCompletionRules(file, content, completedLine) {
+  async applyCompletionRules(file, content, completedLine, previousState, nextState) {
     const lines = content.split(/\r?\n/);
+
+    // Check if user clicked an open task checkbox — it would jump straight to [x].
+    // We want to cycle [ ] → [/] → [x], so redirect it to started instead.
+    if (didSkipStartedState(previousState, completedLine)) {
+      let updatedContent = lines.join("\n");
+      updatedContent = updatedContent.split("\n").map((line, idx) => {
+        return idx === completedLine ? setTaskStatus(line, "started") : line;
+      }).join("\n");
+
+      if (updatedContent !== content) {
+        await this.writeFileContent(file, updatedContent);
+      }
+      return;
+    }
+
     const nextTaskLine = findNextIncompleteTaskLine(lines, completedLine);
     const cleanedLines = stripNextActionTags(lines, this.settings.nextActionTag);
     // Stamp completion date and time onto the completed task line.

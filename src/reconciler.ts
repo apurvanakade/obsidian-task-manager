@@ -1,10 +1,12 @@
 import { TFile } from "obsidian";
 import {
   addNextActionTag,
+  didSkipStartedState,
   extractTaskState,
   findFirstIncompleteTaskLine,
   findNextIncompleteTaskLine,
   findPreviousIncompleteTaskLine,
+  setTaskStatus,
   stripNextActionTags,
   TaskState
 } from "./task-utils";
@@ -22,6 +24,8 @@ type ReconcilerContext = {
 type CompletionContext = ReconcilerContext & {
   content: string;
   completedLine: number;
+  previousState: TaskState[];
+  nextState: TaskState[];
 };
 
 type DeletedTagContext = ReconcilerContext & {
@@ -45,8 +49,22 @@ function isInProjectsFolder(filePath: string, projectsFolder: string): boolean {
 }
 
 export async function applyCompletionRules(context: CompletionContext): Promise<void> {
-  const { file, content, completedLine, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
+  const { file, content, completedLine, settings, readFile, writeFileContent, setTaskState, previousState, nextState } = context;
   const lines = content.split(/\r?\n/);
+
+  // Check if user clicked an open task checkbox — it would jump straight to [x].
+  // We want to cycle [ ] → [/] → [x], so redirect it to started instead.
+  if (didSkipStartedState(previousState, completedLine)) {
+    let updatedContent = lines.map((line, idx) => {
+      return idx === completedLine ? setTaskStatus(line, "started") : line;
+    }).join("\n");
+
+    if (updatedContent !== content) {
+      await writeFileContent(file, updatedContent);
+    }
+    return;
+  }
+
   const nextTaskLine = findNextIncompleteTaskLine(lines, completedLine);
   const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
   let updatedContent = cleanedLines.join("\n");
@@ -59,7 +77,6 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
     await writeFileContent(file, updatedContent);
   }
 
-  await setFileStatus(file, nextTaskLine === null ? "completed" : "todo");
   const refreshedContent = await readFile(file);
   setTaskState(file.path, extractTaskState(refreshedContent, settings.nextActionTag));
 }
