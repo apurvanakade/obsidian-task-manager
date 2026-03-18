@@ -1,17 +1,165 @@
-const { Notice, Plugin, PluginSettingTab, TFile } = require("obsidian");
-const { normalizeSettings } = require("./runtime/settings-utils");
-const {
-  extractTaskState,
-  findNewlyCompletedTask,
-  findDeletedTaggedTask
-} = require("./runtime/task-utils");
-const {
-  applyCompletionRules,
-  applyDeletedTagRules,
-  initializeProjectsFolder,
-  reconcileFile
-} = require("./runtime/reconciler");
-const { TaskManagerSettingTab } = require("./runtime/settings-ui");
+const { FuzzySuggestModal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder } = require("obsidian");
+
+const DEFAULT_SETTINGS = {
+  nextActionTag: "#next-action",
+  statusField: "status",
+  projectsFolder: ""
+};
+
+const TASK_LINE_REGEX = /^(\s*[-*+]\s+\[( |x|X)\]\s+)(.*)$/;
+
+function normalizeSettings(rawSettings) {
+  return {
+    ...DEFAULT_SETTINGS,
+    ...rawSettings,
+    nextActionTag: normalizeTag(rawSettings?.nextActionTag),
+    statusField: normalizeStatusField(rawSettings?.statusField),
+    projectsFolder: normalizeFolder(rawSettings?.projectsFolder)
+  };
+}
+
+function normalizeTag(tag) {
+  const trimmedTag = String(tag || "").trim();
+  if (!trimmedTag) {
+    return DEFAULT_SETTINGS.nextActionTag;
+  }
+
+  return trimmedTag.startsWith("#") ? trimmedTag : `#${trimmedTag}`;
+}
+
+function normalizeStatusField(field) {
+  const trimmedField = String(field || "").trim();
+  return trimmedField || DEFAULT_SETTINGS.statusField;
+}
+
+function normalizeFolder(folder) {
+  return String(folder || "").trim().replace(/^\/+|\/+$/g, "");
+}
+
+function extractTaskState(content, nextActionTag) {
+  const lines = content.split(/\r?\n/);
+  const taskState = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(TASK_LINE_REGEX);
+    if (!match) {
+      continue;
+    }
+
+    taskState.push({
+      line: index,
+      completed: match[2].toLowerCase() === "x",
+      hasNextAction: lineHasTag(lines[index], nextActionTag)
+    });
+  }
+
+  return taskState;
+}
+
+function findNewlyCompletedTask(previousState, nextState) {
+  const previousByLine = new Map(previousState.map((task) => [task.line, task.completed]));
+
+  for (const task of nextState) {
+    const wasCompleted = previousByLine.get(task.line);
+    if (wasCompleted === false && task.completed) {
+      return task.line;
+    }
+  }
+
+  return null;
+}
+
+function findDeletedTaggedTask(previousState, nextState) {
+  const previousTaggedTask = previousState.find((task) => task.hasNextAction);
+  if (!previousTaggedTask) {
+    return null;
+  }
+
+  const hasCurrentTaggedTask = nextState.some((task) => task.hasNextAction);
+  if (hasCurrentTaggedTask) {
+    return null;
+  }
+
+  const sameLineStillExists = nextState.some((task) => task.line === previousTaggedTask.line);
+  if (sameLineStillExists) {
+    return null;
+  }
+
+  return previousTaggedTask.line;
+}
+
+function findNextIncompleteTaskLine(lines, completedLine) {
+  for (let index = completedLine + 1; index < lines.length; index += 1) {
+    const match = lines[index].match(TASK_LINE_REGEX);
+    if (match?.[2] === " ") {
+      return index;
+    }
+  }
+
+  return null;
+}
+
+function findPreviousIncompleteTaskLine(lines, referenceLine) {
+  for (let index = Math.min(referenceLine - 1, lines.length - 1); index >= 0; index -= 1) {
+    const match = lines[index].match(TASK_LINE_REGEX);
+    if (match?.[2] === " ") {
+      return index;
+    }
+  }
+
+  return findFirstIncompleteTaskLine(lines);
+}
+
+function findFirstIncompleteTaskLine(lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(TASK_LINE_REGEX);
+    if (match?.[2] === " ") {
+      return index;
+    }
+  }
+
+  return null;
+}
+
+function stripNextActionTags(lines, nextActionTag) {
+  return lines.map((line) => {
+    if (!lineHasTag(line, nextActionTag) || !line.match(TASK_LINE_REGEX)) {
+      return line;
+    }
+
+    return line.replace(getTagReplaceRegex(nextActionTag), "");
+  });
+}
+
+function addNextActionTag(lines, targetLine, nextActionTag) {
+  const nextLines = [...lines];
+  const targetLineContent = nextLines[targetLine];
+  if (!lineHasTag(targetLineContent, nextActionTag)) {
+    nextLines[targetLine] = `${targetLineContent} ${nextActionTag}`;
+  }
+
+  return nextLines.join("\n");
+}
+
+function lineHasTag(line, nextActionTag) {
+  return getTagPresenceRegex(nextActionTag).test(line);
+}
+
+function getTagPresenceRegex(nextActionTag) {
+  return new RegExp(`(^|\\s)${escapeRegExp(nextActionTag)}(?=$|\\s)`);
+}
+
+function getTagReplaceRegex(nextActionTag) {
+  return new RegExp(`\\s+${escapeRegExp(nextActionTag)}(?=$|\\s)`, "g");
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isInProjectsFolder(filePath, projectsFolder) {
+  return filePath === projectsFolder || filePath.startsWith(`${projectsFolder}/`);
+}
 
 module.exports = class TaskManagerPlugin extends Plugin {
   constructor(app, manifest) {
@@ -108,57 +256,75 @@ module.exports = class TaskManagerPlugin extends Plugin {
       return;
     }
 
-    const count = await initializeProjectsFolder({
-      settings: this.settings,
-      getMarkdownFiles: () => this.app.vault.getMarkdownFiles(),
-      reconcileOneFile: async (file) => {
-        await reconcileFile({
-          file,
-          settings: this.settings,
-          readFile: (target) => this.app.vault.cachedRead(target),
-          writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent),
-          setFileStatus: (target, status) => this.setFileStatus(target, status),
-          setTaskState: (filePath, nextState) => {
-            this.taskStateByPath.set(filePath, nextState);
-          },
-          extractTaskState
-        });
-      }
-    });
+    const files = this.app.vault.getMarkdownFiles().filter((file) => isInProjectsFolder(file.path, projectsFolder));
+    for (const file of files) {
+      await this.reconcileFile(file);
+    }
 
-    new Notice(`Initialized ${count} project file${count === 1 ? "" : "s"}.`);
+    new Notice(`Initialized ${files.length} project file${files.length === 1 ? "" : "s"}.`);
   }
 
   async applyCompletionRules(file, content, completedLine) {
-    await applyCompletionRules({
-      file,
-      content,
-      completedLine,
-      settings: this.settings,
-      readFile: (target) => this.app.vault.cachedRead(target),
-      writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent),
-      setFileStatus: (target, status) => this.setFileStatus(target, status),
-      setTaskState: (filePath, nextState) => {
-        this.taskStateByPath.set(filePath, nextState);
-      },
-      extractTaskState
-    });
+    const lines = content.split(/\r?\n/);
+    const nextTaskLine = findNextIncompleteTaskLine(lines, completedLine);
+    const cleanedLines = stripNextActionTags(lines, this.settings.nextActionTag);
+    let updatedContent = cleanedLines.join("\n");
+
+    if (nextTaskLine !== null) {
+      updatedContent = addNextActionTag(cleanedLines, nextTaskLine, this.settings.nextActionTag);
+    }
+
+    if (updatedContent !== content) {
+      await this.writeFileContent(file, updatedContent);
+    }
+
+    await this.setFileStatus(file, nextTaskLine === null ? "completed" : "todo");
+    const refreshedContent = await this.app.vault.cachedRead(file);
+    this.taskStateByPath.set(file.path, extractTaskState(refreshedContent, this.settings.nextActionTag));
   }
 
   async applyDeletedTagRules(file, content, deletedTaggedTaskLine) {
-    await applyDeletedTagRules({
-      file,
-      content,
-      deletedTaggedTaskLine,
-      settings: this.settings,
-      readFile: (target) => this.app.vault.cachedRead(target),
-      writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent),
-      setFileStatus: (target, status) => this.setFileStatus(target, status),
-      setTaskState: (filePath, nextState) => {
-        this.taskStateByPath.set(filePath, nextState);
-      },
-      extractTaskState
-    });
+    const lines = content.split(/\r?\n/);
+    const cleanedLines = stripNextActionTags(lines, this.settings.nextActionTag);
+    const previousTaskLine = findPreviousIncompleteTaskLine(cleanedLines, deletedTaggedTaskLine);
+
+    if (previousTaskLine === null) {
+      await this.setFileStatus(file, "completed");
+      const refreshedContent = await this.app.vault.cachedRead(file);
+      this.taskStateByPath.set(file.path, extractTaskState(refreshedContent, this.settings.nextActionTag));
+      return;
+    }
+
+    const updatedContent = addNextActionTag(cleanedLines, previousTaskLine, this.settings.nextActionTag);
+    if (updatedContent !== content) {
+      await this.writeFileContent(file, updatedContent);
+    }
+
+    await this.setFileStatus(file, "todo");
+    const refreshedContent = await this.app.vault.cachedRead(file);
+    this.taskStateByPath.set(file.path, extractTaskState(refreshedContent, this.settings.nextActionTag));
+  }
+
+  async reconcileFile(file) {
+    const content = await this.app.vault.cachedRead(file);
+    const lines = content.split(/\r?\n/);
+    const cleanedLines = stripNextActionTags(lines, this.settings.nextActionTag);
+    const firstIncompleteTaskLine = findFirstIncompleteTaskLine(cleanedLines);
+    let updatedContent = cleanedLines.join("\n");
+    let nextStatus = "completed";
+
+    if (firstIncompleteTaskLine !== null) {
+      updatedContent = addNextActionTag(cleanedLines, firstIncompleteTaskLine, this.settings.nextActionTag);
+      nextStatus = "todo";
+    }
+
+    if (updatedContent !== content) {
+      await this.writeFileContent(file, updatedContent);
+    }
+
+    await this.setFileStatus(file, nextStatus);
+    const refreshedContent = await this.app.vault.cachedRead(file);
+    this.taskStateByPath.set(file.path, extractTaskState(refreshedContent, this.settings.nextActionTag));
   }
 
   async writeFileContent(file, content) {
@@ -197,5 +363,98 @@ class BaseTaskManagerSettingTab extends PluginSettingTab {
 
   display() {
     this.settingsTab.display();
+  }
+}
+
+class TaskManagerSettingTab {
+  constructor(baseSettingTab, plugin) {
+    this.baseSettingTab = baseSettingTab;
+    this.plugin = plugin;
+  }
+
+  display() {
+    const { containerEl } = this.baseSettingTab;
+    const settings = this.plugin.getSettings();
+    containerEl.empty();
+
+    new Setting(containerEl)
+      .setName("Projects Folder")
+      .setDesc("Folder scanned recursively by the Initialize command. Use Browse to pick a vault path.")
+      .addText((text) => {
+        text
+          .setPlaceholder("Projects")
+          .setValue(settings.projectsFolder)
+          .onChange(async (value) => {
+            await this.plugin.updateSetting("projectsFolder", value);
+          });
+      })
+      .addButton((button) => {
+        button
+          .setButtonText("Browse")
+          .onClick(() => {
+            this.openFolderPicker(async (folderPath) => {
+              await this.plugin.updateSetting("projectsFolder", folderPath);
+              this.display();
+            });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Next action tag")
+      .setDesc("Tag added to the active next task.")
+      .addText((text) => {
+        text
+          .setPlaceholder("#next-action")
+          .setValue(settings.nextActionTag)
+          .onChange(async (value) => {
+            await this.plugin.updateSetting("nextActionTag", value);
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Completed status field")
+      .setDesc("Frontmatter field updated when the file has no remaining incomplete tasks.")
+      .addText((text) => {
+        text
+          .setPlaceholder("status")
+          .setValue(settings.statusField)
+          .onChange(async (value) => {
+            await this.plugin.updateSetting("statusField", value);
+          });
+      });
+  }
+
+  openFolderPicker(onChoose) {
+    if (typeof FuzzySuggestModal !== "function") {
+      new Notice("Folder picker is not available in this Obsidian version.");
+      return;
+    }
+
+    const app = this.baseSettingTab.app;
+    class ProjectsFolderSuggestModal extends FuzzySuggestModal {
+      constructor() {
+        super(app);
+        this.setPlaceholder("Select a folder");
+      }
+
+      getItems() {
+        const folders = this.app.vault.getAllLoadedFiles()
+          .filter((file) => file instanceof TFolder)
+          .map((folder) => folder.path)
+          .sort((left, right) => left.localeCompare(right));
+
+        return ["", ...folders];
+      }
+
+      getItemText(folderPath) {
+        return folderPath || "/";
+      }
+
+      onChooseItem(folderPath) {
+        void onChoose(folderPath);
+      }
+    }
+
+    new ProjectsFolderSuggestModal().open();
   }
 }

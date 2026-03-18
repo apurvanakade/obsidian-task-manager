@@ -1,4 +1,4 @@
-const { FuzzySuggestModal, Setting, TFolder } = require("obsidian");
+const { Notice, Setting, TFolder, FuzzySuggestModal } = require("obsidian");
 
 class TaskManagerSettingTab {
   constructor(baseSettingTab, plugin) {
@@ -26,10 +26,10 @@ class TaskManagerSettingTab {
         button
           .setButtonText("Browse")
           .onClick(() => {
-            new ProjectsFolderSuggestModal(this.baseSettingTab.app, async (folderPath) => {
+            openFolderPicker(this.baseSettingTab.app, async (folderPath) => {
               await this.plugin.updateSetting("projectsFolder", folderPath);
               this.display();
-            }).open();
+            });
           });
       });
 
@@ -59,29 +59,38 @@ class TaskManagerSettingTab {
   }
 }
 
-class ProjectsFolderSuggestModal extends FuzzySuggestModal {
-  constructor(app, onChoose) {
-    super(app);
-    this.onChoose = onChoose;
-    this.setPlaceholder("Select a folder");
+function openFolderPicker(app, onChoose) {
+  // Guard against Obsidian API differences that can break plugin startup.
+  if (typeof FuzzySuggestModal !== "function") {
+    new Notice("Folder picker is not available in this Obsidian version.");
+    return;
   }
 
-  getItems() {
-    const folders = this.app.vault.getAllLoadedFiles()
-      .filter((file) => file instanceof TFolder)
-      .map((folder) => folder.path)
-      .sort((left, right) => left.localeCompare(right));
+  class ProjectsFolderSuggestModal extends FuzzySuggestModal {
+    constructor() {
+      super(app);
+      this.setPlaceholder("Select a folder");
+    }
 
-    return ["", ...folders];
+    getItems() {
+      const folders = this.app.vault.getAllLoadedFiles()
+        .filter((file) => file instanceof TFolder)
+        .map((folder) => folder.path)
+        .sort((left, right) => left.localeCompare(right));
+
+      return ["", ...folders];
+    }
+
+    getItemText(folderPath) {
+      return folderPath || "/";
+    }
+
+    onChooseItem(folderPath) {
+      void onChoose(folderPath);
+    }
   }
 
-  getItemText(folderPath) {
-    return folderPath || "/";
-  }
-
-  onChooseItem(folderPath) {
-    void this.onChoose(folderPath);
-  }
+  new ProjectsFolderSuggestModal().open();
 }
 
 module.exports = {

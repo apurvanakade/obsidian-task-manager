@@ -1,4 +1,4 @@
-import { App, FuzzySuggestModal, PluginSettingTab, Setting, TFolder, TextComponent } from "obsidian";
+import { App, FuzzySuggestModal, Notice, PluginSettingTab, Setting, TFolder, TextComponent } from "obsidian";
 import { TaskManagerSettings } from "./settings-utils";
 
 type SettingsHost = {
@@ -31,10 +31,10 @@ export class TaskManagerSettingTabRenderer {
         button
           .setButtonText("Browse")
           .onClick(() => {
-            new ProjectsFolderSuggestModal(this.baseSettingTab.app, async (folderPath) => {
+            openFolderPicker(this.baseSettingTab.app, async (folderPath) => {
               await this.plugin.updateSetting("projectsFolder", folderPath);
               this.display();
-            }).open();
+            });
           });
       });
 
@@ -73,29 +73,36 @@ export class TaskManagerSettingTabRenderer {
   }
 }
 
-class ProjectsFolderSuggestModal extends FuzzySuggestModal<string> {
-  private readonly onChoose: (folderPath: string) => Promise<void>;
-
-  constructor(app: App, onChoose: (folderPath: string) => Promise<void>) {
-    super(app);
-    this.onChoose = onChoose;
-    this.setPlaceholder("Select a folder");
+function openFolderPicker(app: App, onChoose: (folderPath: string) => Promise<void>): void {
+  // Guard against Obsidian API differences that can break plugin startup.
+  if (typeof FuzzySuggestModal !== "function") {
+    new Notice("Folder picker is not available in this Obsidian version.");
+    return;
   }
 
-  getItems(): string[] {
-    const folders = this.app.vault.getAllLoadedFiles()
-      .filter((file): file is TFolder => file instanceof TFolder)
-      .map((folder) => folder.path)
-      .sort((left, right) => left.localeCompare(right));
+  class ProjectsFolderSuggestModal extends FuzzySuggestModal<string> {
+    constructor() {
+      super(app);
+      this.setPlaceholder("Select a folder");
+    }
 
-    return ["", ...folders];
+    getItems(): string[] {
+      const folders = this.app.vault.getAllLoadedFiles()
+        .filter((file): file is TFolder => file instanceof TFolder)
+        .map((folder) => folder.path)
+        .sort((left, right) => left.localeCompare(right));
+
+      return ["", ...folders];
+    }
+
+    getItemText(folderPath: string): string {
+      return folderPath || "/";
+    }
+
+    onChooseItem(folderPath: string): void {
+      void onChoose(folderPath);
+    }
   }
 
-  getItemText(folderPath: string): string {
-    return folderPath || "/";
-  }
-
-  onChooseItem(folderPath: string): void {
-    void this.onChoose(folderPath);
-  }
+  new ProjectsFolderSuggestModal().open();
 }
