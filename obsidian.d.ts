@@ -9,6 +9,7 @@ declare module "obsidian" {
 
   export class TFile extends TAbstractFile {
     extension: string;
+    name: string;
   }
 
   export class TFolder extends TAbstractFile {}
@@ -27,9 +28,14 @@ declare module "obsidian" {
     processFrontMatter(file: TFile, fn: (frontmatter: Record<string, string>) => void): Promise<void>;
   }
 
+  export interface Workspace {
+    getActiveFile(): TFile | null;
+  }
+
   export interface App {
     vault: Vault;
     fileManager: FileManager;
+    workspace: Workspace;
   }
 
   export class Plugin {

@@ -1,8 +1,8 @@
-const TASK_LINE_REGEX = /^(\s*[-*+]\s+\[( |\/|x|X)\]\s+)(.*)$/;
+const TASK_LINE_REGEX = /^(\s*[-*+]\s+\[( |x|X)\]\s+)(.*)$/;
 
 export type TaskState = {
   line: number;
-  status: "open" | "started" | "completed";
+  status: "open" | "completed";
   hasNextAction: boolean;
 };
 
@@ -10,10 +10,9 @@ export function extractTaskState(content: string, nextActionTag: string): TaskSt
   const lines = content.split(/\r?\n/);
   const taskState: TaskState[] = [];
 
-  function getTaskStatus(checkboxChar: string): "open" | "started" | "completed" {
+  function getTaskStatus(checkboxChar: string): "open" | "completed" {
     const char = checkboxChar.toLowerCase();
     if (char === "x") return "completed";
-    if (char === "/") return "started";
     return "open";
   }
 
@@ -38,11 +37,7 @@ export function findNewlyCompletedTask(previousState: TaskState[], nextState: Ta
 
   for (const task of nextState) {
     const wasStatus = previousByLine.get(task.line);
-    if ((wasStatus === "open" || wasStatus === "started") && task.status === "completed") {
-      return task.line;
-    }
-    // Also detect started → open as a completion (Obsidian toggles [/] back to [ ] on click)
-    if (wasStatus === "started" && task.status === "open") {
+    if (wasStatus === "open" && task.status === "completed") {
       return task.line;
     }
   }
@@ -55,7 +50,7 @@ export function findNewlyUncompletedTask(previousState: TaskState[], nextState: 
 
   for (const task of nextState) {
     const wasStatus = previousByLine.get(task.line);
-    if (wasStatus === "completed" && (task.status === "open" || task.status === "started")) {
+    if (wasStatus === "completed" && task.status === "open") {
       return task.line;
     }
   }
@@ -83,22 +78,9 @@ export function findDeletedTaggedTask(previousState: TaskState[], nextState: Tas
   return previousTaggedTask.line;
 }
 
-export function findNextIncompleteTaskLine(lines: string[], completedLine: number): number | null {
-  for (let index = completedLine + 1; index < lines.length; index += 1) {
-    const match = lines[index].match(TASK_LINE_REGEX);
-    // Match open or started tasks (anything except completed)
-    if (match && match[2].toLowerCase() !== "x") {
-      return index;
-    }
-  }
-
-  return null;
-}
-
 export function findPreviousIncompleteTaskLine(lines: string[], referenceLine: number): number | null {
   for (let index = Math.min(referenceLine - 1, lines.length - 1); index >= 0; index -= 1) {
     const match = lines[index].match(TASK_LINE_REGEX);
-    // Match open or started tasks (anything except completed)
     if (match && match[2].toLowerCase() !== "x") {
       return index;
     }
@@ -110,7 +92,6 @@ export function findPreviousIncompleteTaskLine(lines: string[], referenceLine: n
 export function findFirstIncompleteTaskLine(lines: string[]): number | null {
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(TASK_LINE_REGEX);
-    // Match open or started tasks (anything except completed)
     if (match && match[2].toLowerCase() !== "x") {
       return index;
     }
@@ -156,19 +137,3 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export function setTaskStatus(line: string, status: "open" | "started" | "completed"): string {
-  // Replace [x], [X], [ ], or [/] with the new status symbol.
-  const checkboxRegex = /^(\s*[-*+]\s+\[)[ /xX](\]\s+)(.*)$/;
-  const match = line.match(checkboxRegex);
-  if (!match) {
-    return line; // Not a task line
-  }
-
-  const symbol = status === "completed" ? "x" : status === "started" ? "/" : " ";
-  return `${match[1]}${symbol}${match[2]}${match[3]}`;
-}
-
-export function didSkipStartedState(previousState: TaskState[], completedLine: number): boolean {
-  const prevTask = previousState.find((t) => t.line === completedLine);
-  return prevTask ? prevTask.status === "open" : false;
-}

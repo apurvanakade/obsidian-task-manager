@@ -30,9 +30,16 @@ export default class TaskManagerPlugin extends Plugin {
     this.addSettingTab(new BaseTaskManagerSettingTab(this.app, this));
     this.addCommand({
       id: "initialize-projects-folder",
-      name: "Initialize",
+      name: "Process tasks",
       callback: () => {
         void this.initializeProjectsFolder();
+      }
+    });
+    this.addCommand({
+      id: "process-current-file",
+      name: "Process file",
+      callback: () => {
+        void this.processCurrentFile();
       }
     });
     this.registerEvent(this.app.vault.on("modify", (file) => {
@@ -91,7 +98,7 @@ export default class TaskManagerPlugin extends Plugin {
     this.taskStateByPath.set(file.path, nextState);
 
     if (completion !== null) {
-      await this.applyCompletionRules(file, content, completion, previousState, nextState);
+      await this.applyCompletionRules(file, content, completion);
       return;
     }
 
@@ -103,6 +110,27 @@ export default class TaskManagerPlugin extends Plugin {
     if (deletedTaggedTaskLine !== null) {
       await this.applyDeletedTagRules(file, content, deletedTaggedTaskLine);
     }
+  }
+
+  private async processCurrentFile(): Promise<void> {
+    const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      new Notice("No active file.");
+      return;
+    }
+
+    await reconcileFile({
+      file,
+      settings: this.settings,
+      readFile: (target) => this.app.vault.cachedRead(target),
+      writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent),
+      setFileStatus: (target, status) => this.setFileStatus(target, status),
+      setTaskState: (filePath, nextState) => {
+        this.taskStateByPath.set(filePath, nextState);
+      }
+    });
+
+    new Notice(`Processed ${file.name}.`);
   }
 
   private async initializeProjectsFolder(): Promise<void> {
@@ -135,16 +163,12 @@ export default class TaskManagerPlugin extends Plugin {
   private async applyCompletionRules(
     file: TFile,
     content: string,
-    completedLine: number,
-    previousState: TaskState[],
-    nextState: TaskState[]
+    completedLine: number
   ): Promise<void> {
     await applyCompletionRules({
       file,
       content,
       completedLine,
-      previousState,
-      nextState,
       settings: this.settings,
       readFile: (target) => this.app.vault.cachedRead(target),
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent),

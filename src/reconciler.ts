@@ -3,9 +3,7 @@ import {
   addNextActionTag,
   extractTaskState,
   findFirstIncompleteTaskLine,
-  findNextIncompleteTaskLine,
   findPreviousIncompleteTaskLine,
-  setTaskStatus,
   stripNextActionTags,
   TaskState
 } from "./task-utils";
@@ -23,8 +21,6 @@ type ReconcilerContext = {
 type CompletionContext = ReconcilerContext & {
   content: string;
   completedLine: number;
-  previousState: TaskState[];
-  nextState: TaskState[];
 };
 
 type DeletedTagContext = ReconcilerContext & {
@@ -48,51 +44,8 @@ function isInProjectsFolder(filePath: string, projectsFolder: string): boolean {
 }
 
 export async function applyCompletionRules(context: CompletionContext): Promise<void> {
-  const { file, content, completedLine, settings, readFile, writeFileContent, setFileStatus, setTaskState, previousState, nextState } = context;
+  const { file, content, completedLine, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
   const lines = content.split(/\r?\n/);
-
-  // Get the actual task status before and after to determine if we should cycle through started.
-  const currentTask = nextState.find((t) => t.line === completedLine);
-  const previousTask = previousState.find((t) => t.line === completedLine);
-
-  // If task was open (or not in cache) and is now completed, it's a direct click on an open task.
-  // In that case, redirect to started state to enforce the cycle [ ] → [/] → [x].
-  if (currentTask?.status === "completed" && (!previousTask || previousTask.status === "open")) {
-    const updatedLines = lines.map((line, idx) => {
-      return idx === completedLine ? setTaskStatus(line, "started") : line;
-    });
-    const updatedContent = updatedLines.join("\n");
-
-    if (updatedContent !== content) {
-      await writeFileContent(file, updatedContent);
-    }
-    return;
-  }
-
-  // If task was started and is now open, Obsidian toggled [/] back to [ ]. Complete it instead.
-  if (previousTask?.status === "started" && currentTask?.status === "open") {
-    // Convert [/] to [x] and apply completion rules in one shot, no re-read needed.
-    const completionLines = lines.map((line, idx) => {
-      return idx === completedLine ? setTaskStatus(line, "completed") : line;
-    });
-
-    const startedNextTaskLine = findFirstIncompleteTaskLine(completionLines);
-    // Stamp completion date and time.
-    completionLines[completedLine] = addCompletionFields(completionLines[completedLine]);
-    const cleanedLines = stripNextActionTags(completionLines, settings.nextActionTag);
-    const newStatus = startedNextTaskLine === null ? "completed" : "todo";
-
-    let updatedContent = startedNextTaskLine !== null
-      ? addNextActionTag(cleanedLines, startedNextTaskLine, settings.nextActionTag)
-      : cleanedLines.join("\n");
-
-    if (updatedContent !== content) {
-      await writeFileContent(file, updatedContent);
-    }
-
-    await setFileStatus(file, newStatus);
-    return;
-  }
 
   const nextTaskLine = findFirstIncompleteTaskLine(lines);
   const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);

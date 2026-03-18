@@ -56,14 +56,13 @@ function normalizeSettings(rawSettings) {
 }
 
 // src/task-utils.ts
-var TASK_LINE_REGEX = /^(\s*[-*+]\s+\[( |\/|x|X)\]\s+)(.*)$/;
+var TASK_LINE_REGEX = /^(\s*[-*+]\s+\[( |x|X)\]\s+)(.*)$/;
 function extractTaskState(content, nextActionTag) {
   const lines = content.split(/\r?\n/);
   const taskState = [];
   function getTaskStatus(checkboxChar) {
     const char = checkboxChar.toLowerCase();
     if (char === "x") return "completed";
-    if (char === "/") return "started";
     return "open";
   }
   for (let index = 0; index < lines.length; index += 1) {
@@ -83,10 +82,7 @@ function findNewlyCompletedTask(previousState, nextState) {
   const previousByLine = new Map(previousState.map((task) => [task.line, task.status]));
   for (const task of nextState) {
     const wasStatus = previousByLine.get(task.line);
-    if ((wasStatus === "open" || wasStatus === "started") && task.status === "completed") {
-      return task.line;
-    }
-    if (wasStatus === "started" && task.status === "open") {
+    if (wasStatus === "open" && task.status === "completed") {
       return task.line;
     }
   }
@@ -96,7 +92,7 @@ function findNewlyUncompletedTask(previousState, nextState) {
   const previousByLine = new Map(previousState.map((task) => [task.line, task.status]));
   for (const task of nextState) {
     const wasStatus = previousByLine.get(task.line);
-    if (wasStatus === "completed" && (task.status === "open" || task.status === "started")) {
+    if (wasStatus === "completed" && task.status === "open") {
       return task.line;
     }
   }
@@ -162,15 +158,6 @@ function getTagReplaceRegex(nextActionTag) {
 }
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-function setTaskStatus(line, status) {
-  const checkboxRegex = /^(\s*[-*+]\s+\[)[ /xX](\]\s+)(.*)$/;
-  const match = line.match(checkboxRegex);
-  if (!match) {
-    return line;
-  }
-  const symbol = status === "completed" ? "x" : status === "started" ? "/" : " ";
-  return `${match[1]}${symbol}${match[2]}${match[3]}`;
 }
 
 // src/settings-ui.ts
@@ -240,35 +227,8 @@ function isInProjectsFolder(filePath, projectsFolder) {
   return filePath === projectsFolder || filePath.startsWith(`${projectsFolder}/`);
 }
 async function applyCompletionRules(context) {
-  const { file, content, completedLine, settings, readFile, writeFileContent, setFileStatus, setTaskState, previousState, nextState } = context;
+  const { file, content, completedLine, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
   const lines = content.split(/\r?\n/);
-  const currentTask = nextState.find((t) => t.line === completedLine);
-  const previousTask = previousState.find((t) => t.line === completedLine);
-  if ((currentTask == null ? void 0 : currentTask.status) === "completed" && (!previousTask || previousTask.status === "open")) {
-    const updatedLines = lines.map((line, idx) => {
-      return idx === completedLine ? setTaskStatus(line, "started") : line;
-    });
-    const updatedContent2 = updatedLines.join("\n");
-    if (updatedContent2 !== content) {
-      await writeFileContent(file, updatedContent2);
-    }
-    return;
-  }
-  if ((previousTask == null ? void 0 : previousTask.status) === "started" && (currentTask == null ? void 0 : currentTask.status) === "open") {
-    const completionLines = lines.map((line, idx) => {
-      return idx === completedLine ? setTaskStatus(line, "completed") : line;
-    });
-    const startedNextTaskLine = findFirstIncompleteTaskLine(completionLines);
-    completionLines[completedLine] = addCompletionFields(completionLines[completedLine]);
-    const cleanedLines2 = stripNextActionTags(completionLines, settings.nextActionTag);
-    const newStatus2 = startedNextTaskLine === null ? "completed" : "todo";
-    let updatedContent2 = startedNextTaskLine !== null ? addNextActionTag(cleanedLines2, startedNextTaskLine, settings.nextActionTag) : cleanedLines2.join("\n");
-    if (updatedContent2 !== content) {
-      await writeFileContent(file, updatedContent2);
-    }
-    await setFileStatus(file, newStatus2);
-    return;
-  }
   const nextTaskLine = findFirstIncompleteTaskLine(lines);
   const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
   cleanedLines[completedLine] = addCompletionFields(cleanedLines[completedLine]);
@@ -390,9 +350,16 @@ var TaskManagerPlugin = class extends import_obsidian2.Plugin {
     this.addSettingTab(new BaseTaskManagerSettingTab(this.app, this));
     this.addCommand({
       id: "initialize-projects-folder",
-      name: "Initialize",
+      name: "Process tasks",
       callback: () => {
         void this.initializeProjectsFolder();
+      }
+    });
+    this.addCommand({
+      id: "process-current-file",
+      name: "Process file",
+      callback: () => {
+        void this.processCurrentFile();
       }
     });
     this.registerEvent(this.app.vault.on("modify", (file) => {
@@ -441,7 +408,7 @@ var TaskManagerPlugin = class extends import_obsidian2.Plugin {
     const deletedTaggedTaskLine = findDeletedTaggedTask(previousState, nextState);
     this.taskStateByPath.set(file.path, nextState);
     if (completion !== null) {
-      await this.applyCompletionRules(file, content, completion, previousState, nextState);
+      await this.applyCompletionRules(file, content, completion);
       return;
     }
     if (uncompleted !== null) {
@@ -451,6 +418,24 @@ var TaskManagerPlugin = class extends import_obsidian2.Plugin {
     if (deletedTaggedTaskLine !== null) {
       await this.applyDeletedTagRules(file, content, deletedTaggedTaskLine);
     }
+  }
+  async processCurrentFile() {
+    const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      new import_obsidian2.Notice("No active file.");
+      return;
+    }
+    await reconcileFile({
+      file,
+      settings: this.settings,
+      readFile: (target) => this.app.vault.cachedRead(target),
+      writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent),
+      setFileStatus: (target, status) => this.setFileStatus(target, status),
+      setTaskState: (filePath, nextState) => {
+        this.taskStateByPath.set(filePath, nextState);
+      }
+    });
+    new import_obsidian2.Notice(`Processed ${file.name}.`);
   }
   async initializeProjectsFolder() {
     const projectsFolder = this.settings.projectsFolder;
@@ -476,19 +461,17 @@ var TaskManagerPlugin = class extends import_obsidian2.Plugin {
     });
     new import_obsidian2.Notice(`Initialized ${count} project file${count === 1 ? "" : "s"}.`);
   }
-  async applyCompletionRules(file, content, completedLine, previousState, nextState) {
+  async applyCompletionRules(file, content, completedLine) {
     await applyCompletionRules({
       file,
       content,
       completedLine,
-      previousState,
-      nextState,
       settings: this.settings,
       readFile: (target) => this.app.vault.cachedRead(target),
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent),
       setFileStatus: (target, status) => this.setFileStatus(target, status),
-      setTaskState: (filePath, nextState2) => {
-        this.taskStateByPath.set(filePath, nextState2);
+      setTaskState: (filePath, nextState) => {
+        this.taskStateByPath.set(filePath, nextState);
       }
     });
   }
