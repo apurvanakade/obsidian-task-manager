@@ -72,6 +72,10 @@ function findNewlyCompletedTask(previousState, nextState) {
     if ((wasStatus === "open" || wasStatus === "started") && task.status === "completed") {
       return task.line;
     }
+    // Also detect started → open as a completion (Obsidian toggles [/] back to [ ] on click)
+    if (wasStatus === "started" && task.status === "open") {
+      return task.line;
+    }
   }
 
   return null;
@@ -362,17 +366,38 @@ module.exports = class TaskManagerPlugin extends Plugin {
   async applyCompletionRules(file, content, completedLine, previousState, nextState) {
     const lines = content.split(/\r?\n/);
 
-    // Check if user clicked an open task checkbox — it would jump straight to [x].
-    // We want to cycle [ ] → [/] → [x], so redirect it to started instead.
-    if (didSkipStartedState(previousState, completedLine)) {
-      let updatedContent = lines.join("\n");
-      updatedContent = updatedContent.split("\n").map((line, idx) => {
+    // Get the actual task status before and after to determine if we should cycle through started.
+    const currentTask = nextState.find((t) => t.line === completedLine);
+    const previousTask = previousState.find((t) => t.line === completedLine);
+
+    // If task was open (or not in cache) and is now completed, it's a direct click on an open task.
+    // In that case, redirect to started state to enforce the cycle [ ] → [/] → [x].
+    if (currentTask?.status === "completed" && (!previousTask || previousTask.status === "open")) {
+      const updatedLines = lines.map((line, idx) => {
         return idx === completedLine ? setTaskStatus(line, "started") : line;
-      }).join("\n");
+      });
+      const updatedContent = updatedLines.join("\n");
 
       if (updatedContent !== content) {
         await this.writeFileContent(file, updatedContent);
       }
+      return;
+    }
+
+    // If task was started and is now open, Obsidian toggled [/] back to [ ]. Complete it instead.
+    if (previousTask?.status === "started" && currentTask?.status === "open") {
+      const updatedLines = lines.map((line, idx) => {
+        return idx === completedLine ? setTaskStatus(line, "completed") : line;
+      });
+      const updatedContent = updatedLines.join("\n");
+
+      if (updatedContent !== content) {
+        await this.writeFileContent(file, updatedContent);
+      }
+      // After rewriting to completed, recursively call to apply completion logic.
+      const refreshedContent = await this.app.vault.cachedRead(file);
+      const refreshedState = extractTaskState(refreshedContent, this.settings.nextActionTag);
+      await this.applyCompletionRules(file, refreshedContent, completedLine, previousState, refreshedState);
       return;
     }
 

@@ -41,6 +41,10 @@ export function findNewlyCompletedTask(previousState: TaskState[], nextState: Ta
     if ((wasStatus === "open" || wasStatus === "started") && task.status === "completed") {
       return task.line;
     }
+    // Also detect started → open as a completion (Obsidian toggles [/] back to [ ] on click)
+    if (wasStatus === "started" && task.status === "open") {
+      return task.line;
+    }
   }
 
   return null;

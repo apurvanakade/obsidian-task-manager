@@ -52,16 +52,38 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
   const { file, content, completedLine, settings, readFile, writeFileContent, setTaskState, previousState, nextState } = context;
   const lines = content.split(/\r?\n/);
 
-  // Check if user clicked an open task checkbox — it would jump straight to [x].
-  // We want to cycle [ ] → [/] → [x], so redirect it to started instead.
-  if (didSkipStartedState(previousState, completedLine)) {
-    let updatedContent = lines.map((line, idx) => {
+  // Get the actual task status before and after to determine if we should cycle through started.
+  const currentTask = nextState.find((t) => t.line === completedLine);
+  const previousTask = previousState.find((t) => t.line === completedLine);
+
+  // If task was open (or not in cache) and is now completed, it's a direct click on an open task.
+  // In that case, redirect to started state to enforce the cycle [ ] → [/] → [x].
+  if (currentTask?.status === "completed" && (!previousTask || previousTask.status === "open")) {
+    const updatedLines = lines.map((line, idx) => {
       return idx === completedLine ? setTaskStatus(line, "started") : line;
-    }).join("\n");
+    });
+    const updatedContent = updatedLines.join("\n");
 
     if (updatedContent !== content) {
       await writeFileContent(file, updatedContent);
     }
+    return;
+  }
+
+  // If task was started and is now open, Obsidian toggled [/] back to [ ]. Complete it instead.
+  if (previousTask?.status === "started" && currentTask?.status === "open") {
+    const updatedLines = lines.map((line, idx) => {
+      return idx === completedLine ? setTaskStatus(line, "completed") : line;
+    });
+    const updatedContent = updatedLines.join("\n");
+
+    if (updatedContent !== content) {
+      await writeFileContent(file, updatedContent);
+    }
+    // After rewriting to completed, recursively call to apply completion logic.
+    const refreshedContent = await readFile(file);
+    const refreshedState = extractTaskState(refreshedContent, settings.nextActionTag);
+    await applyCompletionRules({ ...context, content: refreshedContent, previousState, nextState: refreshedState });
     return;
   }
 
