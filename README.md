@@ -12,14 +12,22 @@
    - Ensures each file has at most one next-action tag on an incomplete task.
    - Sets frontmatter status to `todo` if an incomplete task exists, otherwise `completed`.
 4. During normal editing, the plugin reacts to task changes automatically:
-   - **Task completed**: moves the next-action tag to the next incomplete task below; if none, sets status to `completed`.
+   - **Task cycle**: tasks are managed as a 3-state flow (`[ ]` open -> `[/]` started -> `[x]` completed).
+   - **Task completed**: stamps completion metadata on the completed task and moves the next-action tag to the first incomplete task anywhere in the file; if none, sets status to `completed`.
    - **Task uncompleted**: if the reopened task is now the first open task in the file, strips the tag from all other tasks and applies it to this one; status is reset to `todo`.
    - **Tagged task deleted**: moves the next-action tag to the nearest preceding incomplete task; if none, sets status to `completed`.
 
+### Completion Metadata
+
+When a task becomes completed, the plugin appends:
+
+- `[completion:: YYYY-MM-DD]`
+- `[completition-time:: HH:MM:SS]`
+
 ## Code Organization
 
-- `main.js`: self-contained runtime entrypoint loaded directly by Obsidian.
-- `main.ts`: TypeScript source entrypoint (development reference only, not loaded by Obsidian).
+- `main.ts`: TypeScript source entrypoint (source of truth).
+- `main.js`: bundled runtime output loaded by Obsidian (`npm run build` regenerates this file).
 - `src/settings-utils.ts`: settings type, defaults, and normalization helpers.
 - `src/task-utils.ts`: task parsing, state diffing, and tag manipulation utilities.
 - `src/reconciler.ts`: completion, uncompletion, deletion, and initialization reconciliation workflows.
