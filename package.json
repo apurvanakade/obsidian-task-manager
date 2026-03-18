@@ -1,0 +1,24 @@
+{
+  "name": "task-manager",
+  "version": "0.0.1",
+  "description": "A blank Obsidian plugin scaffold.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc --noEmit --skipLibCheck && node esbuild.config.mjs production"
+  },
+  "keywords": [
+    "obsidian",
+    "plugin"
+  ],
+  "author": "Apurva",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.16.5",
+    "builtin-modules": "^4.0.0",
+    "esbuild": "^0.25.1",
+    "obsidian": "^1.7.2",
+    "tslib": "^2.8.1",
+    "typescript": "^5.8.2"
+  }
+}
