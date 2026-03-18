@@ -69,6 +69,19 @@ function findNewlyCompletedTask(previousState, nextState) {
   return null;
 }
 
+function findNewlyUncompletedTask(previousState, nextState) {
+  const previousByLine = new Map(previousState.map((task) => [task.line, task.completed]));
+
+  for (const task of nextState) {
+    const wasCompleted = previousByLine.get(task.line);
+    if (wasCompleted === true && !task.completed) {
+      return task.line;
+    }
+  }
+
+  return null;
+}
+
 function findDeletedTaggedTask(previousState, nextState) {
   const previousTaggedTask = previousState.find((task) => task.hasNextAction);
   if (!previousTaggedTask) {
@@ -244,6 +257,12 @@ module.exports = class TaskManagerPlugin extends Plugin {
       return;
     }
 
+    const uncompleted = findNewlyUncompletedTask(previousState, nextState);
+    if (uncompleted !== null) {
+      await this.applyUncompletionRules(file, content, uncompleted);
+      return;
+    }
+
     if (deletedTaggedTaskLine !== null) {
       await this.applyDeletedTagRules(file, content, deletedTaggedTaskLine);
     }
@@ -279,6 +298,27 @@ module.exports = class TaskManagerPlugin extends Plugin {
     }
 
     await this.setFileStatus(file, nextTaskLine === null ? "completed" : "todo");
+    const refreshedContent = await this.app.vault.cachedRead(file);
+    this.taskStateByPath.set(file.path, extractTaskState(refreshedContent, this.settings.nextActionTag));
+  }
+
+  async applyUncompletionRules(file, content, uncompletedLine) {
+    const lines = content.split(/\r?\n/);
+    const firstIncompleteTaskLine = findFirstIncompleteTaskLine(lines);
+
+    // Only act if the uncompleted task is now the first open task in the file.
+    if (firstIncompleteTaskLine !== uncompletedLine) {
+      return;
+    }
+
+    const cleanedLines = stripNextActionTags(lines, this.settings.nextActionTag);
+    const updatedContent = addNextActionTag(cleanedLines, uncompletedLine, this.settings.nextActionTag);
+
+    if (updatedContent !== content) {
+      await this.writeFileContent(file, updatedContent);
+    }
+
+    await this.setFileStatus(file, "todo");
     const refreshedContent = await this.app.vault.cachedRead(file);
     this.taskStateByPath.set(file.path, extractTaskState(refreshedContent, this.settings.nextActionTag));
   }

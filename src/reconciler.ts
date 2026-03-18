@@ -29,6 +29,11 @@ type DeletedTagContext = ReconcilerContext & {
   deletedTaggedTaskLine: number;
 };
 
+type UncompletionContext = ReconcilerContext & {
+  content: string;
+  uncompletedLine: number;
+};
+
 type InitializeContext = {
   settings: TaskManagerSettings;
   getMarkdownFiles: () => TFile[];
@@ -55,6 +60,28 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
   }
 
   await setFileStatus(file, nextTaskLine === null ? "completed" : "todo");
+  const refreshedContent = await readFile(file);
+  setTaskState(file.path, extractTaskState(refreshedContent, settings.nextActionTag));
+}
+
+export async function applyUncompletionRules(context: UncompletionContext): Promise<void> {
+  const { file, content, uncompletedLine, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
+  const lines = content.split(/\r?\n/);
+  const firstIncompleteTaskLine = findFirstIncompleteTaskLine(lines);
+
+  // Only act if the uncompleted task is now the first open task in the file.
+  if (firstIncompleteTaskLine !== uncompletedLine) {
+    return;
+  }
+
+  const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
+  const updatedContent = addNextActionTag(cleanedLines, uncompletedLine, settings.nextActionTag);
+
+  if (updatedContent !== content) {
+    await writeFileContent(file, updatedContent);
+  }
+
+  await setFileStatus(file, "todo");
   const refreshedContent = await readFile(file);
   setTaskState(file.path, extractTaskState(refreshedContent, settings.nextActionTag));
 }

@@ -40,6 +40,19 @@ export function findNewlyCompletedTask(previousState: TaskState[], nextState: Ta
   return null;
 }
 
+export function findNewlyUncompletedTask(previousState: TaskState[], nextState: TaskState[]): number | null {
+  const previousByLine = new Map(previousState.map((task) => [task.line, task.completed]));
+
+  for (const task of nextState) {
+    const wasCompleted = previousByLine.get(task.line);
+    if (wasCompleted === true && !task.completed) {
+      return task.line;
+    }
+  }
+
+  return null;
+}
+
 export function findDeletedTaggedTask(previousState: TaskState[], nextState: TaskState[]): number | null {
   // This catches the case where the tagged task was removed and no replacement tag exists yet.
   const previousTaggedTask = previousState.find((task) => task.hasNextAction);
