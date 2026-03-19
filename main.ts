@@ -1,4 +1,4 @@
-import { App, Notice, Plugin, PluginSettingTab } from "obsidian";
+import { App, Notice, Plugin, PluginSettingTab, TFile } from "obsidian";
 import { DateDashboardController } from "./src/date-dashboard";
 import { normalizeSettings, TaskManagerSettings } from "./src/settings-utils";
 import { TaskManagerSettingTabRenderer } from "./src/settings-ui";
@@ -38,6 +38,10 @@ export default class TaskManagerPlugin extends Plugin {
       }
     });
     this.registerEvent(this.app.vault.on("modify", (file) => {
+      if (!(file instanceof TFile)) {
+        return;
+      }
+
       void this.taskProcessor?.handleFileModify(file);
     }));
     await this.taskProcessor.primeState();

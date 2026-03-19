@@ -1244,6 +1244,9 @@ var TaskManagerPlugin = class extends import_obsidian5.Plugin {
     });
     this.registerEvent(this.app.vault.on("modify", (file) => {
       var _a;
+      if (!(file instanceof import_obsidian5.TFile)) {
+        return;
+      }
       void ((_a = this.taskProcessor) == null ? void 0 : _a.handleFileModify(file));
     }));
     await this.taskProcessor.primeState();

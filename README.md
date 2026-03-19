@@ -74,4 +74,4 @@ Recurring task copies use due dates in this format:
 - `src/reconciler.ts`: completion, uncompletion, deletion, and initialization reconciliation workflows.
 - `src/settings-ui.ts`: settings tab rendering and folder picker UI.
 - `manifest.json`: Obsidian plugin metadata.
-- `obsidian.d.ts`: local Obsidian type shim used in this workspace.
+- Obsidian typings are provided by the `obsidian` npm package in `devDependencies`.

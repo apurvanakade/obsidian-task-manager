@@ -47,9 +47,9 @@ Core modules:
 - `src/settings-ui.ts`: plugin settings tab renderer.
 - `src/settings-utils.ts`: settings defaults + normalization.
 
-Local typing shim:
+Typing source:
 
-- `obsidian.d.ts` contains workspace-local type declarations for Obsidian APIs used by this plugin.
+- Obsidian API typings are sourced from the `obsidian` npm package in `devDependencies`.
 
 ## 4) Command and Event Flow
 
@@ -222,4 +222,3 @@ Run after meaningful logic changes:
 ## 11) Known Constraints
 
 - Final pane placement is ultimately controlled by Obsidian layout state; plugin can only prefer split side-leaf defaults.
-- Local `obsidian.d.ts` is a shim for this workspace; keep it aligned with API usage in source files.
