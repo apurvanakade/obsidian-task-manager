@@ -122,7 +122,9 @@ export class DateDashboardController {
     const leaf = await this.app.workspace.ensureSideLeaf(DateDashboardController.VIEW_TYPE, "right", {
       active: false,
       reveal: true,
-      split: false,
+      // Best-effort: request a split leaf so Obsidian tends to place this pane
+      // in a stacked (often lower) section of the right sidebar.
+      split: true,
     });
     await leaf.setViewState({ type: DateDashboardController.VIEW_TYPE, active: false });
   }
@@ -237,6 +239,7 @@ export class DateDashboardController {
   private cleanDashboardTaskText(taskBody: string): string {
     return taskBody
       .replace(/\s*\[[^\]]+::\s*[^\]]*\]/g, "")
+      .replace(/(^|\s)#[^\s#]+/g, "$1")
       .replace(/\s+/g, " ")
       .trim();
   }
@@ -281,7 +284,7 @@ export class DateDashboardController {
       fileCell.style.verticalAlign = "top";
       const link = document.createElement("a");
       link.href = "#";
-      link.textContent = row.file.name;
+      link.textContent = this.getDisplayFileName(row.file.name);
       link.addEventListener("click", (event) => {
         event.preventDefault();
         void this.app.workspace.openLinkText(row.file.path, sourcePath);
@@ -318,6 +321,12 @@ export class DateDashboardController {
 
     const match = dateString.match(/^\d{4}-(\d{2})-(\d{2})$/);
     return match ? `${match[1]}-${match[2]}` : dateString;
+  }
+
+  private getDisplayFileName(fileName: string): string {
+    const withoutExtension = fileName.replace(/\.md$/i, "");
+    const withoutArchivePrefix = withoutExtension.replace(/^\d+[\s._-]*/, "");
+    return withoutArchivePrefix || withoutExtension;
   }
 }
 

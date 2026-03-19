@@ -199,7 +199,7 @@ var _DateDashboardController = class _DateDashboardController {
     return match ? match[1].trim() : null;
   }
   cleanDashboardTaskText(taskBody) {
-    return taskBody.replace(/\s*\[[^\]]+::\s*[^\]]*\]/g, "").replace(/\s+/g, " ").trim();
+    return taskBody.replace(/\s*\[[^\]]+::\s*[^\]]*\]/g, "").replace(/(^|\s)#[^\s#]+/g, "$1").replace(/\s+/g, " ").trim();
   }
   appendTaskTable(container, title, rows, sourcePath, showDueDate) {
     const heading = document.createElement("h3");
@@ -236,7 +236,7 @@ var _DateDashboardController = class _DateDashboardController {
       fileCell.style.verticalAlign = "top";
       const link = document.createElement("a");
       link.href = "#";
-      link.textContent = row.file.name;
+      link.textContent = this.getDisplayFileName(row.file.name);
       link.addEventListener("click", (event) => {
         event.preventDefault();
         void this.app.workspace.openLinkText(row.file.path, sourcePath);
@@ -266,6 +266,11 @@ var _DateDashboardController = class _DateDashboardController {
     }
     const match = dateString.match(/^\d{4}-(\d{2})-(\d{2})$/);
     return match ? `${match[1]}-${match[2]}` : dateString;
+  }
+  getDisplayFileName(fileName) {
+    const withoutExtension = fileName.replace(/\.md$/i, "");
+    const withoutArchivePrefix = withoutExtension.replace(/^\d+[\s._-]*/, "");
+    return withoutArchivePrefix || withoutExtension;
   }
 };
 _DateDashboardController.DATE_FILE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
