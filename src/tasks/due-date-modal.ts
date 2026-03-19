@@ -1,3 +1,19 @@
+/**
+ * Purpose:
+ * - collect a due date for newly assigned next-action tasks.
+ *
+ * Responsibilities:
+ * - presents quick date suggestions and manual date input
+ * - immediately submits on suggested-date click
+ * - forwards selected dates to reconciler-provided callbacks
+ *
+ * Dependencies:
+ * - Obsidian Modal APIs
+ * - shared date suggestion builder
+ *
+ * Side Effects:
+ * - opens modal UI, updates input state, and calls async submit callbacks
+ */
 import { App, Modal } from "obsidian";
 import { buildDateSuggestions } from "../date/date-suggestions";
 

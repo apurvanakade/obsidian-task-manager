@@ -1,3 +1,19 @@
+/**
+ * Purpose:
+ * - route project/task files between configured status folders.
+ *
+ * Responsibilities:
+ * - resolves destination root from status and current settings
+ * - preserves relative path hierarchy across configured source roots
+ * - performs safe move/merge flows when destination conflicts exist
+ * - cleans up empty source folders after successful routing
+ *
+ * Dependencies:
+ * - Obsidian vault/file APIs and plugin settings
+ *
+ * Side Effects:
+ * - creates folders, moves files, merges content, and shows conflict modals
+ */
 import { App, Modal, TFile, TFolder } from "obsidian";
 import { TaskManagerSettings } from "../settings/settings-utils";
 

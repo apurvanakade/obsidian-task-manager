@@ -1,3 +1,20 @@
+/**
+ * Purpose:
+ * - provide inline due-date suggestions after typing due:: in the editor.
+ *
+ * Responsibilities:
+ * - detects trigger context and current query text at cursor position
+ * - returns date suggestions from shared date-suggestion generation
+ * - supports matching by ISO date and natural-language labels
+ * - inserts selected YYYY-MM-DD value into the active editor
+ *
+ * Dependencies:
+ * - Obsidian EditorSuggest APIs
+ * - shared date suggestion builder
+ *
+ * Side Effects:
+ * - mutates active editor content on suggestion selection
+ */
 import {
   App,
   Editor,

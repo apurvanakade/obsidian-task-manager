@@ -1,3 +1,18 @@
+/**
+ * Purpose:
+ * - derive and validate routable status values for task files.
+ *
+ * Responsibilities:
+ * - reads status values from frontmatter/status fields
+ * - predicts effective status from task-state transitions
+ * - validates whether a status maps to a routable destination bucket
+ *
+ * Dependencies:
+ * - settings shape and task-routing destination resolution
+ *
+ * Side Effects:
+ * - none (pure decision logic)
+ */
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { getDestinationRootForStatus } from "./task-routing";
 

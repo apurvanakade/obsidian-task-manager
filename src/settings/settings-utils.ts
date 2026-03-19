@@ -1,3 +1,18 @@
+/**
+ * Purpose:
+ * - provide settings types, defaults, and normalization behavior.
+ *
+ * Responsibilities:
+ * - defines TaskManagerSettings shape and key aliases
+ * - provides plugin defaults for first-run and missing values
+ * - normalizes tag, status-field, and folder-path inputs for safe runtime usage
+ *
+ * Dependencies:
+ * - none outside language/runtime primitives
+ *
+ * Side Effects:
+ * - none (pure normalization helpers)
+ */
 export type TaskManagerSettings = {
   nextActionTag: string;
   statusField: string;
@@ -6,6 +21,11 @@ export type TaskManagerSettings = {
   waitingProjectsFolder: string;
   somedayMaybeProjectsFolder: string;
 };
+
+export type FolderSettingKey = keyof Pick<
+  TaskManagerSettings,
+  "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder"
+>;
 
 export const DEFAULT_SETTINGS: TaskManagerSettings = {
   nextActionTag: "#next-action",

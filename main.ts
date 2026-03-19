@@ -1,4 +1,22 @@
+/**
+ * Purpose:
+ * - compose and bootstrap Task Manager services at plugin startup.
+ *
+ * Responsibilities:
+ * - bootstraps long-lived plugin services (task processor, dashboard controller, editor suggest)
+ * - loads and persists normalized plugin settings
+ * - wires command registration and file-modify event handling
+ * - coordinates lifecycle transitions through onload/onunload
+ *
+ * Dependencies:
+ * - composes feature modules from src/*
+ * - Obsidian Plugin API for lifecycle/events/commands
+ *
+ * Side Effects:
+ * - registers commands/events/views and writes persisted plugin settings
+ */
 import { App, Notice, Plugin, PluginSettingTab, TFile } from "obsidian";
+import { registerTaskCommands } from "./src/commands/register-task-commands";
 import { DateDashboardController } from "./src/dashboard/date-dashboard";
 import { DueDateEditorSuggest } from "./src/editor/due-date-suggest";
 import { normalizeSettings, TaskManagerSettings } from "./src/settings/settings-utils";
@@ -27,19 +45,13 @@ export default class TaskManagerPlugin extends Plugin {
     this.dueDateSuggest = new DueDateEditorSuggest(this.app);
     this.registerEditorSuggest(this.dueDateSuggest);
     this.addSettingTab(new BaseTaskManagerSettingTab(this.app, this));
-    this.addCommand({
-      id: "process-tasks",
-      name: "Process Tasks",
-      callback: () => {
+    registerTaskCommands(this, {
+      processTasks: () => {
         void this.runProcessTasks();
-      }
-    });
-    this.addCommand({
-      id: "process-current-file",
-      name: "Process File",
-      callback: () => {
+      },
+      processCurrentFile: () => {
         void this.runProcessCurrentFile();
-      }
+      },
     });
     this.registerEvent(this.app.vault.on("modify", (file) => {
       if (!(file instanceof TFile)) {

@@ -1,5 +1,23 @@
-import { App, FuzzySuggestModal, Notice, PluginSettingTab, Setting, TFolder, TextComponent } from "obsidian";
-import { TaskManagerSettings } from "./settings-utils";
+/**
+ * Purpose:
+ * - render and bind the plugin settings tab UI.
+ *
+ * Responsibilities:
+ * - renders folder and text setting controls from declarative definitions
+ * - binds UI events to plugin updateSetting persistence hooks
+ * - delegates folder browsing to the folder-picker helper
+ *
+ * Dependencies:
+ * - depends on settings definitions/utilities and picker helper
+ * - Obsidian Setting/TextComponent APIs
+ *
+ * Side Effects:
+ * - mutates settings container DOM and persists setting values
+ */
+import { PluginSettingTab, Setting, TextComponent } from "obsidian";
+import { openFolderPicker } from "./folder-picker";
+import { getFolderSettingConfigs, getTextSettingConfigs, FolderSettingConfig, TextSettingConfig } from "./settings-field-definitions";
+import { FolderSettingKey, TaskManagerSettings } from "./settings-utils";
 
 type SettingsHost = {
   getSettings(): TaskManagerSettings;
@@ -21,96 +39,51 @@ export class TaskManagerSettingTabRenderer {
     const settings = this.plugin.getSettings();
     containerEl.empty();
 
-    this.addFolderSetting(
-      containerEl,
-      "Projects Folder",
-      "Folder scanned recursively by the Process Tasks command.",
-      "projectsFolder",
-      settings.projectsFolder,
-      "Projects"
-    );
+    for (const folderSetting of getFolderSettingConfigs(settings)) {
+      this.addFolderSetting(containerEl, folderSetting);
+    }
 
-    this.addFolderSetting(
-      containerEl,
-      "Completed Projects Folder",
-      "Destination folder for completed projects.",
-      "completedProjectsFolder",
-      settings.completedProjectsFolder,
-      "Projects/Completed"
-    );
-
-    this.addFolderSetting(
-      containerEl,
-      "Waiting Projects Folder",
-      "Destination folder for waiting projects.",
-      "waitingProjectsFolder",
-      settings.waitingProjectsFolder,
-      "Projects/Waiting"
-    );
-
-    this.addFolderSetting(
-      containerEl,
-      "Someday-Maybe Projects Folder",
-      "Destination folder for someday-maybe projects.",
-      "somedayMaybeProjectsFolder",
-      settings.somedayMaybeProjectsFolder,
-      "Projects/Someday-Maybe"
-    );
-
-    new Setting(containerEl)
-      .setName("Next Action Tag")
-      .setDesc("Tag added to the active next task.")
-      .addText((text) => {
-        text
-          .setPlaceholder("#next-action")
-          .setValue(settings.nextActionTag)
-          .onChange(async (value) => {
-            await this.plugin.updateSetting("nextActionTag", value);
-          });
-      });
-
-    new Setting(containerEl)
-      .setName("Completed Status Field")
-      .setDesc("Frontmatter field updated when the file has no remaining incomplete tasks.")
-      .addText((text) => {
-        text
-          .setPlaceholder("status")
-          .setValue(settings.statusField)
-          .onChange(async (value) => {
-            await this.plugin.updateSetting("statusField", value);
-          });
-      });
+    for (const textSetting of getTextSettingConfigs(settings)) {
+      this.addTextSetting(containerEl, textSetting);
+    }
   }
 
-  private addFolderSetting(
-    containerEl: HTMLElement,
-    name: string,
-    description: string,
-    settingKey: "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder",
-    folderPath: string,
-    placeholder: string
-  ): void {
+  private addFolderSetting(containerEl: HTMLElement, config: FolderSettingConfig): void {
     new Setting(containerEl)
-      .setName(name)
-      .setDesc(`${description} Use Browse to pick a vault path.`)
+      .setName(config.name)
+      .setDesc(`${config.description} Use Browse to pick a vault path.`)
       .addText((text) => {
-        this.configureFolderTextInput(text, settingKey, folderPath, placeholder);
+        this.configureFolderTextInput(text, config.key, config.value, config.placeholder);
       })
       .addButton((button) => {
         button
           .setButtonText("Browse")
           .onClick(() => {
             openFolderPicker(this.baseSettingTab.app, async (selectedFolderPath) => {
-              await this.plugin.updateSetting(settingKey, selectedFolderPath);
+              await this.plugin.updateSetting(config.key, selectedFolderPath);
               this.display();
             });
           });
       });
   }
 
+  private addTextSetting(containerEl: HTMLElement, config: TextSettingConfig): void {
+    new Setting(containerEl)
+      .setName(config.name)
+      .setDesc(config.description)
+      .addText((text) => {
+        text
+          .setPlaceholder(config.placeholder)
+          .setValue(config.value)
+          .onChange(async (value) => {
+            await this.plugin.updateSetting(config.key, value);
+          });
+      });
+  }
+
   private configureFolderTextInput(
     text: TextComponent,
-    settingKey: "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder",
+    settingKey: FolderSettingKey,
     folderPath: string,
     placeholder: string
   ): void {
@@ -121,38 +94,4 @@ export class TaskManagerSettingTabRenderer {
         await this.plugin.updateSetting(settingKey, value);
       });
   }
-}
-
-function openFolderPicker(app: App, onChoose: (folderPath: string) => Promise<void>): void {
-  // Guard against Obsidian API differences that can break plugin startup.
-  if (typeof FuzzySuggestModal !== "function") {
-    new Notice("Folder picker is not available in this Obsidian version.");
-    return;
-  }
-
-  class ProjectsFolderSuggestModal extends FuzzySuggestModal<string> {
-    constructor() {
-      super(app);
-      this.setPlaceholder("Select a folder");
-    }
-
-    getItems(): string[] {
-      const folders = this.app.vault.getAllLoadedFiles()
-        .filter((file): file is TFolder => file instanceof TFolder)
-        .map((folder) => folder.path)
-        .sort((left, right) => left.localeCompare(right));
-
-      return ["", ...folders];
-    }
-
-    getItemText(folderPath: string): string {
-      return folderPath || "/";
-    }
-
-    onChooseItem(folderPath: string): void {
-      void onChoose(folderPath);
-    }
-  }
-
-  new ProjectsFolderSuggestModal().open();
 }

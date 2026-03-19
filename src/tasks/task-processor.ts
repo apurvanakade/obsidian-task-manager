@@ -1,3 +1,19 @@
+/**
+ * Purpose:
+ * - orchestrate end-to-end task processing for events and commands.
+ *
+ * Responsibilities:
+ * - coordinates state lookup, reconciliation, status updates, and routing decisions
+ * - enforces pending-write guards to prevent event feedback loops
+ * - supports processing one file or all files under configured roots
+ * - persists state-store updates after writes and path moves
+ *
+ * Dependencies:
+ * - state store, reconciler, routing modules, and Obsidian vault APIs
+ *
+ * Side Effects:
+ * - reads/writes files, updates routing destinations, and emits notices
+ */
 import { App, Notice, TFile, TFolder } from "obsidian";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import {

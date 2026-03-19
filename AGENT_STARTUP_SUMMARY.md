@@ -38,14 +38,18 @@ Entrypoint:
 
 Core modules:
 
+- `src/commands/register-task-commands.ts`: command registration for `Process Tasks` and `Process File`.
 - `src/tasks/task-processor.ts`: runtime orchestration for file modify events and command-triggered processing.
 - `src/tasks/task-state-store.ts`: in-memory state (tasks/status maps + pending write guards + path rekey logic).
 - `src/routing/status-routing.ts`: status extraction, predicted status logic, and routable-status validation.
 - `src/routing/task-routing.ts`: destination root resolution, relative path preservation, folder creation, merge conflict prompt, and empty-folder cleanup.
 - `src/tasks/reconciler.ts`: task-level reconciliation (completion/uncompletion/deletion + recurring-task clone insertion + due-date modal on next-action assignment).
 - `src/tasks/due-date-modal.ts`: modal dialog for adding due dates to newly assigned `next-action` tasks.
-- `src/dashboard/date-dashboard.ts`: right sidebar date dashboard view registration, refresh scheduling, data collection, sorting, and rendering.
+- `src/dashboard/dashboard-task-data.ts`: dashboard task parsing, filtering, cleanup, and sorting helpers.
+- `src/dashboard/date-dashboard.ts`: right sidebar date dashboard view registration, refresh scheduling, and rendering.
 - `src/editor/due-date-suggest.ts`: editor suggest provider for `due::` date completion.
+- `src/settings/folder-picker.ts`: vault folder picker modal used by the settings UI.
+- `src/settings/settings-field-definitions.ts`: declarative folder/text setting definitions consumed by the settings UI.
 - `src/tasks/task-utils.ts`: task parsing/diff helpers and tag manipulation helpers.
 - `src/settings/settings-ui.ts`: plugin settings tab renderer.
 - `src/settings/settings-utils.ts`: settings defaults + normalization.
@@ -60,6 +64,10 @@ Commands:
 
 - `Process Tasks`: applies processing to all markdown files under all configured task folders.
 - `Process File`: processes only the currently active markdown file.
+
+Command registration:
+
+- `main.ts` wires plugin services together and delegates command registration to `src/commands/register-task-commands.ts`.
 
 Event-driven flow:
 
@@ -206,6 +214,10 @@ Maintenance rule (required):
 - After any code change that affects behavior, architecture, commands, settings, data flow, file organization, or validation steps, update this file in the same change set before finishing.
 - Keep updates minimal but explicit: revise affected sections and (when relevant) add/adjust regression checklist items.
 - Do not leave this summary stale relative to `main.ts` and `src/{tasks,routing,settings,dashboard,editor}/*` runtime behavior.
+
+Current file-organization principle:
+
+- Prefer small, focused files with dependency direction reflected by folder/module boundaries (for example, `settings-ui.ts` depends on `settings-field-definitions.ts` and `folder-picker.ts`, while those helper modules remain isolated from settings rendering; `date-dashboard.ts` depends on `dashboard-task-data.ts`, which stays free of view concerns).
 
 When changing routing logic:
 

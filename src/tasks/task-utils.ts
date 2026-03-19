@@ -1,3 +1,19 @@
+/**
+ * Purpose:
+ * - provide pure helpers for parsing and transforming markdown task lines.
+ *
+ * Responsibilities:
+ * - parses markdown task line status and next-action tag presence
+ * - computes state transitions between previous/current snapshots
+ * - finds reassignment targets for next-action movement
+ * - adds/removes next-action tags in an idempotent way
+ *
+ * Dependencies:
+ * - none outside language/runtime primitives
+ *
+ * Side Effects:
+ * - none (pure functions over strings/arrays)
+ */
 const TASK_LINE_REGEX = /^(\s*[-*+]\s+\[( |x|X)\]\s+)(.*)$/;
 
 export type TaskState = {

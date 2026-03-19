@@ -1,13 +1,24 @@
+/**
+ * Purpose:
+ * - render and refresh the right-sidebar date dashboard view.
+ *
+ * Responsibilities:
+ * - registers and refreshes the custom dashboard view
+ * - reacts to vault/workspace events with debounced refresh scheduling
+ * - renders Due and Completed task tables for YYYY-MM-DD active notes
+ * - formats display fields (filename cleanup and MM-DD due-date rendering)
+ *
+ * Dependencies:
+ * - depends on dashboard-task-data.ts for data collection/parsing.
+ * - Obsidian view/workspace/vault APIs for lifecycle and rendering
+ *
+ * Side Effects:
+ * - manipulates dashboard DOM and opens links in workspace
+ */
 import { App, ItemView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { collectTasksForDate, DashboardRow, getDateStringFromFileName } from "./dashboard-task-data";
 
-const EMPTY_DUE_DATE_SORT_VALUE = "9999-99-99";
 const MARKDOWN_EXTENSION_REGEX = /\.md$/i;
-const TASK_LINE_REGEX = /^\s*[-*+]\s+\[( |x|X)\]\s+(.*)$/;
-const DUE_FIELD_REGEX = /\[due::\s*([^\]]+?)\s*\]/i;
-const COMPLETION_DATE_FIELD_REGEX = /\[completion-date::\s*([^\]]+?)\s*\]/i;
-const INLINE_FIELD_REGEX = /\s*\[[^\]]+::\s*[^\]]*\]/g;
-const TAG_REGEX = /(^|\s)#[^\s#]+/g;
-const MULTISPACE_REGEX = /\s+/g;
 const MONTH_DAY_REGEX = /^\d{4}-(\d{2})-(\d{2})$/;
 const LEADING_ARCHIVE_MARKER_PATTERN = /^(?:[\s._-]*(?:\d{4}[-_. ]\d{1,2}[-_. ]\d{1,2}|\d{1,2}[-_:]\d{2}(?:[-_:]\d{2})?|\d+(?:-\d+)+|\d+))+[\s._-]*/;
 
@@ -16,21 +27,7 @@ type DateDashboardControllerOptions = {
   getTaskFolderRoots: () => string[];
 };
 
-type DashboardRow = {
-  file: TFile;
-  task: string;
-  dueDate: string | null;
-};
-
-type ParsedDashboardTask = {
-  text: string;
-  status: "open" | "completed";
-  dueDate: string | null;
-  completedDate: string | null;
-};
-
 export class DateDashboardController {
-  private static readonly DATE_FILE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
   static readonly VIEW_TYPE = "task-manager-date-dashboard";
 
   private readonly app: App;
@@ -85,7 +82,7 @@ export class DateDashboardController {
       return;
     }
 
-    const dateString = this.getDateStringFromFileName(activeFile.name);
+    const dateString = getDateStringFromFileName(activeFile.name);
     if (!dateString) {
       container.appendChild(this.createEmptyState());
       return;
@@ -97,7 +94,7 @@ export class DateDashboardController {
     title.textContent = `Tasks for ${dateString}`;
     dashboard.appendChild(title);
 
-    const tasks = await this.collectTasksForDate(dateString);
+    const tasks = await collectTasksForDate(this.app, this.getTaskFolderRoots(), dateString);
     this.appendTaskTable(dashboard, "Due", tasks.dueTasks, activeFile.path, true);
     this.appendTaskTable(dashboard, "Completed", tasks.completedTasks, activeFile.path, false);
 
@@ -144,84 +141,6 @@ export class DateDashboardController {
     const emptyState = document.createElement("p");
     emptyState.textContent = "Open a date note named like YYYY-MM-DD to view the dashboard.";
     return emptyState;
-  }
-
-  private getDateStringFromFileName(fileName: string): string | null {
-    const baseName = fileName.replace(MARKDOWN_EXTENSION_REGEX, "");
-    return DateDashboardController.DATE_FILE_REGEX.test(baseName) ? baseName : null;
-  }
-
-  private async collectTasksForDate(dateString: string): Promise<{
-    dueTasks: DashboardRow[];
-    completedTasks: DashboardRow[];
-  }> {
-    const dueTasks: DashboardRow[] = [];
-    const completedTasks: DashboardRow[] = [];
-    const taskFolderRoots = this.getTaskFolderRoots();
-    const files = this.app.vault.getMarkdownFiles().filter((file) =>
-      taskFolderRoots.some((root) => file.path.startsWith(`${root}/`))
-    );
-
-    for (const file of files) {
-      const content = await this.app.vault.cachedRead(file);
-      const lines = content.split(/\r?\n/);
-
-      for (const line of lines) {
-        const parsedTask = this.parseDashboardTaskLine(line);
-        if (!parsedTask) {
-          continue;
-        }
-
-        if (parsedTask.status === "open" && parsedTask.dueDate !== null && parsedTask.dueDate <= dateString) {
-          dueTasks.push({ file, task: parsedTask.text, dueDate: parsedTask.dueDate });
-        }
-
-        if (parsedTask.completedDate === dateString) {
-          completedTasks.push({ file, task: parsedTask.text, dueDate: null });
-        }
-      }
-    }
-
-    dueTasks.sort(DateDashboardController.compareDueRows);
-    completedTasks.sort(DateDashboardController.compareRows);
-
-    return { dueTasks, completedTasks };
-  }
-
-  private parseDashboardTaskLine(line: string): ParsedDashboardTask | null {
-    const match = line.match(TASK_LINE_REGEX);
-    if (!match) {
-      return null;
-    }
-
-    const status = match[1].trim().toLowerCase() === "x" ? "completed" : "open";
-    const taskBody = match[2].trim();
-    const dueDate = this.readInlineFieldValue(taskBody, DUE_FIELD_REGEX);
-    const completedDate = this.readInlineFieldValue(taskBody, COMPLETION_DATE_FIELD_REGEX);
-
-    if (!dueDate && !completedDate) {
-      return null;
-    }
-
-    return {
-      text: this.cleanDashboardTaskText(taskBody),
-      status,
-      dueDate,
-      completedDate,
-    };
-  }
-
-  private readInlineFieldValue(taskBody: string, fieldRegex: RegExp): string | null {
-    const match = taskBody.match(fieldRegex);
-    return match ? match[1].trim() : null;
-  }
-
-  private cleanDashboardTaskText(taskBody: string): string {
-    return taskBody
-      .replace(INLINE_FIELD_REGEX, "")
-      .replace(TAG_REGEX, "$1")
-      .replace(MULTISPACE_REGEX, " ")
-      .trim();
   }
 
   private appendTaskTable(container: HTMLElement, title: string, rows: DashboardRow[], sourcePath: string, showDueDate: boolean): void {
@@ -308,26 +227,6 @@ export class DateDashboardController {
       .trim();
 
     return withoutArchiveMarkers || withoutExtension;
-  }
-
-  private static compareRows(left: DashboardRow, right: DashboardRow): number {
-    const pathCompare = left.file.path.localeCompare(right.file.path);
-    if (pathCompare !== 0) {
-      return pathCompare;
-    }
-
-    return left.task.localeCompare(right.task);
-  }
-
-  private static compareDueRows(left: DashboardRow, right: DashboardRow): number {
-    const leftDueDate = left.dueDate ?? EMPTY_DUE_DATE_SORT_VALUE;
-    const rightDueDate = right.dueDate ?? EMPTY_DUE_DATE_SORT_VALUE;
-    const dueDateCompare = leftDueDate.localeCompare(rightDueDate);
-    if (dueDateCompare !== 0) {
-      return dueDateCompare;
-    }
-
-    return DateDashboardController.compareRows(left, right);
   }
 }
 

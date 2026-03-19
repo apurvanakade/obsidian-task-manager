@@ -1,3 +1,19 @@
+/**
+ * Purpose:
+ * - reconcile task-line transitions and apply task semantics.
+ *
+ * Responsibilities:
+ * - detects completion/uncompletion/deletion effects from prior/current task state
+ * - applies completion metadata updates and next-action tag reassignment
+ * - inserts/updates recurring follow-up tasks based on repeat fields
+ * - triggers due-date collection behavior for newly assigned next-action tasks
+ *
+ * Dependencies:
+ * - task utilities, status helpers, and due-date modal callback integration
+ *
+ * Side Effects:
+ * - returns updated content/state and can trigger modal-driven async due-date writes
+ */
 import { App, TFile } from "obsidian";
 import {
   addNextActionTag,

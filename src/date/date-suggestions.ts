@@ -1,3 +1,18 @@
+/**
+ * Purpose:
+ * - provide shared date suggestions for editor autocomplete and due-date modal UI.
+ *
+ * Responsibilities:
+ * - provides canonical suggestion values in YYYY-MM-DD format
+ * - provides human-friendly labels (Today, Tomorrow, weekday names)
+ * - provides normalized search text for fuzzy matching in suggestion UIs
+ *
+ * Dependencies:
+ * - JavaScript Date and Intl APIs
+ *
+ * Side Effects:
+ * - none (pure value generation)
+ */
 export type DateSuggestion = {
   value: string;
   label: string;

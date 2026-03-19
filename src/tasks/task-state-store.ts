@@ -1,3 +1,19 @@
+/**
+ * Purpose:
+ * - maintain in-memory snapshots and pending-write guards.
+ *
+ * Responsibilities:
+ * - tracks previous task snapshots used for diff-based reconciliation
+ * - tracks status-field snapshots used for routing/state decisions
+ * - manages pending write/move paths to prevent self-trigger processing loops
+ * - supports path rekey operations after file moves/renames
+ *
+ * Dependencies:
+ * - task state types from task-utils.ts
+ *
+ * Side Effects:
+ * - mutates in-memory maps/sets only
+ */
 import { TaskState } from "./task-utils";
 
 export class TaskStateStore {
