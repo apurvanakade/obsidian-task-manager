@@ -12,7 +12,7 @@
    - `Next Action Tag`: tag applied to the current actionable task (default `#next-action`).
    - `Completed Status Field`: frontmatter field name to update (default `status`).
 3. Run the `Process Tasks` command from the Command Palette:
-   - Applies `Process file` behavior to all Markdown files under `Projects Folder` recursively.
+   - Applies `Process file` behavior to all Markdown files under any configured task folder recursively.
 4. Run `Process file` to process only the active note:
    - Reconciles next-action tags in the file.
    - If the file still has open tasks and current status is not `completed`, status is preserved.
@@ -35,6 +35,12 @@
       - `every year` → due date one year from today (clamped to closest valid date)
    - **Task uncompleted**: if the reopened task is now the first open task in the file, strips the tag from all other tasks and applies it to this one; status is reset to `todo`.
    - **Tagged task deleted**: moves the next-action tag to the nearest preceding incomplete task; if none, sets status to `completed`.
+   - **Status changed**: when a file's status changes to one of the routable statuses, the file is moved automatically to the matching destination folder.
+6. If the open note is named like `YYYY-MM-DD`, the plugin shows a live dashboard in the right sidebar with two tables:
+   - Due
+   - Completed
+   - Each table includes clickable filenames and task text.
+   - The dashboard only scans Markdown files inside the configured task folders.
 
 ### Completion Metadata
 

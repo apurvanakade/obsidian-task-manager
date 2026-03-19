@@ -475,6 +475,7 @@ var _TaskManagerPlugin = class _TaskManagerPlugin extends import_obsidian2.Plugi
     super(...arguments);
     this.taskStateByPath = /* @__PURE__ */ new Map();
     this.statusByPath = /* @__PURE__ */ new Map();
+    this.dateDashboardRefreshHandle = null;
     // Prevent re-processing of writes triggered by this plugin itself.
     this.pendingPaths = /* @__PURE__ */ new Set();
     this.settings = normalizeSettings({});
@@ -485,6 +486,7 @@ var _TaskManagerPlugin = class _TaskManagerPlugin extends import_obsidian2.Plugi
   async onload() {
     await this.loadSettings();
     console.log("Loading Task Manager plugin");
+    this.registerView(_TaskManagerPlugin.DATE_DASHBOARD_VIEW_TYPE, (leaf) => new DateDashboardView(leaf, this));
     this.addSettingTab(new BaseTaskManagerSettingTab(this.app, this));
     this.addCommand({
       id: "process-tasks",
@@ -501,14 +503,35 @@ var _TaskManagerPlugin = class _TaskManagerPlugin extends import_obsidian2.Plugi
       }
     });
     this.registerEvent(this.app.vault.on("modify", (file) => {
-      void this.handleFileModify(file);
+      void this.handleFileModify(file).finally(() => {
+        this.queueDateDashboardRefresh();
+      });
+    }));
+    this.registerEvent(this.app.vault.on("rename", () => {
+      this.queueDateDashboardRefresh();
+    }));
+    this.registerEvent(this.app.vault.on("delete", () => {
+      this.queueDateDashboardRefresh();
+    }));
+    this.registerEvent(this.app.workspace.on("file-open", () => {
+      this.queueDateDashboardRefresh();
+    }));
+    this.registerEvent(this.app.workspace.on("layout-change", () => {
+      this.queueDateDashboardRefresh();
     }));
     await this.primeTaskState();
+    this.removeLegacyDateDashboardElements();
+    await this.ensureDateDashboardView();
+    await this.refreshDateDashboardView();
   }
   onunload() {
     this.taskStateByPath.clear();
     this.statusByPath.clear();
     this.pendingPaths.clear();
+    if (this.dateDashboardRefreshHandle !== null) {
+      window.clearTimeout(this.dateDashboardRefreshHandle);
+      this.dateDashboardRefreshHandle = null;
+    }
     console.log("Unloading Task Manager plugin");
   }
   async loadSettings() {
@@ -885,6 +908,185 @@ ${sourceContent}`;
   escapeRegExp(value) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
+  queueDateDashboardRefresh() {
+    if (this.dateDashboardRefreshHandle !== null) {
+      window.clearTimeout(this.dateDashboardRefreshHandle);
+    }
+    this.dateDashboardRefreshHandle = window.setTimeout(() => {
+      this.dateDashboardRefreshHandle = null;
+      this.removeLegacyDateDashboardElements();
+      void this.refreshDateDashboardView();
+    }, 50);
+  }
+  removeLegacyDateDashboardElements() {
+    document.querySelectorAll(`.${_TaskManagerPlugin.LEGACY_DATE_DASHBOARD_CLASS}`).forEach((element) => {
+      element.remove();
+    });
+  }
+  async ensureDateDashboardView() {
+    const existingLeaf = this.app.workspace.getLeavesOfType(_TaskManagerPlugin.DATE_DASHBOARD_VIEW_TYPE)[0];
+    if (existingLeaf) {
+      return;
+    }
+    const leaf = await this.app.workspace.ensureSideLeaf(_TaskManagerPlugin.DATE_DASHBOARD_VIEW_TYPE, "right", {
+      active: false,
+      reveal: true,
+      split: false
+    });
+    await leaf.setViewState({ type: _TaskManagerPlugin.DATE_DASHBOARD_VIEW_TYPE, active: false });
+  }
+  async refreshDateDashboardView() {
+    const leaves = this.app.workspace.getLeavesOfType(_TaskManagerPlugin.DATE_DASHBOARD_VIEW_TYPE);
+    for (const leaf of leaves) {
+      const view = leaf.view;
+      if (view instanceof DateDashboardView) {
+        await view.refresh();
+      }
+    }
+  }
+  async renderDateDashboardContent(container) {
+    container.innerHTML = "";
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile) {
+      const emptyState = document.createElement("p");
+      emptyState.textContent = "Open a date note named like YYYY-MM-DD to view the dashboard.";
+      container.appendChild(emptyState);
+      return;
+    }
+    const dateString = this.getDateStringFromFileName(activeFile.name);
+    if (!dateString) {
+      const emptyState = document.createElement("p");
+      emptyState.textContent = "Open a date note named like YYYY-MM-DD to view the dashboard.";
+      container.appendChild(emptyState);
+      return;
+    }
+    const sourcePath = activeFile.path;
+    const tasks = await this.collectTasksForDate(dateString);
+    const dashboard = document.createElement("section");
+    dashboard.style.padding = "0.75rem";
+    const title = document.createElement("h2");
+    title.textContent = `Tasks for ${dateString}`;
+    dashboard.appendChild(title);
+    this.appendTaskTable(dashboard, "Due", tasks.dueTasks, sourcePath);
+    this.appendTaskTable(dashboard, "Completed", tasks.completedTasks, sourcePath);
+    container.appendChild(dashboard);
+  }
+  getDateStringFromFileName(fileName) {
+    const baseName = fileName.replace(/\.md$/i, "");
+    return _TaskManagerPlugin.DATE_FILE_REGEX.test(baseName) ? baseName : null;
+  }
+  async collectTasksForDate(dateString) {
+    const dueTasks = [];
+    const completedTasks = [];
+    const taskFolderRoots = this.getTaskFolderRoots();
+    const files = this.app.vault.getMarkdownFiles().filter(
+      (file) => taskFolderRoots.some((root) => file.path.startsWith(`${root}/`))
+    );
+    for (const file of files) {
+      const content = await this.app.vault.cachedRead(file);
+      const lines = content.split(/\r?\n/);
+      for (const line of lines) {
+        const parsedTask = this.parseDashboardTaskLine(line);
+        if (!parsedTask) {
+          continue;
+        }
+        if (parsedTask.status === "open" && parsedTask.dueDate !== null && parsedTask.dueDate <= dateString) {
+          dueTasks.push({ file, task: parsedTask.text });
+        }
+        if (parsedTask.completedDate === dateString) {
+          completedTasks.push({ file, task: parsedTask.text });
+        }
+      }
+    }
+    const sortRows = (left, right) => {
+      const pathCompare = left.file.path.localeCompare(right.file.path);
+      if (pathCompare !== 0) {
+        return pathCompare;
+      }
+      return left.task.localeCompare(right.task);
+    };
+    dueTasks.sort(sortRows);
+    completedTasks.sort(sortRows);
+    return { dueTasks, completedTasks };
+  }
+  parseDashboardTaskLine(line) {
+    const match = line.match(/^\s*[-*+]\s+\[( |x|X)\]\s+(.*)$/);
+    if (!match) {
+      return null;
+    }
+    const status = match[1].trim().toLowerCase() === "x" ? "completed" : "open";
+    const taskBody = match[2].trim();
+    const dueDate = this.readInlineFieldValue(taskBody, "due");
+    const completedDate = this.readInlineFieldValue(taskBody, "completion-date");
+    if (!dueDate && !completedDate) {
+      return null;
+    }
+    return {
+      text: this.cleanDashboardTaskText(taskBody),
+      status,
+      dueDate,
+      completedDate
+    };
+  }
+  readInlineFieldValue(taskBody, fieldName) {
+    const fieldRegex = new RegExp(`\\[${this.escapeRegExp(fieldName)}::\\s*([^\\]]+?)\\s*\\]`, "i");
+    const match = taskBody.match(fieldRegex);
+    return match ? match[1].trim() : null;
+  }
+  cleanDashboardTaskText(taskBody) {
+    return taskBody.replace(/\s*\[[^\]]+::\s*[^\]]*\]/g, "").replace(/\s+/g, " ").trim();
+  }
+  appendTaskTable(container, title, rows, sourcePath) {
+    const heading = document.createElement("h3");
+    heading.textContent = title;
+    container.appendChild(heading);
+    if (rows.length === 0) {
+      const emptyState = document.createElement("p");
+      emptyState.textContent = "No tasks.";
+      container.appendChild(emptyState);
+      return;
+    }
+    const table = document.createElement("table");
+    table.style.width = "100%";
+    table.style.borderCollapse = "collapse";
+    table.style.marginBottom = "1rem";
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    for (const label of ["Filename", "Task"]) {
+      const headerCell = document.createElement("th");
+      headerCell.textContent = label;
+      headerCell.style.textAlign = "left";
+      headerCell.style.borderBottom = "1px solid var(--background-modifier-border)";
+      headerCell.style.padding = "0.5rem";
+      headerRow.appendChild(headerCell);
+    }
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+    const tbody = document.createElement("tbody");
+    for (const row of rows) {
+      const tableRow = document.createElement("tr");
+      const fileCell = document.createElement("td");
+      fileCell.style.padding = "0.5rem";
+      fileCell.style.verticalAlign = "top";
+      const link = document.createElement("a");
+      link.href = "#";
+      link.textContent = row.file.name;
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        void this.app.workspace.openLinkText(row.file.path, sourcePath);
+      });
+      fileCell.appendChild(link);
+      const taskCell = document.createElement("td");
+      taskCell.style.padding = "0.5rem";
+      taskCell.style.verticalAlign = "top";
+      taskCell.textContent = row.task;
+      tableRow.appendChild(fileCell);
+      tableRow.appendChild(taskCell);
+      tbody.appendChild(tableRow);
+    }
+    table.appendChild(tbody);
+    container.appendChild(table);
+  }
   async applyCompletionRules(file, content, completedLine) {
     await applyCompletionRules({
       file,
@@ -953,6 +1155,9 @@ ${sourceContent}`;
     }
   }
 };
+_TaskManagerPlugin.DATE_FILE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+_TaskManagerPlugin.LEGACY_DATE_DASHBOARD_CLASS = "task-manager-date-dashboard";
+_TaskManagerPlugin.DATE_DASHBOARD_VIEW_TYPE = "task-manager-date-dashboard";
 _TaskManagerPlugin.ROUTABLE_STATUSES = ["todo", "completed", "waiting", "scheduled", "someday-maybe"];
 var TaskManagerPlugin = _TaskManagerPlugin;
 var BaseTaskManagerSettingTab = class extends import_obsidian2.PluginSettingTab {
@@ -962,5 +1167,23 @@ var BaseTaskManagerSettingTab = class extends import_obsidian2.PluginSettingTab 
   }
   display() {
     this.renderer.display();
+  }
+};
+var DateDashboardView = class extends import_obsidian2.ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+  }
+  getViewType() {
+    return "task-manager-date-dashboard";
+  }
+  getDisplayText() {
+    return "Date Dashboard";
+  }
+  async onOpen() {
+    await this.refresh();
+  }
+  async refresh() {
+    await this.plugin.renderDateDashboardContent(this.contentEl);
   }
 };

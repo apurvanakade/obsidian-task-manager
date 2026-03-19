@@ -14,6 +14,11 @@ declare module "obsidian" {
 
   export class TFolder extends TAbstractFile {}
 
+  export class WorkspaceLeaf {
+    view: unknown;
+    setViewState(viewState: { type: string; active?: boolean }): Promise<void>;
+  }
+
   export interface EventRef {}
 
   export interface Vault {
@@ -25,6 +30,8 @@ declare module "obsidian" {
     createFolder(path: string): Promise<TFolder>;
     delete(file: TAbstractFile, force?: boolean): Promise<void>;
     on(name: "modify", callback: (file: TFile) => void | Promise<void>): EventRef;
+    on(name: "rename", callback: (file: TAbstractFile, oldPath: string) => void | Promise<void>): EventRef;
+    on(name: "delete", callback: (file: TAbstractFile) => void | Promise<void>): EventRef;
   }
 
   export interface FileManager {
@@ -32,8 +39,23 @@ declare module "obsidian" {
     renameFile(file: TAbstractFile, newPath: string): Promise<void>;
   }
 
+  export class MarkdownPreviewView {
+    containerEl: HTMLElement;
+    file: TFile;
+  }
+
+  export class MarkdownView {
+    file: TFile | null;
+    previewMode: MarkdownPreviewView;
+  }
+
   export interface Workspace {
     getActiveFile(): TFile | null;
+    openLinkText(linktext: string, sourcePath: string, newLeaf?: boolean): Promise<void>;
+    on(name: "file-open", callback: (file: TFile | null) => void | Promise<void>): EventRef;
+    on(name: "layout-change", callback: () => void | Promise<void>): EventRef;
+    getLeavesOfType(viewType: string): WorkspaceLeaf[];
+    ensureSideLeaf(type: string, side: string, options?: { active?: boolean; split?: boolean; reveal?: boolean; state?: unknown }): Promise<WorkspaceLeaf>;
   }
 
   export interface App {
@@ -48,8 +70,17 @@ declare module "obsidian" {
     addCommand(command: { id: string; name: string; callback: () => void }): void;
     addSettingTab(settingTab: PluginSettingTab): void;
     registerEvent(eventRef: EventRef): void;
+    registerView(type: string, viewCreator: (leaf: WorkspaceLeaf) => unknown): void;
     loadData(): Promise<unknown>;
     saveData(data: unknown): Promise<void>;
+  }
+
+  export class ItemView {
+    contentEl: ObsidianHTMLElement;
+    constructor(leaf: WorkspaceLeaf);
+    getViewType(): string;
+    getDisplayText(): string;
+    onOpen(): Promise<void> | void;
   }
 
   export class PluginSettingTab {
