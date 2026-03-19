@@ -1,5 +1,5 @@
 import { App, Modal, TFile, TFolder } from "obsidian";
-import { TaskManagerSettings } from "./settings-utils";
+import { TaskManagerSettings } from "../settings/settings-utils";
 
 export type RoutableStatus = "todo" | "completed" | "waiting" | "scheduled" | "someday-maybe";
 

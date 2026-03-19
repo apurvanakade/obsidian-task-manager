@@ -9,7 +9,7 @@ This Obsidian plugin manages project/task notes by:
 - reconciling task transitions (`[ ]` <-> `[x]`) and `next-action` tagging
 - writing completion metadata on completed tasks
 - creating recurring task follow-ups from repeat fields
-- offering editor autocomplete for `due:` / `due::` date entry
+- offering editor autocomplete for `due::` date entry
 - updating status and routing files between configured folders
 - rendering a date-note dashboard (`YYYY-MM-DD`) in a right sidebar view
 
@@ -38,16 +38,16 @@ Entrypoint:
 
 Core modules:
 
-- `src/task-processor.ts`: runtime orchestration for file modify events and command-triggered processing.
-- `src/task-state-store.ts`: in-memory state (tasks/status maps + pending write guards + path rekey logic).
-- `src/status-routing.ts`: status extraction, predicted status logic, and routable-status validation.
-- `src/task-routing.ts`: destination root resolution, relative path preservation, folder creation, merge conflict prompt, and empty-folder cleanup.
-- `src/reconciler.ts`: task-level reconciliation (completion/uncompletion/deletion + recurring-task clone insertion).
-- `src/date-dashboard.ts`: right sidebar date dashboard view registration, refresh scheduling, data collection, sorting, and rendering.
-- `src/due-date-suggest.ts`: editor suggest provider for `due:` / `due::` date completion.
-- `src/task-utils.ts`: task parsing/diff helpers and tag manipulation helpers.
-- `src/settings-ui.ts`: plugin settings tab renderer.
-- `src/settings-utils.ts`: settings defaults + normalization.
+- `src/tasks/task-processor.ts`: runtime orchestration for file modify events and command-triggered processing.
+- `src/tasks/task-state-store.ts`: in-memory state (tasks/status maps + pending write guards + path rekey logic).
+- `src/routing/status-routing.ts`: status extraction, predicted status logic, and routable-status validation.
+- `src/routing/task-routing.ts`: destination root resolution, relative path preservation, folder creation, merge conflict prompt, and empty-folder cleanup.
+- `src/tasks/reconciler.ts`: task-level reconciliation (completion/uncompletion/deletion + recurring-task clone insertion).
+- `src/dashboard/date-dashboard.ts`: right sidebar date dashboard view registration, refresh scheduling, data collection, sorting, and rendering.
+- `src/editor/due-date-suggest.ts`: editor suggest provider for `due::` date completion.
+- `src/tasks/task-utils.ts`: task parsing/diff helpers and tag manipulation helpers.
+- `src/settings/settings-ui.ts`: plugin settings tab renderer.
+- `src/settings/settings-utils.ts`: settings defaults + normalization.
 
 Typing source:
 
@@ -76,7 +76,7 @@ Loop prevention:
 Editor suggest flow:
 
 1. `main.ts` registers `DueDateEditorSuggest` during plugin load.
-2. Typing `due:` or `due::` triggers suggestions for dates from today through +30 days.
+2. Typing `due::` triggers suggestions for dates from today through +30 days.
 3. Selected suggestion inserts `YYYY-MM-DD` at the cursor.
 
 ## 5) Status and Routing Rules
@@ -198,7 +198,7 @@ Maintenance rule (required):
 
 - After any code change that affects behavior, architecture, commands, settings, data flow, file organization, or validation steps, update this file in the same change set before finishing.
 - Keep updates minimal but explicit: revise affected sections and (when relevant) add/adjust regression checklist items.
-- Do not leave this summary stale relative to `main.ts` and `src/*` runtime behavior.
+- Do not leave this summary stale relative to `main.ts` and `src/{tasks,routing,settings,dashboard,editor}/*` runtime behavior.
 
 When changing routing logic:
 
@@ -232,7 +232,7 @@ Run after meaningful logic changes:
 8. Date dashboard appears in sidebar for date note and renders Due/Completed correctly.
 9. Due table sorted ascending by due date and shows `MM-DD` column.
 10. Dashboard text cleanup removes inline fields/tags; filename display cleanup is applied.
-11. Typing `due:` or `due::` shows date suggestions starting from today and inserts `YYYY-MM-DD`.
+11. Typing `due::` shows date suggestions starting from today and inserts `YYYY-MM-DD`.
 
 ## 11) Known Constraints
 

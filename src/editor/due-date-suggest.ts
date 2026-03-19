@@ -34,7 +34,7 @@ export class DueDateEditorSuggest extends EditorSuggest<DueDateSuggestion> {
 
   onTrigger(cursor: EditorPosition, editor: Editor): EditorSuggestTriggerInfo | null {
     const linePrefix = editor.getLine(cursor.line).slice(0, cursor.ch);
-    const triggerMatch = linePrefix.match(/due::?\s*([0-9-]*)$/i);
+    const triggerMatch = linePrefix.match(/due::\s*([0-9-]*)$/i);
     if (!triggerMatch) {
       this.triggerInfo = null;
       this.activeEditor = null;

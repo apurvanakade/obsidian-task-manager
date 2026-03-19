@@ -1,4 +1,4 @@
-import { TaskManagerSettings } from "./settings-utils";
+import { TaskManagerSettings } from "../settings/settings-utils";
 import { getDestinationRootForStatus } from "./task-routing";
 
 export const ROUTABLE_STATUSES = ["todo", "completed", "waiting", "scheduled", "someday-maybe"] as const;

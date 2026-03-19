@@ -1,5 +1,5 @@
 import { App, Notice, TFile, TFolder } from "obsidian";
-import { TaskManagerSettings } from "./settings-utils";
+import { TaskManagerSettings } from "../settings/settings-utils";
 import {
   extractTaskState,
   findDeletedTaggedTask,
@@ -20,13 +20,13 @@ import {
   getDestinationRootForStatus,
   getTaskFolderRoots,
   promptMergeOrSkip
-} from "./task-routing";
+} from "../routing/task-routing";
 import {
   assertConfiguredDestinationForStatus,
   isRoutableStatus,
   predictFinalStatus,
   readStatusValue
-} from "./status-routing";
+} from "../routing/status-routing";
 import { TaskStateStore } from "./task-state-store";
 
 type TaskProcessorOptions = {

@@ -7,8 +7,8 @@ import {
   stripNextActionTags,
   TaskState
 } from "./task-utils";
-import { TaskManagerSettings } from "./settings-utils";
-import { readStatusValue } from "./status-routing";
+import { TaskManagerSettings } from "../settings/settings-utils";
+import { readStatusValue } from "../routing/status-routing";
 
 type ReconcilerContext = {
   file: TFile;

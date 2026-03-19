@@ -25,7 +25,7 @@ __export(main_exports, {
 module.exports = __toCommonJS(main_exports);
 var import_obsidian6 = require("obsidian");
 
-// src/date-dashboard.ts
+// src/dashboard/date-dashboard.ts
 var import_obsidian = require("obsidian");
 var _DateDashboardController = class _DateDashboardController {
   constructor(options) {
@@ -300,7 +300,7 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// src/due-date-suggest.ts
+// src/editor/due-date-suggest.ts
 var import_obsidian2 = require("obsidian");
 var LOOKAHEAD_DAYS = 30;
 var DueDateEditorSuggest = class extends import_obsidian2.EditorSuggest {
@@ -322,7 +322,7 @@ var DueDateEditorSuggest = class extends import_obsidian2.EditorSuggest {
   onTrigger(cursor, editor) {
     var _a;
     const linePrefix = editor.getLine(cursor.line).slice(0, cursor.ch);
-    const triggerMatch = linePrefix.match(/due::?\s*([0-9-]*)$/i);
+    const triggerMatch = linePrefix.match(/due::\s*([0-9-]*)$/i);
     if (!triggerMatch) {
       this.triggerInfo = null;
       this.activeEditor = null;
@@ -400,7 +400,7 @@ function formatDate(date) {
   return `${year}-${month}-${day}`;
 }
 
-// src/settings-utils.ts
+// src/settings/settings-utils.ts
 var DEFAULT_SETTINGS = {
   nextActionTag: "#next-action",
   statusField: "status",
@@ -438,7 +438,7 @@ function normalizeSettings(rawSettings) {
   };
 }
 
-// src/settings-ui.ts
+// src/settings/settings-ui.ts
 var import_obsidian3 = require("obsidian");
 var TaskManagerSettingTabRenderer = class {
   constructor(baseSettingTab, plugin) {
@@ -542,7 +542,7 @@ function openFolderPicker(app, onChoose) {
   new ProjectsFolderSuggestModal().open();
 }
 
-// src/task-routing.ts
+// src/routing/task-routing.ts
 var import_obsidian4 = require("obsidian");
 function getDestinationRootForStatus(settings, status) {
   switch (status) {
@@ -683,10 +683,10 @@ function getParentPath(path) {
   return slashIndex === -1 ? "" : path.slice(0, slashIndex);
 }
 
-// src/task-processor.ts
+// src/tasks/task-processor.ts
 var import_obsidian5 = require("obsidian");
 
-// src/task-utils.ts
+// src/tasks/task-utils.ts
 var TASK_LINE_REGEX = /^(\s*[-*+]\s+\[( |x|X)\]\s+)(.*)$/;
 function extractTaskState(content, nextActionTag) {
   const lines = content.split(/\r?\n/);
@@ -791,7 +791,7 @@ function escapeRegExp2(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// src/status-routing.ts
+// src/routing/status-routing.ts
 var ROUTABLE_STATUSES = ["todo", "completed", "waiting", "scheduled", "someday-maybe"];
 function isRoutableStatus(value) {
   return ROUTABLE_STATUSES.includes(value);
@@ -834,7 +834,7 @@ function escapeRegExp3(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// src/reconciler.ts
+// src/tasks/reconciler.ts
 function isInProjectsFolder(filePath, projectsFolder) {
   return filePath === projectsFolder || filePath.startsWith(`${projectsFolder}/`);
 }
@@ -1012,7 +1012,7 @@ function formatDate2(date) {
   return `${year}-${month}-${day}`;
 }
 
-// src/task-state-store.ts
+// src/tasks/task-state-store.ts
 var TaskStateStore = class {
   constructor() {
     this.taskStateByPath = /* @__PURE__ */ new Map();
@@ -1069,7 +1069,7 @@ var TaskStateStore = class {
   }
 };
 
-// src/task-processor.ts
+// src/tasks/task-processor.ts
 var TaskProcessor = class {
   constructor(options) {
     this.stateStore = new TaskStateStore();

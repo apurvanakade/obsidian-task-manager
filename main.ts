@@ -1,10 +1,10 @@
 import { App, Notice, Plugin, PluginSettingTab, TFile } from "obsidian";
-import { DateDashboardController } from "./src/date-dashboard";
-import { DueDateEditorSuggest } from "./src/due-date-suggest";
-import { normalizeSettings, TaskManagerSettings } from "./src/settings-utils";
-import { TaskManagerSettingTabRenderer } from "./src/settings-ui";
-import { getTaskFolderRoots } from "./src/task-routing";
-import { TaskProcessor } from "./src/task-processor";
+import { DateDashboardController } from "./src/dashboard/date-dashboard";
+import { DueDateEditorSuggest } from "./src/editor/due-date-suggest";
+import { normalizeSettings, TaskManagerSettings } from "./src/settings/settings-utils";
+import { TaskManagerSettingTabRenderer } from "./src/settings/settings-ui";
+import { getTaskFolderRoots } from "./src/routing/task-routing";
+import { TaskProcessor } from "./src/tasks/task-processor";
 
 export default class TaskManagerPlugin extends Plugin {
   private taskProcessor: TaskProcessor | null = null;

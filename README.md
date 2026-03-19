@@ -40,7 +40,7 @@ For a detailed architecture and behavior handoff, see [AGENT_STARTUP_SUMMARY.md]
    - **Task uncompleted**: if the reopened task is now the first open task in the file, strips the tag from all other tasks and applies it to this one; status is reset to `todo`.
    - **Tagged task deleted**: moves the next-action tag to the nearest preceding incomplete task; if none, sets status to `completed`.
    - **Status changed**: when a file's status changes to one of the routable statuses, the file is moved automatically to the matching destination folder.
-6. While typing in a Markdown editor, entering `due:` (or `due::`) opens a date suggestion list:
+6. While typing in a Markdown editor, entering `due::` opens a date suggestion list:
    - Suggestions start at today and continue forward for 30 days.
    - Inserted date format is `YYYY-MM-DD`.
    - Typing a partial date filters suggestions by prefix.
@@ -68,15 +68,62 @@ Recurring task copies use due dates in this format:
 
 - `main.ts`: TypeScript source entrypoint (source of truth).
 - `main.js`: bundled runtime output loaded by Obsidian (`npm run build` regenerates this file).
-- `src/date-dashboard.ts`: right-sidebar date dashboard view, data collection, and rendering.
-- `src/due-date-suggest.ts`: editor autocomplete provider for `due:`/`due::` date suggestions.
-- `src/task-processor.ts`: task reconciliation, modify handling, status tracking, and file routing orchestration.
-- `src/task-state-store.ts`: in-memory per-file task/status state and pending write guards.
-- `src/status-routing.ts`: status parsing, predicted status logic, and routing validation helpers.
-- `src/task-routing.ts`: file routing, folder path helpers, and merge prompt.
-- `src/settings-utils.ts`: settings type, defaults, and normalization helpers.
-- `src/task-utils.ts`: task parsing, state diffing, and tag manipulation utilities.
-- `src/reconciler.ts`: completion, uncompletion, deletion, and initialization reconciliation workflows.
-- `src/settings-ui.ts`: settings tab rendering and folder picker UI.
+- `src/dashboard/date-dashboard.ts`: right-sidebar date dashboard view, data collection, and rendering.
+- `src/editor/due-date-suggest.ts`: editor autocomplete provider for `due::` date suggestions.
+- `src/tasks/task-processor.ts`: task reconciliation, modify handling, status tracking, and file routing orchestration.
+- `src/tasks/task-state-store.ts`: in-memory per-file task/status state and pending write guards.
+- `src/tasks/task-utils.ts`: task parsing, state diffing, and tag manipulation utilities.
+- `src/tasks/reconciler.ts`: completion, uncompletion, deletion, and initialization reconciliation workflows.
+- `src/routing/status-routing.ts`: status parsing, predicted status logic, and routing validation helpers.
+- `src/routing/task-routing.ts`: file routing, folder path helpers, and merge prompt.
+- `src/settings/settings-utils.ts`: settings type, defaults, and normalization helpers.
+- `src/settings/settings-ui.ts`: settings tab rendering and folder picker UI.
 - `manifest.json`: Obsidian plugin metadata.
 - Obsidian typings are provided by the `obsidian` npm package in `devDependencies`.
+
+## Dependency Graph
+
+```mermaid
+graph TD
+   M[main.ts]
+
+   D[src/dashboard/date-dashboard.ts]
+   E[src/editor/due-date-suggest.ts]
+
+   SUI[src/settings/settings-ui.ts]
+   SU[src/settings/settings-utils.ts]
+
+   RS[src/routing/status-routing.ts]
+   RT[src/routing/task-routing.ts]
+
+   TP[src/tasks/task-processor.ts]
+   RC[src/tasks/reconciler.ts]
+   TS[src/tasks/task-state-store.ts]
+   TU[src/tasks/task-utils.ts]
+
+   M --> D
+   M --> E
+   M --> SU
+   M --> SUI
+   M --> RT
+   M --> TP
+
+   SUI --> SU
+
+   RS --> SU
+   RS --> RT
+   RT --> SU
+
+   TP --> SU
+   TP --> TU
+   TP --> RC
+   TP --> RT
+   TP --> RS
+   TP --> TS
+
+   RC --> TU
+   RC --> SU
+   RC --> RS
+
+   TS --> TU
+```
