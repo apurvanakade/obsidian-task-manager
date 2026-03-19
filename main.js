@@ -81,8 +81,8 @@ var _DateDashboardController = class _DateDashboardController {
     title.textContent = `Tasks for ${dateString}`;
     dashboard.appendChild(title);
     const tasks = await this.collectTasksForDate(dateString);
-    this.appendTaskTable(dashboard, "Due", tasks.dueTasks, activeFile.path);
-    this.appendTaskTable(dashboard, "Completed", tasks.completedTasks, activeFile.path);
+    this.appendTaskTable(dashboard, "Due", tasks.dueTasks, activeFile.path, true);
+    this.appendTaskTable(dashboard, "Completed", tasks.completedTasks, activeFile.path, false);
     container.appendChild(dashboard);
   }
   queueRefresh() {
@@ -146,10 +146,10 @@ var _DateDashboardController = class _DateDashboardController {
           continue;
         }
         if (parsedTask.status === "open" && parsedTask.dueDate !== null && parsedTask.dueDate <= dateString) {
-          dueTasks.push({ file, task: parsedTask.text });
+          dueTasks.push({ file, task: parsedTask.text, dueDate: parsedTask.dueDate });
         }
         if (parsedTask.completedDate === dateString) {
-          completedTasks.push({ file, task: parsedTask.text });
+          completedTasks.push({ file, task: parsedTask.text, dueDate: null });
         }
       }
     }
@@ -160,7 +160,17 @@ var _DateDashboardController = class _DateDashboardController {
       }
       return left.task.localeCompare(right.task);
     };
-    dueTasks.sort(sortRows);
+    const sortDueRows = (left, right) => {
+      var _a, _b;
+      const leftDueDate = (_a = left.dueDate) != null ? _a : "9999-99-99";
+      const rightDueDate = (_b = right.dueDate) != null ? _b : "9999-99-99";
+      const dueDateCompare = leftDueDate.localeCompare(rightDueDate);
+      if (dueDateCompare !== 0) {
+        return dueDateCompare;
+      }
+      return sortRows(left, right);
+    };
+    dueTasks.sort(sortDueRows);
     completedTasks.sort(sortRows);
     return { dueTasks, completedTasks };
   }
@@ -191,7 +201,7 @@ var _DateDashboardController = class _DateDashboardController {
   cleanDashboardTaskText(taskBody) {
     return taskBody.replace(/\s*\[[^\]]+::\s*[^\]]*\]/g, "").replace(/\s+/g, " ").trim();
   }
-  appendTaskTable(container, title, rows, sourcePath) {
+  appendTaskTable(container, title, rows, sourcePath, showDueDate) {
     const heading = document.createElement("h3");
     heading.textContent = title;
     container.appendChild(heading);
@@ -207,7 +217,8 @@ var _DateDashboardController = class _DateDashboardController {
     table.style.marginBottom = "1rem";
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
-    for (const label of ["Filename", "Task"]) {
+    const labels = showDueDate ? ["Filename", "Task", "Due"] : ["Filename", "Task"];
+    for (const label of labels) {
       const headerCell = document.createElement("th");
       headerCell.textContent = label;
       headerCell.style.textAlign = "left";
@@ -237,10 +248,24 @@ var _DateDashboardController = class _DateDashboardController {
       taskCell.textContent = row.task;
       tableRow.appendChild(fileCell);
       tableRow.appendChild(taskCell);
+      if (showDueDate) {
+        const dueDateCell = document.createElement("td");
+        dueDateCell.style.padding = "0.5rem";
+        dueDateCell.style.verticalAlign = "top";
+        dueDateCell.textContent = this.formatMonthDay(row.dueDate);
+        tableRow.appendChild(dueDateCell);
+      }
       tbody.appendChild(tableRow);
     }
     table.appendChild(tbody);
     container.appendChild(table);
+  }
+  formatMonthDay(dateString) {
+    if (!dateString) {
+      return "";
+    }
+    const match = dateString.match(/^\d{4}-(\d{2})-(\d{2})$/);
+    return match ? `${match[1]}-${match[2]}` : dateString;
   }
 };
 _DateDashboardController.DATE_FILE_REGEX = /^\d{4}-\d{2}-\d{2}$/;

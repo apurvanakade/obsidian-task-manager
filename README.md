@@ -37,7 +37,7 @@
    - **Tagged task deleted**: moves the next-action tag to the nearest preceding incomplete task; if none, sets status to `completed`.
    - **Status changed**: when a file's status changes to one of the routable statuses, the file is moved automatically to the matching destination folder.
 6. If the open note is named like `YYYY-MM-DD`, the plugin shows a live dashboard in the right sidebar with two tables:
-   - Due: open tasks with `[due:: YYYY-MM-DD]` on or before the note date
+   - Due: open tasks with `[due:: YYYY-MM-DD]` on or before the note date, with a `MM-DD` due-date column
    - Completed: tasks with `[completion-date:: YYYY-MM-DD]` exactly matching the note date
    - Each table includes clickable filenames and task text.
    - The dashboard only scans Markdown files inside the configured task folders.
