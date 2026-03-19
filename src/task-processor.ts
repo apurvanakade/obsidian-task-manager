@@ -4,8 +4,7 @@ import {
   extractTaskState,
   findDeletedTaggedTask,
   findNewlyCompletedTask,
-  findNewlyUncompletedTask,
-  TaskState
+  findNewlyUncompletedTask
 } from "./task-utils";
 import {
   applyCompletionRules,
@@ -22,6 +21,13 @@ import {
   getTaskFolderRoots,
   promptMergeOrSkip
 } from "./task-routing";
+import {
+  assertConfiguredDestinationForStatus,
+  isRoutableStatus,
+  predictFinalStatus,
+  readStatusValue
+} from "./status-routing";
+import { TaskStateStore } from "./task-state-store";
 
 type TaskProcessorOptions = {
   app: App;
@@ -29,13 +35,9 @@ type TaskProcessorOptions = {
 };
 
 export class TaskProcessor {
-  private static readonly ROUTABLE_STATUSES = ["todo", "completed", "waiting", "scheduled", "someday-maybe"] as const;
-
   private readonly app: App;
   private readonly getSettings: () => TaskManagerSettings;
-  private readonly taskStateByPath = new Map<string, TaskState[]>();
-  private readonly statusByPath = new Map<string, string | null>();
-  private readonly pendingPaths = new Set<string>();
+  private readonly stateStore = new TaskStateStore();
 
   constructor(options: TaskProcessorOptions) {
     this.app = options.app;
@@ -43,40 +45,38 @@ export class TaskProcessor {
   }
 
   onunload(): void {
-    this.taskStateByPath.clear();
-    this.statusByPath.clear();
-    this.pendingPaths.clear();
+    this.stateStore.clear();
   }
 
   async primeState(): Promise<void> {
     const markdownFiles = this.app.vault.getMarkdownFiles();
     const settings = this.getSettings();
-    this.statusByPath.clear();
+    this.stateStore.clear();
 
     for (const file of markdownFiles) {
       const content = await this.app.vault.cachedRead(file);
-      this.taskStateByPath.set(file.path, extractTaskState(content, settings.nextActionTag));
-      this.statusByPath.set(file.path, this.readStatusValue(content, settings.statusField));
+      this.stateStore.setTaskState(file.path, extractTaskState(content, settings.nextActionTag));
+      this.stateStore.setStatus(file.path, readStatusValue(content, settings.statusField));
     }
   }
 
   async handleFileModify(file: TFile): Promise<void> {
-    if (file.extension !== "md" || this.pendingPaths.has(file.path)) {
+    if (file.extension !== "md" || this.stateStore.isPending(file.path)) {
       return;
     }
 
     const settings = this.getSettings();
     const content = await this.app.vault.cachedRead(file);
     const nextState = extractTaskState(content, settings.nextActionTag);
-    const previousState = this.taskStateByPath.get(file.path) ?? [];
-    const previousStatus = this.statusByPath.get(file.path) ?? null;
-    const currentStatus = this.readStatusValue(content, settings.statusField);
+    const previousState = this.stateStore.getTaskState(file.path);
+    const previousStatus = this.stateStore.getStatus(file.path);
+    const currentStatus = readStatusValue(content, settings.statusField);
     const completion = findNewlyCompletedTask(previousState, nextState);
     const uncompleted = findNewlyUncompletedTask(previousState, nextState);
     const deletedTaggedTaskLine = findDeletedTaggedTask(previousState, nextState);
 
-    this.taskStateByPath.set(file.path, nextState);
-    this.statusByPath.set(file.path, currentStatus);
+    this.stateStore.setTaskState(file.path, nextState);
+    this.stateStore.setStatus(file.path, currentStatus);
 
     if (completion !== null) {
       await this.applyCompletionRules(file, content, completion, settings);
@@ -127,17 +127,13 @@ export class TaskProcessor {
     return `Processed ${count} project file${count === 1 ? "" : "s"}.`;
   }
 
-  private isRoutableStatus(value: string): value is (typeof TaskProcessor.ROUTABLE_STATUSES)[number] {
-    return (TaskProcessor.ROUTABLE_STATUSES as readonly string[]).includes(value);
-  }
-
   private async processAndRouteFile(file: TFile): Promise<string> {
     const settings = this.getSettings();
     const initialContent = await this.app.vault.cachedRead(file);
-    const initialStatus = this.readStatusValue(initialContent, settings.statusField);
+    const initialStatus = readStatusValue(initialContent, settings.statusField);
     const hasOpenTasks = extractTaskState(initialContent, settings.nextActionTag).some((task) => task.status === "open");
-    const predictedStatus = this.predictFinalStatus(initialStatus, hasOpenTasks);
-    this.assertConfiguredDestinationForStatus(predictedStatus, settings);
+    const predictedStatus = predictFinalStatus(initialStatus, hasOpenTasks);
+    assertConfiguredDestinationForStatus(predictedStatus, settings);
 
     await this.reconcileSingleFile(file, settings);
 
@@ -153,22 +149,22 @@ export class TaskProcessor {
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
       setTaskState: (filePath, nextState) => {
-        this.taskStateByPath.set(filePath, nextState);
+        this.stateStore.setTaskState(filePath, nextState);
       }
     });
   }
 
   private async routeAfterStatusChange(file: TFile, previousStatus: string | null, settings: TaskManagerSettings): Promise<void> {
     const latestContent = await this.app.vault.cachedRead(file);
-    const latestStatus = this.readStatusValue(latestContent, settings.statusField);
-    this.statusByPath.set(file.path, latestStatus);
+    const latestStatus = readStatusValue(latestContent, settings.statusField);
+    this.stateStore.setStatus(file.path, latestStatus);
 
     if (latestStatus === previousStatus) {
       return;
     }
 
     try {
-      this.assertConfiguredDestinationForStatus(latestStatus, settings);
+      assertConfiguredDestinationForStatus(latestStatus, settings);
       await this.routeFileByStatus(file, settings, latestStatus);
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Failed to route file after status change.");
@@ -176,8 +172,8 @@ export class TaskProcessor {
   }
 
   private async routeFileByStatus(file: TFile, settings: TaskManagerSettings, statusOverride?: string | null): Promise<string | null> {
-    const status = statusOverride ?? this.readStatusValue(await this.app.vault.cachedRead(file), settings.statusField);
-    if (!status || !this.isRoutableStatus(status)) {
+    const status = statusOverride ?? readStatusValue(await this.app.vault.cachedRead(file), settings.statusField);
+    if (!status || !isRoutableStatus(status)) {
       return null;
     }
 
@@ -211,53 +207,9 @@ export class TaskProcessor {
 
     const sourcePath = file.path;
     await this.app.fileManager.renameFile(file, destinationPath);
-    this.rekeyTaskState(sourcePath, destinationPath);
+    this.stateStore.rekey(sourcePath, destinationPath);
     await deleteEmptyParentFolders(this.app, getTaskFolderRoots(settings), sourcePath);
     return `Moved ${file.name} to ${destinationRoot}.`;
-  }
-
-  private readStatusValue(content: string, statusField: string): string | null {
-    const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-    if (!frontmatterMatch) {
-      return null;
-    }
-
-    const fieldRegex = new RegExp(`^\\s*${this.escapeRegExp(statusField)}\\s*:\\s*(.*?)\\s*$`, "i");
-    const lines = frontmatterMatch[1].split(/\r?\n/);
-
-    for (const line of lines) {
-      const match = line.match(fieldRegex);
-      if (!match) {
-        continue;
-      }
-
-      return match[1].replace(/^['\"]|['\"]$/g, "").trim().toLowerCase();
-    }
-
-    return null;
-  }
-
-  private predictFinalStatus(currentStatus: string | null, hasOpenTasks: boolean): string | null {
-    if (hasOpenTasks) {
-      if (currentStatus !== null && currentStatus !== "completed") {
-        return currentStatus;
-      }
-
-      return "todo";
-    }
-
-    return "completed";
-  }
-
-  private assertConfiguredDestinationForStatus(status: string | null, settings: TaskManagerSettings): void {
-    if (!status || !this.isRoutableStatus(status)) {
-      return;
-    }
-
-    const destinationRoot = getDestinationRootForStatus(settings, status);
-    if (!destinationRoot) {
-      throw new Error(`Set destination folder for status '${status}' in Task Manager settings.`);
-    }
   }
 
   private async mergeIntoExistingFile(sourceFile: TFile, destinationFile: TFile, settings: TaskManagerSettings): Promise<void> {
@@ -268,42 +220,25 @@ export class TaskProcessor {
       ? destinationContent
       : `${destinationContent.trimEnd()}\n\n---\n\n${sourceContent}`;
 
-    this.pendingPaths.add(destinationFile.path);
-    this.pendingPaths.add(sourceFile.path);
+    this.stateStore.markPending(destinationFile.path);
+    this.stateStore.markPending(sourceFile.path);
 
     try {
       await this.app.vault.modify(destinationFile, mergedContent);
       await this.app.vault.delete(sourceFile);
-      this.taskStateByPath.delete(sourceFile.path);
-      this.statusByPath.delete(sourceFile.path);
-      this.taskStateByPath.set(
+      this.stateStore.delete(sourceFile.path);
+      this.stateStore.setTaskState(
         destinationFile.path,
         extractTaskState(mergedContent, settings.nextActionTag)
       );
-      this.statusByPath.set(destinationFile.path, this.readStatusValue(mergedContent, settings.statusField));
+      this.stateStore.setStatus(destinationFile.path, readStatusValue(mergedContent, settings.statusField));
       await deleteEmptyParentFolders(this.app, getTaskFolderRoots(settings), sourcePath);
     } finally {
       window.setTimeout(() => {
-        this.pendingPaths.delete(destinationFile.path);
-        this.pendingPaths.delete(sourceFile.path);
+        this.stateStore.unmarkPending(destinationFile.path);
+        this.stateStore.unmarkPending(sourceFile.path);
       }, 0);
     }
-  }
-
-  private rekeyTaskState(oldPath: string, newPath: string): void {
-    const existing = this.taskStateByPath.get(oldPath);
-    this.taskStateByPath.delete(oldPath);
-    if (existing) {
-      this.taskStateByPath.set(newPath, existing);
-    }
-
-    const existingStatus = this.statusByPath.get(oldPath) ?? null;
-    this.statusByPath.delete(oldPath);
-    this.statusByPath.set(newPath, existingStatus);
-  }
-
-  private escapeRegExp(value: string): string {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
   private async applyCompletionRules(file: TFile, content: string, completedLine: number, settings: TaskManagerSettings): Promise<void> {
@@ -316,7 +251,7 @@ export class TaskProcessor {
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
       setTaskState: (filePath, nextState) => {
-        this.taskStateByPath.set(filePath, nextState);
+        this.stateStore.setTaskState(filePath, nextState);
       }
     });
   }
@@ -331,7 +266,7 @@ export class TaskProcessor {
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
       setTaskState: (filePath, nextState) => {
-        this.taskStateByPath.set(filePath, nextState);
+        this.stateStore.setTaskState(filePath, nextState);
       }
     });
   }
@@ -346,36 +281,36 @@ export class TaskProcessor {
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
       setTaskState: (filePath, nextState) => {
-        this.taskStateByPath.set(filePath, nextState);
+        this.stateStore.setTaskState(filePath, nextState);
       }
     });
   }
 
   private async writeFileContent(file: TFile, content: string, settings: TaskManagerSettings): Promise<void> {
-    this.pendingPaths.add(file.path);
+    this.stateStore.markPending(file.path);
 
     try {
       await this.app.vault.modify(file, content);
-      this.taskStateByPath.set(file.path, extractTaskState(content, settings.nextActionTag));
-      this.statusByPath.set(file.path, this.readStatusValue(content, settings.statusField));
+      this.stateStore.setTaskState(file.path, extractTaskState(content, settings.nextActionTag));
+      this.stateStore.setStatus(file.path, readStatusValue(content, settings.statusField));
     } finally {
       window.setTimeout(() => {
-        this.pendingPaths.delete(file.path);
+        this.stateStore.unmarkPending(file.path);
       }, 0);
     }
   }
 
   private async setFileStatus(file: TFile, status: string, settings: TaskManagerSettings): Promise<void> {
-    this.pendingPaths.add(file.path);
+    this.stateStore.markPending(file.path);
 
     try {
       await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, string>) => {
         frontmatter[settings.statusField] = status;
       });
-      this.statusByPath.set(file.path, status);
+      this.stateStore.setStatus(file.path, status);
     } finally {
       window.setTimeout(() => {
-        this.pendingPaths.delete(file.path);
+        this.stateStore.unmarkPending(file.path);
       }, 0);
     }
   }

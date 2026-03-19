@@ -860,46 +860,141 @@ function escapeRegExp3(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// src/task-processor.ts
-var _TaskProcessor = class _TaskProcessor {
-  constructor(options) {
+// src/status-routing.ts
+var ROUTABLE_STATUSES = ["todo", "completed", "waiting", "scheduled", "someday-maybe"];
+function isRoutableStatus(value) {
+  return ROUTABLE_STATUSES.includes(value);
+}
+function readStatusValue(content, statusField) {
+  const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!frontmatterMatch) {
+    return null;
+  }
+  const fieldRegex = new RegExp(`^\\s*${escapeRegExp4(statusField)}\\s*:\\s*(.*?)\\s*$`, "i");
+  const lines = frontmatterMatch[1].split(/\r?\n/);
+  for (const line of lines) {
+    const match = line.match(fieldRegex);
+    if (!match) {
+      continue;
+    }
+    return match[1].replace(/^['\"]|['\"]$/g, "").trim().toLowerCase();
+  }
+  return null;
+}
+function predictFinalStatus(currentStatus, hasOpenTasks) {
+  if (hasOpenTasks) {
+    if (currentStatus !== null && currentStatus !== "completed") {
+      return currentStatus;
+    }
+    return "todo";
+  }
+  return "completed";
+}
+function assertConfiguredDestinationForStatus(status, settings) {
+  if (!status || !isRoutableStatus(status)) {
+    return;
+  }
+  const destinationRoot = getDestinationRootForStatus(settings, status);
+  if (!destinationRoot) {
+    throw new Error(`Set destination folder for status '${status}' in Task Manager settings.`);
+  }
+}
+function escapeRegExp4(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// src/task-state-store.ts
+var TaskStateStore = class {
+  constructor() {
     this.taskStateByPath = /* @__PURE__ */ new Map();
     this.statusByPath = /* @__PURE__ */ new Map();
     this.pendingPaths = /* @__PURE__ */ new Set();
-    this.app = options.app;
-    this.getSettings = options.getSettings;
   }
-  onunload() {
+  clear() {
     this.taskStateByPath.clear();
     this.statusByPath.clear();
     this.pendingPaths.clear();
   }
+  getTaskState(filePath) {
+    var _a;
+    return (_a = this.taskStateByPath.get(filePath)) != null ? _a : [];
+  }
+  setTaskState(filePath, taskState) {
+    this.taskStateByPath.set(filePath, taskState);
+  }
+  getStatus(filePath) {
+    var _a;
+    return (_a = this.statusByPath.get(filePath)) != null ? _a : null;
+  }
+  setStatus(filePath, status) {
+    this.statusByPath.set(filePath, status);
+  }
+  delete(filePath) {
+    this.taskStateByPath.delete(filePath);
+    this.statusByPath.delete(filePath);
+    this.pendingPaths.delete(filePath);
+  }
+  rekey(oldPath, newPath) {
+    var _a;
+    const existingTaskState = this.taskStateByPath.get(oldPath);
+    this.taskStateByPath.delete(oldPath);
+    if (existingTaskState) {
+      this.taskStateByPath.set(newPath, existingTaskState);
+    }
+    const existingStatus = (_a = this.statusByPath.get(oldPath)) != null ? _a : null;
+    this.statusByPath.delete(oldPath);
+    this.statusByPath.set(newPath, existingStatus);
+    const wasPending = this.pendingPaths.delete(oldPath);
+    if (wasPending) {
+      this.pendingPaths.add(newPath);
+    }
+  }
+  isPending(filePath) {
+    return this.pendingPaths.has(filePath);
+  }
+  markPending(filePath) {
+    this.pendingPaths.add(filePath);
+  }
+  unmarkPending(filePath) {
+    this.pendingPaths.delete(filePath);
+  }
+};
+
+// src/task-processor.ts
+var TaskProcessor = class {
+  constructor(options) {
+    this.stateStore = new TaskStateStore();
+    this.app = options.app;
+    this.getSettings = options.getSettings;
+  }
+  onunload() {
+    this.stateStore.clear();
+  }
   async primeState() {
     const markdownFiles = this.app.vault.getMarkdownFiles();
     const settings = this.getSettings();
-    this.statusByPath.clear();
+    this.stateStore.clear();
     for (const file of markdownFiles) {
       const content = await this.app.vault.cachedRead(file);
-      this.taskStateByPath.set(file.path, extractTaskState(content, settings.nextActionTag));
-      this.statusByPath.set(file.path, this.readStatusValue(content, settings.statusField));
+      this.stateStore.setTaskState(file.path, extractTaskState(content, settings.nextActionTag));
+      this.stateStore.setStatus(file.path, readStatusValue(content, settings.statusField));
     }
   }
   async handleFileModify(file) {
-    var _a, _b;
-    if (file.extension !== "md" || this.pendingPaths.has(file.path)) {
+    if (file.extension !== "md" || this.stateStore.isPending(file.path)) {
       return;
     }
     const settings = this.getSettings();
     const content = await this.app.vault.cachedRead(file);
     const nextState = extractTaskState(content, settings.nextActionTag);
-    const previousState = (_a = this.taskStateByPath.get(file.path)) != null ? _a : [];
-    const previousStatus = (_b = this.statusByPath.get(file.path)) != null ? _b : null;
-    const currentStatus = this.readStatusValue(content, settings.statusField);
+    const previousState = this.stateStore.getTaskState(file.path);
+    const previousStatus = this.stateStore.getStatus(file.path);
+    const currentStatus = readStatusValue(content, settings.statusField);
     const completion = findNewlyCompletedTask(previousState, nextState);
     const uncompleted = findNewlyUncompletedTask(previousState, nextState);
     const deletedTaggedTaskLine = findDeletedTaggedTask(previousState, nextState);
-    this.taskStateByPath.set(file.path, nextState);
-    this.statusByPath.set(file.path, currentStatus);
+    this.stateStore.setTaskState(file.path, nextState);
+    this.stateStore.setStatus(file.path, currentStatus);
     if (completion !== null) {
       await this.applyCompletionRules(file, content, completion, settings);
       await this.routeAfterStatusChange(file, previousStatus, settings);
@@ -940,16 +1035,13 @@ var _TaskProcessor = class _TaskProcessor {
     });
     return `Processed ${count} project file${count === 1 ? "" : "s"}.`;
   }
-  isRoutableStatus(value) {
-    return _TaskProcessor.ROUTABLE_STATUSES.includes(value);
-  }
   async processAndRouteFile(file) {
     const settings = this.getSettings();
     const initialContent = await this.app.vault.cachedRead(file);
-    const initialStatus = this.readStatusValue(initialContent, settings.statusField);
+    const initialStatus = readStatusValue(initialContent, settings.statusField);
     const hasOpenTasks = extractTaskState(initialContent, settings.nextActionTag).some((task) => task.status === "open");
-    const predictedStatus = this.predictFinalStatus(initialStatus, hasOpenTasks);
-    this.assertConfiguredDestinationForStatus(predictedStatus, settings);
+    const predictedStatus = predictFinalStatus(initialStatus, hasOpenTasks);
+    assertConfiguredDestinationForStatus(predictedStatus, settings);
     await this.reconcileSingleFile(file, settings);
     const moveResult = await this.routeFileByStatus(file, settings);
     return moveResult != null ? moveResult : `Processed ${file.name}.`;
@@ -962,27 +1054,27 @@ var _TaskProcessor = class _TaskProcessor {
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
       setTaskState: (filePath, nextState) => {
-        this.taskStateByPath.set(filePath, nextState);
+        this.stateStore.setTaskState(filePath, nextState);
       }
     });
   }
   async routeAfterStatusChange(file, previousStatus, settings) {
     const latestContent = await this.app.vault.cachedRead(file);
-    const latestStatus = this.readStatusValue(latestContent, settings.statusField);
-    this.statusByPath.set(file.path, latestStatus);
+    const latestStatus = readStatusValue(latestContent, settings.statusField);
+    this.stateStore.setStatus(file.path, latestStatus);
     if (latestStatus === previousStatus) {
       return;
     }
     try {
-      this.assertConfiguredDestinationForStatus(latestStatus, settings);
+      assertConfiguredDestinationForStatus(latestStatus, settings);
       await this.routeFileByStatus(file, settings, latestStatus);
     } catch (error) {
       new import_obsidian4.Notice(error instanceof Error ? error.message : "Failed to route file after status change.");
     }
   }
   async routeFileByStatus(file, settings, statusOverride) {
-    const status = statusOverride != null ? statusOverride : this.readStatusValue(await this.app.vault.cachedRead(file), settings.statusField);
-    if (!status || !this.isRoutableStatus(status)) {
+    const status = statusOverride != null ? statusOverride : readStatusValue(await this.app.vault.cachedRead(file), settings.statusField);
+    if (!status || !isRoutableStatus(status)) {
       return null;
     }
     const destinationRoot = getDestinationRootForStatus(settings, status);
@@ -1008,43 +1100,9 @@ var _TaskProcessor = class _TaskProcessor {
     }
     const sourcePath = file.path;
     await this.app.fileManager.renameFile(file, destinationPath);
-    this.rekeyTaskState(sourcePath, destinationPath);
+    this.stateStore.rekey(sourcePath, destinationPath);
     await deleteEmptyParentFolders(this.app, getTaskFolderRoots(settings), sourcePath);
     return `Moved ${file.name} to ${destinationRoot}.`;
-  }
-  readStatusValue(content, statusField) {
-    const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-    if (!frontmatterMatch) {
-      return null;
-    }
-    const fieldRegex = new RegExp(`^\\s*${this.escapeRegExp(statusField)}\\s*:\\s*(.*?)\\s*$`, "i");
-    const lines = frontmatterMatch[1].split(/\r?\n/);
-    for (const line of lines) {
-      const match = line.match(fieldRegex);
-      if (!match) {
-        continue;
-      }
-      return match[1].replace(/^['\"]|['\"]$/g, "").trim().toLowerCase();
-    }
-    return null;
-  }
-  predictFinalStatus(currentStatus, hasOpenTasks) {
-    if (hasOpenTasks) {
-      if (currentStatus !== null && currentStatus !== "completed") {
-        return currentStatus;
-      }
-      return "todo";
-    }
-    return "completed";
-  }
-  assertConfiguredDestinationForStatus(status, settings) {
-    if (!status || !this.isRoutableStatus(status)) {
-      return;
-    }
-    const destinationRoot = getDestinationRootForStatus(settings, status);
-    if (!destinationRoot) {
-      throw new Error(`Set destination folder for status '${status}' in Task Manager settings.`);
-    }
   }
   async mergeIntoExistingFile(sourceFile, destinationFile, settings) {
     const sourcePath = sourceFile.path;
@@ -1055,39 +1113,24 @@ var _TaskProcessor = class _TaskProcessor {
 ---
 
 ${sourceContent}`;
-    this.pendingPaths.add(destinationFile.path);
-    this.pendingPaths.add(sourceFile.path);
+    this.stateStore.markPending(destinationFile.path);
+    this.stateStore.markPending(sourceFile.path);
     try {
       await this.app.vault.modify(destinationFile, mergedContent);
       await this.app.vault.delete(sourceFile);
-      this.taskStateByPath.delete(sourceFile.path);
-      this.statusByPath.delete(sourceFile.path);
-      this.taskStateByPath.set(
+      this.stateStore.delete(sourceFile.path);
+      this.stateStore.setTaskState(
         destinationFile.path,
         extractTaskState(mergedContent, settings.nextActionTag)
       );
-      this.statusByPath.set(destinationFile.path, this.readStatusValue(mergedContent, settings.statusField));
+      this.stateStore.setStatus(destinationFile.path, readStatusValue(mergedContent, settings.statusField));
       await deleteEmptyParentFolders(this.app, getTaskFolderRoots(settings), sourcePath);
     } finally {
       window.setTimeout(() => {
-        this.pendingPaths.delete(destinationFile.path);
-        this.pendingPaths.delete(sourceFile.path);
+        this.stateStore.unmarkPending(destinationFile.path);
+        this.stateStore.unmarkPending(sourceFile.path);
       }, 0);
     }
-  }
-  rekeyTaskState(oldPath, newPath) {
-    var _a;
-    const existing = this.taskStateByPath.get(oldPath);
-    this.taskStateByPath.delete(oldPath);
-    if (existing) {
-      this.taskStateByPath.set(newPath, existing);
-    }
-    const existingStatus = (_a = this.statusByPath.get(oldPath)) != null ? _a : null;
-    this.statusByPath.delete(oldPath);
-    this.statusByPath.set(newPath, existingStatus);
-  }
-  escapeRegExp(value) {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
   async applyCompletionRules(file, content, completedLine, settings) {
     await applyCompletionRules({
@@ -1099,7 +1142,7 @@ ${sourceContent}`;
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
       setTaskState: (filePath, nextState) => {
-        this.taskStateByPath.set(filePath, nextState);
+        this.stateStore.setTaskState(filePath, nextState);
       }
     });
   }
@@ -1113,7 +1156,7 @@ ${sourceContent}`;
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
       setTaskState: (filePath, nextState) => {
-        this.taskStateByPath.set(filePath, nextState);
+        this.stateStore.setTaskState(filePath, nextState);
       }
     });
   }
@@ -1127,38 +1170,36 @@ ${sourceContent}`;
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
       setTaskState: (filePath, nextState) => {
-        this.taskStateByPath.set(filePath, nextState);
+        this.stateStore.setTaskState(filePath, nextState);
       }
     });
   }
   async writeFileContent(file, content, settings) {
-    this.pendingPaths.add(file.path);
+    this.stateStore.markPending(file.path);
     try {
       await this.app.vault.modify(file, content);
-      this.taskStateByPath.set(file.path, extractTaskState(content, settings.nextActionTag));
-      this.statusByPath.set(file.path, this.readStatusValue(content, settings.statusField));
+      this.stateStore.setTaskState(file.path, extractTaskState(content, settings.nextActionTag));
+      this.stateStore.setStatus(file.path, readStatusValue(content, settings.statusField));
     } finally {
       window.setTimeout(() => {
-        this.pendingPaths.delete(file.path);
+        this.stateStore.unmarkPending(file.path);
       }, 0);
     }
   }
   async setFileStatus(file, status, settings) {
-    this.pendingPaths.add(file.path);
+    this.stateStore.markPending(file.path);
     try {
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
         frontmatter[settings.statusField] = status;
       });
-      this.statusByPath.set(file.path, status);
+      this.stateStore.setStatus(file.path, status);
     } finally {
       window.setTimeout(() => {
-        this.pendingPaths.delete(file.path);
+        this.stateStore.unmarkPending(file.path);
       }, 0);
     }
   }
 };
-_TaskProcessor.ROUTABLE_STATUSES = ["todo", "completed", "waiting", "scheduled", "someday-maybe"];
-var TaskProcessor = _TaskProcessor;
 
 // main.ts
 var TaskManagerPlugin = class extends import_obsidian5.Plugin {
