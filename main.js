@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => TaskManagerPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian6 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 
 // src/dashboard/date-dashboard.ts
 var import_obsidian = require("obsidian");
@@ -663,7 +663,7 @@ function getParentPath(path) {
 }
 
 // src/tasks/task-processor.ts
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/tasks/task-utils.ts
 var TASK_LINE_REGEX = /^(\s*[-*+]\s+\[( |x|X)\]\s+)(.*)$/;
@@ -813,9 +813,179 @@ function escapeRegExp3(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// src/tasks/due-date-modal.ts
+var import_obsidian5 = require("obsidian");
+function buildDateSuggestions() {
+  const suggestions = [];
+  const today = /* @__PURE__ */ new Date();
+  for (let i = 0; i < 30; i++) {
+    const date = new Date(today);
+    date.setDate(date.getDate() + i);
+    const dateStr = formatDate2(date);
+    const rel = i === 0 ? "Today" : i === 1 ? "Tomorrow" : `+${i}d`;
+    suggestions.push({
+      value: dateStr,
+      label: `${dateStr} (${rel})`
+    });
+  }
+  return suggestions;
+}
+function formatDate2(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+var DueDateModal = class extends import_obsidian5.Modal {
+  constructor(options) {
+    super(options.app);
+    this.selectedDate = "";
+    this.inputElement = null;
+    this.taskLine = options.taskLine;
+    this.onSubmit = options.onSubmit;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h2", { text: "Add Due Date" });
+    const descEl = contentEl.createEl("p", {
+      text: "Would you like to add a due date for this task?"
+    });
+    descEl.style.marginBottom = "20px";
+    const inputContainer = contentEl.createEl("div");
+    inputContainer.style.marginBottom = "15px";
+    const label = inputContainer.createEl("label");
+    label.style.display = "block";
+    label.style.marginBottom = "8px";
+    label.style.fontWeight = "bold";
+    label.textContent = "Due Date (YYYY-MM-DD):";
+    this.inputElement = inputContainer.createEl("input", {
+      type: "text",
+      placeholder: "e.g., 2026-03-20"
+    });
+    this.inputElement.style.width = "100%";
+    this.inputElement.style.padding = "8px";
+    this.inputElement.style.boxSizing = "border-box";
+    this.inputElement.style.marginBottom = "10px";
+    const suggestionsLabel = contentEl.createEl("label");
+    suggestionsLabel.style.display = "block";
+    suggestionsLabel.style.marginBottom = "8px";
+    suggestionsLabel.style.fontWeight = "bold";
+    suggestionsLabel.textContent = "Suggested Dates:";
+    const suggestionsContainer = contentEl.createEl("div");
+    suggestionsContainer.style.display = "grid";
+    suggestionsContainer.style.gridTemplateColumns = "1fr 1fr";
+    suggestionsContainer.style.gap = "8px";
+    suggestionsContainer.style.marginBottom = "15px";
+    const suggestions = buildDateSuggestions().slice(0, 10);
+    suggestions.forEach((suggestion) => {
+      const btn = suggestionsContainer.createEl("button", {
+        text: suggestion.label
+      });
+      btn.style.padding = "8px";
+      btn.style.cursor = "pointer";
+      btn.onclick = () => {
+        this.selectedDate = suggestion.value;
+        if (this.inputElement) {
+          this.inputElement.value = suggestion.value;
+        }
+      };
+    });
+    const buttonContainer = contentEl.createEl("div");
+    buttonContainer.style.display = "flex";
+    buttonContainer.style.gap = "10px";
+    buttonContainer.style.justifyContent = "flex-end";
+    const addBtn = buttonContainer.createEl("button", { text: "Add Due Date" });
+    addBtn.style.padding = "8px 16px";
+    addBtn.style.cursor = "pointer";
+    addBtn.style.backgroundColor = "#4CAF50";
+    addBtn.style.color = "white";
+    addBtn.style.border = "none";
+    addBtn.style.borderRadius = "4px";
+    addBtn.onclick = () => {
+      void this.submitDate();
+    };
+    const skipBtn = buttonContainer.createEl("button", { text: "Skip" });
+    skipBtn.style.padding = "8px 16px";
+    skipBtn.style.cursor = "pointer";
+    skipBtn.style.backgroundColor = "#f0f0f0";
+    skipBtn.style.border = "1px solid #ccc";
+    skipBtn.style.borderRadius = "4px";
+    skipBtn.onclick = () => {
+      this.close();
+    };
+    if (this.inputElement) {
+      this.inputElement.focus();
+    }
+  }
+  async submitDate() {
+    var _a, _b;
+    const dateValue = (_b = (_a = this.inputElement) == null ? void 0 : _a.value.trim()) != null ? _b : this.selectedDate;
+    if (!dateValue) {
+      return;
+    }
+    try {
+      await this.onSubmit(this.taskLine, dateValue);
+      this.close();
+    } catch (error) {
+      console.error("Failed to add due date:", error);
+    }
+  }
+};
+
 // src/tasks/reconciler.ts
 function isInProjectsFolder(filePath, projectsFolder) {
   return filePath === projectsFolder || filePath.startsWith(`${projectsFolder}/`);
+}
+async function showDueDateModalForNextAction(file, taskLineIndex, previousContent, updatedContent, context) {
+  const { app, settings, readFile, writeFileContent, setTaskState } = context;
+  if (!app) {
+    return;
+  }
+  const lines = updatedContent.split(/\r?\n/);
+  const taskLine = lines[taskLineIndex];
+  if (!taskLine) {
+    return;
+  }
+  const previousLines = previousContent.split(/\r?\n/);
+  if (previousLines.includes(taskLine)) {
+    return;
+  }
+  const isRepeating = getRepeatRule(taskLine) !== null;
+  if (isRepeating) {
+    return;
+  }
+  if (taskLine.includes("[due::")) {
+    return;
+  }
+  const modal = new DueDateModal({
+    app,
+    taskLine,
+    onSubmit: async (taskLine2, dueDate) => {
+      if (!isValidDateFormat(dueDate)) {
+        return;
+      }
+      const currentContent = await readFile(file);
+      const updatedLines = currentContent.split(/\r?\n/);
+      let taskFound = false;
+      for (let i = 0; i < updatedLines.length; i++) {
+        if (updatedLines[i] === taskLine2) {
+          if (updatedLines[i].includes("[due::")) {
+            updatedLines[i] = updatedLines[i].replace(/\[due::\s*[^\]]*\]/g, `[due:: ${dueDate}]`);
+          } else {
+            updatedLines[i] = `${updatedLines[i].trimEnd()} [due:: ${dueDate}]`;
+          }
+          taskFound = true;
+          break;
+        }
+      }
+      if (taskFound) {
+        await writeFileContent(file, updatedLines.join("\n"));
+        setTaskState(file.path, extractTaskState(updatedLines.join("\n"), settings.nextActionTag));
+      }
+    }
+  });
+  modal.open();
 }
 async function applyCompletionRules(context) {
   const { file, content, completedLine, settings, writeFileContent, setFileStatus, setTaskState } = context;
@@ -844,6 +1014,9 @@ async function applyCompletionRules(context) {
   }
   await setFileStatus(file, newStatus);
   setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
+  if (nextTaskLine !== null) {
+    await showDueDateModalForNextAction(file, nextTaskLine, content, updatedContent, context);
+  }
 }
 async function applyUncompletionRules(context) {
   const { file, content, uncompletedLine, settings, writeFileContent, setFileStatus, setTaskState } = context;
@@ -866,6 +1039,7 @@ async function applyUncompletionRules(context) {
   }
   await setFileStatus(file, "todo");
   setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
+  await showDueDateModalForNextAction(file, uncompletedLine, content, updatedContent, context);
 }
 async function applyDeletedTagRules(context) {
   const { file, content, deletedTaggedTaskLine, settings, writeFileContent, setFileStatus, setTaskState } = context;
@@ -883,6 +1057,7 @@ async function applyDeletedTagRules(context) {
   }
   await setFileStatus(file, "todo");
   setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
+  await showDueDateModalForNextAction(file, previousTaskLine, content, updatedContent, context);
 }
 async function reconcileFile(context) {
   const { file, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
@@ -904,6 +1079,9 @@ async function reconcileFile(context) {
     await setFileStatus(file, nextStatus);
   }
   setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
+  if (firstIncompleteTaskLine !== null) {
+    await showDueDateModalForNextAction(file, firstIncompleteTaskLine, content, updatedContent, context);
+  }
 }
 async function processProjectsFolder(context) {
   const { settings } = context;
@@ -922,7 +1100,7 @@ async function processProjectsFolder(context) {
   return files.length;
 }
 function getCompletionDateString() {
-  return formatDate2(/* @__PURE__ */ new Date());
+  return formatDate3(/* @__PURE__ */ new Date());
 }
 function getCompletionTimeString() {
   const now = /* @__PURE__ */ new Date();
@@ -956,15 +1134,15 @@ function getRepeatDueDate(repeatRule) {
   const now = /* @__PURE__ */ new Date();
   switch (repeatRule) {
     case "day":
-      return formatDate2(addDays2(now, 1));
+      return formatDate3(addDays2(now, 1));
     case "week":
-      return formatDate2(addDays2(now, 7));
+      return formatDate3(addDays2(now, 7));
     case "month":
-      return formatDate2(addMonthsClamped(now, 1));
+      return formatDate3(addMonthsClamped(now, 1));
     case "year":
-      return formatDate2(addMonthsClamped(now, 12));
+      return formatDate3(addMonthsClamped(now, 12));
     default:
-      return formatDate2(now);
+      return formatDate3(now);
   }
 }
 function addDays2(baseDate, days) {
@@ -983,11 +1161,20 @@ function addMonthsClamped(baseDate, monthsToAdd) {
   const clampedDay = Math.min(day, lastDayOfTargetMonth);
   return new Date(targetYear, targetMonth, clampedDay);
 }
-function formatDate2(date) {
+function formatDate3(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+function isValidDateFormat(dateStr) {
+  const trimmed = dateStr.trim();
+  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+  if (!dateRegex.test(trimmed)) {
+    return false;
+  }
+  const date = /* @__PURE__ */ new Date(trimmed + "T00:00:00Z");
+  return !isNaN(date.getTime());
 }
 
 // src/tasks/task-state-store.ts
@@ -1135,6 +1322,7 @@ var TaskProcessor = class {
     await reconcileFile({
       file,
       settings,
+      app: this.app,
       readFile: (target) => this.app.vault.cachedRead(target),
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
@@ -1154,7 +1342,7 @@ var TaskProcessor = class {
       assertConfiguredDestinationForStatus(latestStatus, settings);
       await this.routeFileByStatus(file, settings, latestStatus);
     } catch (error) {
-      new import_obsidian5.Notice(error instanceof Error ? error.message : "Failed to route file after status change.");
+      new import_obsidian6.Notice(error instanceof Error ? error.message : "Failed to route file after status change.");
     }
   }
   async routeFileByStatus(file, settings, statusOverride) {
@@ -1172,10 +1360,10 @@ var TaskProcessor = class {
     }
     await ensureParentFoldersExist(this.app, destinationPath);
     const destinationEntry = this.app.vault.getAbstractFileByPath(destinationPath);
-    if (destinationEntry instanceof import_obsidian5.TFolder) {
+    if (destinationEntry instanceof import_obsidian6.TFolder) {
       throw new Error(`Cannot move '${file.path}' because '${destinationPath}' is a folder.`);
     }
-    if (destinationEntry instanceof import_obsidian5.TFile) {
+    if (destinationEntry instanceof import_obsidian6.TFile) {
       const shouldMerge = await promptMergeOrSkip(this.app, file.path, destinationPath);
       if (!shouldMerge) {
         return `Skipped ${file.name} (destination exists).`;
@@ -1223,6 +1411,7 @@ ${sourceContent}`;
       content,
       completedLine,
       settings,
+      app: this.app,
       readFile: (target) => this.app.vault.cachedRead(target),
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
@@ -1237,6 +1426,7 @@ ${sourceContent}`;
       content,
       uncompletedLine,
       settings,
+      app: this.app,
       readFile: (target) => this.app.vault.cachedRead(target),
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
@@ -1251,6 +1441,7 @@ ${sourceContent}`;
       content,
       deletedTaggedTaskLine,
       settings,
+      app: this.app,
       readFile: (target) => this.app.vault.cachedRead(target),
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
@@ -1287,7 +1478,7 @@ ${sourceContent}`;
 };
 
 // main.ts
-var TaskManagerPlugin = class extends import_obsidian6.Plugin {
+var TaskManagerPlugin = class extends import_obsidian7.Plugin {
   constructor() {
     super(...arguments);
     this.taskProcessor = null;
@@ -1325,7 +1516,7 @@ var TaskManagerPlugin = class extends import_obsidian6.Plugin {
     });
     this.registerEvent(this.app.vault.on("modify", (file) => {
       var _a;
-      if (!(file instanceof import_obsidian6.TFile)) {
+      if (!(file instanceof import_obsidian7.TFile)) {
         return;
       }
       void ((_a = this.taskProcessor) == null ? void 0 : _a.handleFileModify(file));
@@ -1363,24 +1554,24 @@ var TaskManagerPlugin = class extends import_obsidian6.Plugin {
   async runProcessCurrentFile() {
     try {
       const result = await this.taskProcessor.processCurrentFile();
-      new import_obsidian6.Notice(result);
+      new import_obsidian7.Notice(result);
     } catch (error) {
-      new import_obsidian6.Notice(error instanceof Error ? error.message : "Failed to Process File.");
+      new import_obsidian7.Notice(error instanceof Error ? error.message : "Failed to Process File.");
     }
   }
   async runProcessTasks() {
     try {
       const result = await this.taskProcessor.processTasks();
-      new import_obsidian6.Notice(result);
+      new import_obsidian7.Notice(result);
     } catch (error) {
-      new import_obsidian6.Notice(error instanceof Error ? error.message : "Failed to process tasks.");
+      new import_obsidian7.Notice(error instanceof Error ? error.message : "Failed to process tasks.");
     }
   }
   getTaskFolderRoots() {
     return getTaskFolderRoots(this.settings);
   }
 };
-var BaseTaskManagerSettingTab = class extends import_obsidian6.PluginSettingTab {
+var BaseTaskManagerSettingTab = class extends import_obsidian7.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.renderer = new TaskManagerSettingTabRenderer(this, plugin);

@@ -1,4 +1,4 @@
-import { TFile } from "obsidian";
+import { App, TFile } from "obsidian";
 import {
   addNextActionTag,
   extractTaskState,
@@ -9,6 +9,7 @@ import {
 } from "./task-utils";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { readStatusValue } from "../routing/status-routing";
+import { DueDateModal } from "./due-date-modal";
 
 type ReconcilerContext = {
   file: TFile;
@@ -17,6 +18,7 @@ type ReconcilerContext = {
   writeFileContent: (file: TFile, content: string) => Promise<void>;
   setFileStatus: (file: TFile, status: string) => Promise<void>;
   setTaskState: (filePath: string, state: TaskState[]) => void;
+  app?: App;
 };
 
 type CompletionContext = ReconcilerContext & {
@@ -44,6 +46,77 @@ type RepeatRule = "day" | "week" | "month" | "year";
 
 function isInProjectsFolder(filePath: string, projectsFolder: string): boolean {
   return filePath === projectsFolder || filePath.startsWith(`${projectsFolder}/`);
+}
+
+async function showDueDateModalForNextAction(
+  file: TFile,
+  taskLineIndex: number,
+  previousContent: string,
+  updatedContent: string,
+  context: ReconcilerContext
+): Promise<void> {
+  const { app, settings, readFile, writeFileContent, setTaskState } = context;
+
+  if (!app) {
+    return;
+  }
+
+  const lines = updatedContent.split(/\r?\n/);
+  const taskLine = lines[taskLineIndex];
+  if (!taskLine) {
+    return;
+  }
+
+  // Only prompt when the assignment is genuinely new for this task line.
+  const previousLines = previousContent.split(/\r?\n/);
+  if (previousLines.includes(taskLine)) {
+    return;
+  }
+  
+  // Skip if task is repeating (it already has a due date assigned)
+  const isRepeating = getRepeatRule(taskLine) !== null;
+  if (isRepeating) {
+    return;
+  }
+
+  // Skip if task already has a due date
+  if (taskLine.includes("[due::")) {
+    return;
+  }
+
+  const modal = new DueDateModal({
+    app,
+    taskLine,
+    onSubmit: async (taskLine, dueDate) => {
+      // Validate date format
+      if (!isValidDateFormat(dueDate)) {
+        return;
+      }
+
+      const currentContent = await readFile(file);
+      const updatedLines = currentContent.split(/\r?\n/);
+      let taskFound = false;
+
+      for (let i = 0; i < updatedLines.length; i++) {
+        if (updatedLines[i] === taskLine) {
+          // Check if task already has a due date
+          if (updatedLines[i].includes("[due::")) {
+            updatedLines[i] = updatedLines[i].replace(/\[due::\s*[^\]]*\]/g, `[due:: ${dueDate}]`);
+          } else {
+            updatedLines[i] = `${updatedLines[i].trimEnd()} [due:: ${dueDate}]`;
+          }
+          taskFound = true;
+          break;
+        }
+      }
+
+      if (taskFound) {
+        await writeFileContent(file, updatedLines.join("\n"));
+        setTaskState(file.path, extractTaskState(updatedLines.join("\n"), settings.nextActionTag));
+      }
+    }
+  });
+  modal.open();
 }
 
 export async function applyCompletionRules(context: CompletionContext): Promise<void> {
@@ -81,6 +154,11 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
 
   await setFileStatus(file, newStatus);
   setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
+
+  // Show due date modal if next-action was assigned
+  if (nextTaskLine !== null) {
+    await showDueDateModalForNextAction(file, nextTaskLine, content, updatedContent, context);
+  }
 }
 
 export async function applyUncompletionRules(context: UncompletionContext): Promise<void> {
@@ -110,6 +188,9 @@ export async function applyUncompletionRules(context: UncompletionContext): Prom
 
   await setFileStatus(file, "todo");
   setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
+
+  // Show due date modal if next-action was assigned to this task
+  await showDueDateModalForNextAction(file, uncompletedLine, content, updatedContent, context);
 }
 
 export async function applyDeletedTagRules(context: DeletedTagContext): Promise<void> {
@@ -131,6 +212,9 @@ export async function applyDeletedTagRules(context: DeletedTagContext): Promise<
 
   await setFileStatus(file, "todo");
   setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
+
+  // Show due date modal if next-action was assigned to this task
+  await showDueDateModalForNextAction(file, previousTaskLine, content, updatedContent, context);
 }
 
 export async function reconcileFile(context: ReconcilerContext): Promise<void> {
@@ -156,6 +240,11 @@ export async function reconcileFile(context: ReconcilerContext): Promise<void> {
     await setFileStatus(file, nextStatus);
   }
   setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
+
+  // Show due date modal if next-action was assigned
+  if (firstIncompleteTaskLine !== null) {
+    await showDueDateModalForNextAction(file, firstIncompleteTaskLine, content, updatedContent, context);
+  }
 }
 
 export async function processProjectsFolder(context: ProcessTasksContext): Promise<number> {
@@ -259,4 +348,15 @@ function formatDate(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function isValidDateFormat(dateStr: string): boolean {
+  const trimmed = dateStr.trim();
+  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+  if (!dateRegex.test(trimmed)) {
+    return false;
+  }
+
+  const date = new Date(trimmed + "T00:00:00Z");
+  return !isNaN(date.getTime());
 }

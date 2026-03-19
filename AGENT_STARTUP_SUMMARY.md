@@ -42,7 +42,8 @@ Core modules:
 - `src/tasks/task-state-store.ts`: in-memory state (tasks/status maps + pending write guards + path rekey logic).
 - `src/routing/status-routing.ts`: status extraction, predicted status logic, and routable-status validation.
 - `src/routing/task-routing.ts`: destination root resolution, relative path preservation, folder creation, merge conflict prompt, and empty-folder cleanup.
-- `src/tasks/reconciler.ts`: task-level reconciliation (completion/uncompletion/deletion + recurring-task clone insertion).
+- `src/tasks/reconciler.ts`: task-level reconciliation (completion/uncompletion/deletion + recurring-task clone insertion + due-date modal on next-action assignment).
+- `src/tasks/due-date-modal.ts`: modal dialog for adding due dates to newly assigned `next-action` tasks.
 - `src/dashboard/date-dashboard.ts`: right sidebar date dashboard view registration, refresh scheduling, data collection, sorting, and rendering.
 - `src/editor/due-date-suggest.ts`: editor suggest provider for `due::` date completion.
 - `src/tasks/task-utils.ts`: task parsing/diff helpers and tag manipulation helpers.
@@ -108,6 +109,15 @@ Completion (`[ ]` -> `[x]`):
   - `[completion-date:: YYYY-MM-DD]`
   - `[completion-time:: HH:MM:SS]`
 - move `next-action` tag to first open task (if any), else status can become `completed`.
+
+Next-Action Assignment (triggered when `#next-action` is newly assigned):
+
+- prompt user with due-date modal offering:
+  - suggested dates (today through +30 days with relative labels)
+  - text input field for custom date (YYYY-MM-DD format)
+  - skip option to dismiss without adding due date
+  - **modal is skipped if**: assignment was unchanged (already tagged before reconcile), assigned task is repeating, or task already has a due date
+- occurs on task completion, uncompletion, tagged task deletion, and during reconciliation (e.g., `process file` or `process tasks`)
 
 Uncompletion (`[x]` -> `[ ]`):
 
@@ -218,15 +228,19 @@ Run after meaningful logic changes:
 
 1. `npm run build` succeeds.
 2. `Process File` updates tags/status correctly on complete/uncomplete/delete cases.
-3. Recurring completion creates next open task with expected due date.
-4. Status change triggers automatic routing to correct destination.
-5. Move preserves subpath and does not flatten unexpectedly.
-6. Merge conflict prompt appears when destination file exists.
-7. Empty source directories are cleaned up after successful move/merge.
-8. Date dashboard appears in sidebar for date note and renders Due/Completed correctly.
-9. Due table sorted ascending by due date and shows `MM-DD` column.
-10. Dashboard text cleanup removes inline fields/tags; filename display cleanup is applied.
-11. Typing `due::` shows date suggestions starting from today and inserts `YYYY-MM-DD`.
+3. Task completion triggers due-date modal for newly assigned `next-action` task.
+4. Due-date modal allows selecting suggested dates or entering custom date.
+5. Selected/entered due date is correctly added to task as `[due:: YYYY-MM-DD]`.
+6. Modal skip action dismisses without modifying task.
+7. Recurring completion creates next open task with expected due date.
+8. Status change triggers automatic routing to correct destination.
+9. Move preserves subpath and does not flatten unexpectedly.
+10. Merge conflict prompt appears when destination file exists.
+11. Empty source directories are cleaned up after successful move/merge.
+12. Date dashboard appears in sidebar for date note and renders Due/Completed correctly.
+13. Due table sorted ascending by due date and shows `MM-DD` column.
+14. Dashboard text cleanup removes inline fields/tags; filename display cleanup is applied.
+15. Typing `due::` shows date suggestions starting from today and inserts `YYYY-MM-DD`.
 
 ## 11) Known Constraints
 
