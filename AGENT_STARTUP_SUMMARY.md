@@ -177,8 +177,9 @@ Sorting:
 Display formatting:
 
 - Due includes a `Due` column in `MM-DD` format.
-- Filename display strips `.md` and leading numeric archival prefixes.
+- Filename display strips `.md` and removes leading archival-style dates, timestamps, and numeric fragments from the displayed name.
 - Task display strips inline fields and hashtag tags (e.g. `#next-action`).
+- Dashboard rendering relies on native Obsidian markdown/theme styling instead of plugin-specific dashboard CSS.
 
 ## 8) Settings Model and Practical Defaults
 

@@ -64,6 +64,7 @@ var _DateDashboardController = class _DateDashboardController {
   }
   async renderContent(container) {
     container.innerHTML = "";
+    container.classList.add("markdown-rendered");
     const activeFile = this.app.workspace.getActiveFile();
     if (!activeFile) {
       container.appendChild(this.createEmptyState());
@@ -75,7 +76,6 @@ var _DateDashboardController = class _DateDashboardController {
       return;
     }
     const dashboard = document.createElement("section");
-    dashboard.style.padding = "0.75rem";
     const title = document.createElement("h2");
     title.textContent = `Tasks for ${dateString}`;
     dashboard.appendChild(title);
@@ -206,18 +206,12 @@ var _DateDashboardController = class _DateDashboardController {
       return;
     }
     const table = document.createElement("table");
-    table.style.width = "100%";
-    table.style.borderCollapse = "collapse";
-    table.style.marginBottom = "1rem";
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
     const labels = showDueDate ? ["Filename", "Task", "Due"] : ["Filename", "Task"];
     for (const label of labels) {
       const headerCell = document.createElement("th");
       headerCell.textContent = label;
-      headerCell.style.textAlign = "left";
-      headerCell.style.borderBottom = "1px solid var(--background-modifier-border)";
-      headerCell.style.padding = "0.5rem";
       headerRow.appendChild(headerCell);
     }
     thead.appendChild(headerRow);
@@ -226,26 +220,21 @@ var _DateDashboardController = class _DateDashboardController {
     for (const row of rows) {
       const tableRow = document.createElement("tr");
       const fileCell = document.createElement("td");
-      fileCell.style.padding = "0.5rem";
-      fileCell.style.verticalAlign = "top";
       const link = document.createElement("a");
       link.href = "#";
       link.textContent = this.getDisplayFileName(row.file.name);
+      link.classList.add("internal-link");
       link.addEventListener("click", (event) => {
         event.preventDefault();
         void this.app.workspace.openLinkText(row.file.path, sourcePath);
       });
       fileCell.appendChild(link);
       const taskCell = document.createElement("td");
-      taskCell.style.padding = "0.5rem";
-      taskCell.style.verticalAlign = "top";
       taskCell.textContent = row.task;
       tableRow.appendChild(fileCell);
       tableRow.appendChild(taskCell);
       if (showDueDate) {
         const dueDateCell = document.createElement("td");
-        dueDateCell.style.padding = "0.5rem";
-        dueDateCell.style.verticalAlign = "top";
         dueDateCell.textContent = this.formatMonthDay(row.dueDate);
         tableRow.appendChild(dueDateCell);
       }
@@ -263,8 +252,9 @@ var _DateDashboardController = class _DateDashboardController {
   }
   getDisplayFileName(fileName) {
     const withoutExtension = fileName.replace(/\.md$/i, "");
-    const withoutArchivePrefix = withoutExtension.replace(/^\d+[\s._-]*/, "");
-    return withoutArchivePrefix || withoutExtension;
+    const leadingArchiveMarkerPattern = /^(?:[\s._-]*(?:\d{4}[-_. ]\d{1,2}[-_. ]\d{1,2}|\d{1,2}[-_:]\d{2}(?:[-_:]\d{2})?|\d+(?:-\d+)+|\d+))+[\s._-]*/;
+    const withoutArchiveMarkers = withoutExtension.replace(leadingArchiveMarkerPattern, "").replace(/^[\s._-]+/, "").replace(/[\s._-]+$/, "").replace(/[._-]{2,}/g, " ").replace(/\s+/g, " ").trim();
+    return withoutArchiveMarkers || withoutExtension;
   }
 };
 _DateDashboardController.DATE_FILE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
