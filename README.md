@@ -57,6 +57,9 @@ Recurring task copies use due dates in this format:
 
 - `main.ts`: TypeScript source entrypoint (source of truth).
 - `main.js`: bundled runtime output loaded by Obsidian (`npm run build` regenerates this file).
+- `src/date-dashboard.ts`: right-sidebar date dashboard view, data collection, and rendering.
+- `src/task-processor.ts`: task reconciliation, modify handling, status tracking, and file routing orchestration.
+- `src/task-routing.ts`: file routing, folder path helpers, and merge prompt.
 - `src/settings-utils.ts`: settings type, defaults, and normalization helpers.
 - `src/task-utils.ts`: task parsing, state diffing, and tag manipulation utilities.
 - `src/reconciler.ts`: completion, uncompletion, deletion, and initialization reconciliation workflows.
