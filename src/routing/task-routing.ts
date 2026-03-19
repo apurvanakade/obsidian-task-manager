@@ -1,7 +1,7 @@
 import { App, Modal, TFile, TFolder } from "obsidian";
 import { TaskManagerSettings } from "../settings/settings-utils";
 
-export type RoutableStatus = "todo" | "completed" | "waiting" | "scheduled" | "someday-maybe";
+export type RoutableStatus = "todo" | "completed" | "waiting" | "someday-maybe";
 
 export function getDestinationRootForStatus(settings: TaskManagerSettings, status: RoutableStatus): string {
   switch (status) {
@@ -11,8 +11,6 @@ export function getDestinationRootForStatus(settings: TaskManagerSettings, statu
       return settings.completedProjectsFolder;
     case "waiting":
       return settings.waitingProjectsFolder;
-    case "scheduled":
-      return settings.scheduledProjectsFolder;
     case "someday-maybe":
       return settings.somedayMaybeProjectsFolder;
     default:
@@ -25,7 +23,6 @@ export function getTaskFolderRoots(settings: TaskManagerSettings): string[] {
     settings.projectsFolder,
     settings.completedProjectsFolder,
     settings.waitingProjectsFolder,
-    settings.scheduledProjectsFolder,
     settings.somedayMaybeProjectsFolder,
   ].filter(Boolean);
 

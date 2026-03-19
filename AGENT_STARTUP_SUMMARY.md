@@ -86,7 +86,6 @@ Routable statuses:
 - `todo`
 - `completed`
 - `waiting`
-- `scheduled`
 - `someday-maybe`
 
 Routing behavior:
@@ -180,7 +179,6 @@ Key configurable paths:
 - Projects Folder
 - Completed Projects Folder
 - Waiting Projects Folder
-- Scheduled Projects Folder
 - Someday-Maybe Projects Folder
 
 Other key settings:

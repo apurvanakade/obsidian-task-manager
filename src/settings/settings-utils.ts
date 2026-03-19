@@ -4,7 +4,6 @@ export type TaskManagerSettings = {
   projectsFolder: string;
   completedProjectsFolder: string;
   waitingProjectsFolder: string;
-  scheduledProjectsFolder: string;
   somedayMaybeProjectsFolder: string;
 };
 
@@ -14,7 +13,6 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   projectsFolder: "",
   completedProjectsFolder: "",
   waitingProjectsFolder: "",
-  scheduledProjectsFolder: "",
   somedayMaybeProjectsFolder: ""
 };
 
@@ -45,7 +43,6 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
     projectsFolder: normalizeFolder(rawSettings.projectsFolder),
     completedProjectsFolder: normalizeFolder(rawSettings.completedProjectsFolder),
     waitingProjectsFolder: normalizeFolder(rawSettings.waitingProjectsFolder),
-    scheduledProjectsFolder: normalizeFolder(rawSettings.scheduledProjectsFolder),
     somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder)
   };
 }

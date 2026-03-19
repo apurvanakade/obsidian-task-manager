@@ -164,7 +164,6 @@ export async function processProjectsFolder(context: ProcessTasksContext): Promi
     settings.projectsFolder,
     settings.completedProjectsFolder,
     settings.waitingProjectsFolder,
-    settings.scheduledProjectsFolder,
     settings.somedayMaybeProjectsFolder,
   ].filter(Boolean);
 

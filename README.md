@@ -11,7 +11,6 @@ For a detailed architecture and behavior handoff, see [AGENT_STARTUP_SUMMARY.md]
    - `Projects Folder`: root folder to scan for project notes.
    - `Completed Projects Folder`: destination folder for completed projects.
    - `Waiting Projects Folder`: destination folder for waiting projects.
-   - `Scheduled Projects Folder`: destination folder for scheduled projects.
    - `Someday-Maybe Projects Folder`: destination folder for someday-maybe projects.
    - `Next Action Tag`: tag applied to the current actionable task (default `#next-action`).
    - `Completed Status Field`: frontmatter field name to update (default `status`).
@@ -24,7 +23,6 @@ For a detailed architecture and behavior handoff, see [AGENT_STARTUP_SUMMARY.md]
       - `todo` -> `Projects Folder`
       - `completed` -> `Completed Projects Folder`
       - `waiting` -> `Waiting Projects Folder`
-      - `scheduled` -> `Scheduled Projects Folder`
       - `someday-maybe` -> `Someday-Maybe Projects Folder`
    - Preserves relative hierarchy from `Projects Folder` inside destination roots.
    - Creates missing destination subfolders as needed.

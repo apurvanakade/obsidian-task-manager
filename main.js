@@ -407,7 +407,6 @@ var DEFAULT_SETTINGS = {
   projectsFolder: "",
   completedProjectsFolder: "",
   waitingProjectsFolder: "",
-  scheduledProjectsFolder: "",
   somedayMaybeProjectsFolder: ""
 };
 function normalizeTag(tag) {
@@ -433,7 +432,6 @@ function normalizeSettings(rawSettings) {
     projectsFolder: normalizeFolder(rawSettings.projectsFolder),
     completedProjectsFolder: normalizeFolder(rawSettings.completedProjectsFolder),
     waitingProjectsFolder: normalizeFolder(rawSettings.waitingProjectsFolder),
-    scheduledProjectsFolder: normalizeFolder(rawSettings.scheduledProjectsFolder),
     somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder)
   };
 }
@@ -472,14 +470,6 @@ var TaskManagerSettingTabRenderer = class {
       "waitingProjectsFolder",
       settings.waitingProjectsFolder,
       "Projects/Waiting"
-    );
-    this.addFolderSetting(
-      containerEl,
-      "Scheduled Projects Folder",
-      "Destination folder for scheduled projects.",
-      "scheduledProjectsFolder",
-      settings.scheduledProjectsFolder,
-      "Projects/Scheduled"
     );
     this.addFolderSetting(
       containerEl,
@@ -552,8 +542,6 @@ function getDestinationRootForStatus(settings, status) {
       return settings.completedProjectsFolder;
     case "waiting":
       return settings.waitingProjectsFolder;
-    case "scheduled":
-      return settings.scheduledProjectsFolder;
     case "someday-maybe":
       return settings.somedayMaybeProjectsFolder;
     default:
@@ -565,7 +553,6 @@ function getTaskFolderRoots(settings) {
     settings.projectsFolder,
     settings.completedProjectsFolder,
     settings.waitingProjectsFolder,
-    settings.scheduledProjectsFolder,
     settings.somedayMaybeProjectsFolder
   ].filter(Boolean);
   return [...new Set(roots)];
@@ -792,7 +779,7 @@ function escapeRegExp2(value) {
 }
 
 // src/routing/status-routing.ts
-var ROUTABLE_STATUSES = ["todo", "completed", "waiting", "scheduled", "someday-maybe"];
+var ROUTABLE_STATUSES = ["todo", "completed", "waiting", "someday-maybe"];
 function isRoutableStatus(value) {
   return ROUTABLE_STATUSES.includes(value);
 }
@@ -932,7 +919,6 @@ async function processProjectsFolder(context) {
     settings.projectsFolder,
     settings.completedProjectsFolder,
     settings.waitingProjectsFolder,
-    settings.scheduledProjectsFolder,
     settings.somedayMaybeProjectsFolder
   ].filter(Boolean);
   const files = context.getMarkdownFiles().filter(

@@ -50,15 +50,6 @@ export class TaskManagerSettingTabRenderer {
 
     this.addFolderSetting(
       containerEl,
-      "Scheduled Projects Folder",
-      "Destination folder for scheduled projects.",
-      "scheduledProjectsFolder",
-      settings.scheduledProjectsFolder,
-      "Projects/Scheduled"
-    );
-
-    this.addFolderSetting(
-      containerEl,
       "Someday-Maybe Projects Folder",
       "Destination folder for someday-maybe projects.",
       "somedayMaybeProjectsFolder",
@@ -95,7 +86,7 @@ export class TaskManagerSettingTabRenderer {
     containerEl: HTMLElement,
     name: string,
     description: string,
-    settingKey: "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "scheduledProjectsFolder" | "somedayMaybeProjectsFolder",
+    settingKey: "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder",
     folderPath: string,
     placeholder: string
   ): void {
@@ -119,7 +110,7 @@ export class TaskManagerSettingTabRenderer {
 
   private configureFolderTextInput(
     text: TextComponent,
-    settingKey: "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "scheduledProjectsFolder" | "somedayMaybeProjectsFolder",
+    settingKey: "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder",
     folderPath: string,
     placeholder: string
   ): void {
