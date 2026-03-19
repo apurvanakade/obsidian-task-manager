@@ -1,6 +1,58 @@
 import { App, Modal } from "obsidian";
 import { buildDateSuggestions } from "../date/date-suggestions";
 
+const spacingStyles = {
+  description: { marginBottom: "20px" },
+  section: { marginBottom: "15px" },
+  label: {
+    display: "block",
+    marginBottom: "8px",
+    fontWeight: "bold",
+  },
+} as const;
+
+const inputStyles = {
+  width: "100%",
+  padding: "8px",
+  boxSizing: "border-box",
+  marginBottom: "10px",
+} as const;
+
+const suggestionsGridStyles = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: "8px",
+  marginBottom: "15px",
+} as const;
+
+const actionRowStyles = {
+  display: "flex",
+  gap: "10px",
+  justifyContent: "flex-end",
+} as const;
+
+const buttonStyles = {
+  base: {
+    padding: "8px 16px",
+    cursor: "pointer",
+  },
+  primary: {
+    backgroundColor: "#4CAF50",
+    color: "white",
+    border: "none",
+    borderRadius: "4px",
+  },
+  secondary: {
+    backgroundColor: "#f0f0f0",
+    border: "1px solid #ccc",
+    borderRadius: "4px",
+  },
+  suggestion: {
+    padding: "8px",
+    cursor: "pointer",
+  },
+} as const;
+
 type DueDateModalOptions = {
   app: App;
   taskLine: string;
@@ -8,9 +60,8 @@ type DueDateModalOptions = {
 };
 
 export class DueDateModal extends Modal {
-  private taskLine: string;
-  private onSubmit: (taskLine: string, dueDate: string) => Promise<void>;
-  private selectedDate: string = "";
+  private readonly taskLine: string;
+  private readonly onSubmit: (taskLine: string, dueDate: string) => Promise<void>;
   private inputElement: HTMLInputElement | null = null;
 
   constructor(options: DueDateModalOptions) {
@@ -25,93 +76,82 @@ export class DueDateModal extends Modal {
 
     contentEl.createEl("h2", { text: "Add Due Date" });
 
-    const descEl = contentEl.createEl("p", {
-      text: "Would you like to add a due date for this task?"
+    this.createDescription(contentEl);
+    this.createInputSection(contentEl);
+    this.createSuggestionsSection(contentEl);
+    this.createActionButtons(contentEl);
+
+    this.inputElement?.focus();
+  }
+
+  private createDescription(container: HTMLElement): void {
+    const description = container.createEl("p", {
+      text: "Would you like to add a due date for this task?",
     });
-    descEl.style.marginBottom = "20px";
+    applyStyles(description, spacingStyles.description);
+  }
 
-    // Create input field
-    const inputContainer = contentEl.createEl("div");
-    inputContainer.style.marginBottom = "15px";
+  private createInputSection(container: HTMLElement): void {
+    const inputContainer = container.createEl("div");
+    applyStyles(inputContainer, spacingStyles.section);
 
-    const label = inputContainer.createEl("label");
-    label.style.display = "block";
-    label.style.marginBottom = "8px";
-    label.style.fontWeight = "bold";
-    label.textContent = "Due Date (YYYY-MM-DD):";
+    this.createSectionLabel(inputContainer, "Due Date (YYYY-MM-DD):");
 
     this.inputElement = inputContainer.createEl("input", {
       type: "text",
-      placeholder: "e.g., 2026-03-20"
+      placeholder: "e.g., 2026-03-20",
     });
-    this.inputElement.style.width = "100%";
-    this.inputElement.style.padding = "8px";
-    this.inputElement.style.boxSizing = "border-box";
-    this.inputElement.style.marginBottom = "10px";
+    applyStyles(this.inputElement, inputStyles);
+  }
 
-    // Suggested dates section
-    const suggestionsLabel = contentEl.createEl("label");
-    suggestionsLabel.style.display = "block";
-    suggestionsLabel.style.marginBottom = "8px";
-    suggestionsLabel.style.fontWeight = "bold";
-    suggestionsLabel.textContent = "Suggested Dates:";
+  private createSuggestionsSection(container: HTMLElement): void {
+    this.createSectionLabel(container, "Suggested Dates:");
 
-    const suggestionsContainer = contentEl.createEl("div");
-    suggestionsContainer.style.display = "grid";
-    suggestionsContainer.style.gridTemplateColumns = "1fr 1fr";
-    suggestionsContainer.style.gap = "8px";
-    suggestionsContainer.style.marginBottom = "15px";
+    const suggestionsContainer = container.createEl("div");
+    applyStyles(suggestionsContainer, suggestionsGridStyles);
 
-    const suggestions = buildDateSuggestions().slice(0, 10);
-    suggestions.forEach((suggestion) => {
-      const btn = suggestionsContainer.createEl("button", {
-        text: `${suggestion.value} (${suggestion.label})`
+    for (const suggestion of buildDateSuggestions().slice(0, 10)) {
+      const button = suggestionsContainer.createEl("button", {
+        text: `${suggestion.value} (${suggestion.label})`,
       });
-      btn.style.padding = "8px";
-      btn.style.cursor = "pointer";
-      btn.onclick = () => {
-        this.selectedDate = suggestion.value;
+      applyStyles(button, buttonStyles.suggestion);
+      button.onclick = () => {
         if (this.inputElement) {
           this.inputElement.value = suggestion.value;
         }
         void this.submitDate(suggestion.value);
       };
-    });
-
-    // Action buttons
-    const buttonContainer = contentEl.createEl("div");
-    buttonContainer.style.display = "flex";
-    buttonContainer.style.gap = "10px";
-    buttonContainer.style.justifyContent = "flex-end";
-
-    const addBtn = buttonContainer.createEl("button", { text: "Add Due Date" });
-    addBtn.style.padding = "8px 16px";
-    addBtn.style.cursor = "pointer";
-    addBtn.style.backgroundColor = "#4CAF50";
-    addBtn.style.color = "white";
-    addBtn.style.border = "none";
-    addBtn.style.borderRadius = "4px";
-    addBtn.onclick = () => {
-      void this.submitDate();
-    };
-
-    const skipBtn = buttonContainer.createEl("button", { text: "Skip" });
-    skipBtn.style.padding = "8px 16px";
-    skipBtn.style.cursor = "pointer";
-    skipBtn.style.backgroundColor = "#f0f0f0";
-    skipBtn.style.border = "1px solid #ccc";
-    skipBtn.style.borderRadius = "4px";
-    skipBtn.onclick = () => {
-      this.close();
-    };
-
-    if (this.inputElement) {
-      this.inputElement.focus();
     }
   }
 
+  private createActionButtons(container: HTMLElement): void {
+    const buttonContainer = container.createEl("div");
+    applyStyles(buttonContainer, actionRowStyles);
+
+    const addButton = buttonContainer.createEl("button", { text: "Add Due Date" });
+    applyStyles(addButton, buttonStyles.base);
+    applyStyles(addButton, buttonStyles.primary);
+    addButton.onclick = () => {
+      void this.submitDate();
+    };
+
+    const skipButton = buttonContainer.createEl("button", { text: "Skip" });
+    applyStyles(skipButton, buttonStyles.base);
+    applyStyles(skipButton, buttonStyles.secondary);
+    skipButton.onclick = () => {
+      this.close();
+    };
+  }
+
+  private createSectionLabel(container: HTMLElement, text: string): HTMLLabelElement {
+    const label = container.createEl("label");
+    label.textContent = text;
+    applyStyles(label, spacingStyles.label);
+    return label;
+  }
+
   private async submitDate(dateOverride?: string): Promise<void> {
-    const dateValue = dateOverride ?? this.inputElement?.value.trim() ?? this.selectedDate;
+    const dateValue = dateOverride ?? this.inputElement?.value.trim() ?? "";
 
     if (!dateValue) {
       return;
@@ -124,4 +164,8 @@ export class DueDateModal extends Modal {
       console.error("Failed to add due date:", error);
     }
   }
+}
+
+function applyStyles(element: HTMLElement, styles: Partial<CSSStyleDeclaration>): void {
+  Object.assign(element.style, styles);
 }

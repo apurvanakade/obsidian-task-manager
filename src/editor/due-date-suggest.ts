@@ -15,6 +15,8 @@ import {
 export class DueDateEditorSuggest extends EditorSuggest<DateSuggestion> {
   private triggerInfo: EditorSuggestTriggerInfo | null = null;
   private activeEditor: Editor | null = null;
+  private cachedSuggestions: DateSuggestion[] | null = null;
+  private cachedSuggestionsDate = "";
 
   constructor(app: App) {
     super(app);
@@ -80,6 +82,13 @@ export class DueDateEditorSuggest extends EditorSuggest<DateSuggestion> {
   }
 
   private buildSuggestions(): DateSuggestion[] {
-    return buildDateSuggestions(DEFAULT_LOOKAHEAD_DAYS);
+    const today = new Date().toISOString().slice(0, 10);
+    if (this.cachedSuggestions !== null && this.cachedSuggestionsDate === today) {
+      return this.cachedSuggestions;
+    }
+
+    this.cachedSuggestions = buildDateSuggestions(DEFAULT_LOOKAHEAD_DAYS);
+    this.cachedSuggestionsDate = today;
+    return this.cachedSuggestions;
   }
 }

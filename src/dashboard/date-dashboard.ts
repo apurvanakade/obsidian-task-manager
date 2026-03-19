@@ -1,5 +1,16 @@
 import { App, ItemView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 
+const EMPTY_DUE_DATE_SORT_VALUE = "9999-99-99";
+const MARKDOWN_EXTENSION_REGEX = /\.md$/i;
+const TASK_LINE_REGEX = /^\s*[-*+]\s+\[( |x|X)\]\s+(.*)$/;
+const DUE_FIELD_REGEX = /\[due::\s*([^\]]+?)\s*\]/i;
+const COMPLETION_DATE_FIELD_REGEX = /\[completion-date::\s*([^\]]+?)\s*\]/i;
+const INLINE_FIELD_REGEX = /\s*\[[^\]]+::\s*[^\]]*\]/g;
+const TAG_REGEX = /(^|\s)#[^\s#]+/g;
+const MULTISPACE_REGEX = /\s+/g;
+const MONTH_DAY_REGEX = /^\d{4}-(\d{2})-(\d{2})$/;
+const LEADING_ARCHIVE_MARKER_PATTERN = /^(?:[\s._-]*(?:\d{4}[-_. ]\d{1,2}[-_. ]\d{1,2}|\d{1,2}[-_:]\d{2}(?:[-_:]\d{2})?|\d+(?:-\d+)+|\d+))+[\s._-]*/;
+
 type DateDashboardControllerOptions = {
   app: App;
   getTaskFolderRoots: () => string[];
@@ -20,7 +31,7 @@ type ParsedDashboardTask = {
 
 export class DateDashboardController {
   private static readonly DATE_FILE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
-  private static readonly VIEW_TYPE = "task-manager-date-dashboard";
+  static readonly VIEW_TYPE = "task-manager-date-dashboard";
 
   private readonly app: App;
   private readonly getTaskFolderRoots: () => string[];
@@ -136,7 +147,7 @@ export class DateDashboardController {
   }
 
   private getDateStringFromFileName(fileName: string): string | null {
-    const baseName = fileName.replace(/\.md$/i, "");
+    const baseName = fileName.replace(MARKDOWN_EXTENSION_REGEX, "");
     return DateDashboardController.DATE_FILE_REGEX.test(baseName) ? baseName : null;
   }
 
@@ -171,42 +182,22 @@ export class DateDashboardController {
       }
     }
 
-    const sortRows = (left: DashboardRow, right: DashboardRow): number => {
-      const pathCompare = left.file.path.localeCompare(right.file.path);
-      if (pathCompare !== 0) {
-        return pathCompare;
-      }
-
-      return left.task.localeCompare(right.task);
-    };
-
-    const sortDueRows = (left: DashboardRow, right: DashboardRow): number => {
-      const leftDueDate = left.dueDate ?? "9999-99-99";
-      const rightDueDate = right.dueDate ?? "9999-99-99";
-      const dueDateCompare = leftDueDate.localeCompare(rightDueDate);
-      if (dueDateCompare !== 0) {
-        return dueDateCompare;
-      }
-
-      return sortRows(left, right);
-    };
-
-    dueTasks.sort(sortDueRows);
-    completedTasks.sort(sortRows);
+    dueTasks.sort(DateDashboardController.compareDueRows);
+    completedTasks.sort(DateDashboardController.compareRows);
 
     return { dueTasks, completedTasks };
   }
 
   private parseDashboardTaskLine(line: string): ParsedDashboardTask | null {
-    const match = line.match(/^\s*[-*+]\s+\[( |x|X)\]\s+(.*)$/);
+    const match = line.match(TASK_LINE_REGEX);
     if (!match) {
       return null;
     }
 
     const status = match[1].trim().toLowerCase() === "x" ? "completed" : "open";
     const taskBody = match[2].trim();
-    const dueDate = this.readInlineFieldValue(taskBody, "due");
-    const completedDate = this.readInlineFieldValue(taskBody, "completion-date");
+    const dueDate = this.readInlineFieldValue(taskBody, DUE_FIELD_REGEX);
+    const completedDate = this.readInlineFieldValue(taskBody, COMPLETION_DATE_FIELD_REGEX);
 
     if (!dueDate && !completedDate) {
       return null;
@@ -220,17 +211,16 @@ export class DateDashboardController {
     };
   }
 
-  private readInlineFieldValue(taskBody: string, fieldName: string): string | null {
-    const fieldRegex = new RegExp(`\\[${escapeRegExp(fieldName)}::\\s*([^\\]]+?)\\s*\\]`, "i");
+  private readInlineFieldValue(taskBody: string, fieldRegex: RegExp): string | null {
     const match = taskBody.match(fieldRegex);
     return match ? match[1].trim() : null;
   }
 
   private cleanDashboardTaskText(taskBody: string): string {
     return taskBody
-      .replace(/\s*\[[^\]]+::\s*[^\]]*\]/g, "")
-      .replace(/(^|\s)#[^\s#]+/g, "$1")
-      .replace(/\s+/g, " ")
+      .replace(INLINE_FIELD_REGEX, "")
+      .replace(TAG_REGEX, "$1")
+      .replace(MULTISPACE_REGEX, " ")
       .trim();
   }
 
@@ -252,45 +242,50 @@ export class DateDashboardController {
     const headerRow = document.createElement("tr");
     const labels = showDueDate ? ["Filename", "Task", "Due"] : ["Filename", "Task"];
     for (const label of labels) {
-      const headerCell = document.createElement("th");
-      headerCell.textContent = label;
-      headerRow.appendChild(headerCell);
+      headerRow.appendChild(this.createTextElement("th", label));
     }
     thead.appendChild(headerRow);
     table.appendChild(thead);
 
     const tbody = document.createElement("tbody");
     for (const row of rows) {
-      const tableRow = document.createElement("tr");
-
-      const fileCell = document.createElement("td");
-      const link = document.createElement("a");
-      link.href = "#";
-      link.textContent = this.getDisplayFileName(row.file.name);
-      link.classList.add("internal-link");
-      link.addEventListener("click", (event) => {
-        event.preventDefault();
-        void this.app.workspace.openLinkText(row.file.path, sourcePath);
-      });
-      fileCell.appendChild(link);
-
-      const taskCell = document.createElement("td");
-      taskCell.textContent = row.task;
-
-      tableRow.appendChild(fileCell);
-      tableRow.appendChild(taskCell);
-
-      if (showDueDate) {
-        const dueDateCell = document.createElement("td");
-        dueDateCell.textContent = this.formatMonthDay(row.dueDate);
-        tableRow.appendChild(dueDateCell);
-      }
-
-      tbody.appendChild(tableRow);
+      tbody.appendChild(this.createTaskRow(row, sourcePath, showDueDate));
     }
 
     table.appendChild(tbody);
     container.appendChild(table);
+  }
+
+  private createTaskRow(row: DashboardRow, sourcePath: string, showDueDate: boolean): HTMLTableRowElement {
+    const tableRow = document.createElement("tr");
+    tableRow.appendChild(this.createFileCell(row, sourcePath));
+    tableRow.appendChild(this.createTextElement("td", row.task));
+
+    if (showDueDate) {
+      tableRow.appendChild(this.createTextElement("td", this.formatMonthDay(row.dueDate)));
+    }
+
+    return tableRow;
+  }
+
+  private createFileCell(row: DashboardRow, sourcePath: string): HTMLTableCellElement {
+    const fileCell = document.createElement("td");
+    const link = document.createElement("a");
+    link.href = "#";
+    link.textContent = this.getDisplayFileName(row.file.name);
+    link.classList.add("internal-link");
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      void this.app.workspace.openLinkText(row.file.path, sourcePath);
+    });
+    fileCell.appendChild(link);
+    return fileCell;
+  }
+
+  private createTextElement<K extends keyof HTMLElementTagNameMap>(tagName: K, text: string): HTMLElementTagNameMap[K] {
+    const element = document.createElement(tagName);
+    element.textContent = text;
+    return element;
   }
 
   private formatMonthDay(dateString: string | null): string {
@@ -298,15 +293,14 @@ export class DateDashboardController {
       return "";
     }
 
-    const match = dateString.match(/^\d{4}-(\d{2})-(\d{2})$/);
+    const match = dateString.match(MONTH_DAY_REGEX);
     return match ? `${match[1]}-${match[2]}` : dateString;
   }
 
   private getDisplayFileName(fileName: string): string {
-    const withoutExtension = fileName.replace(/\.md$/i, "");
-    const leadingArchiveMarkerPattern = /^(?:[\s._-]*(?:\d{4}[-_. ]\d{1,2}[-_. ]\d{1,2}|\d{1,2}[-_:]\d{2}(?:[-_:]\d{2})?|\d+(?:-\d+)+|\d+))+[\s._-]*/;
+    const withoutExtension = fileName.replace(MARKDOWN_EXTENSION_REGEX, "");
     const withoutArchiveMarkers = withoutExtension
-      .replace(leadingArchiveMarkerPattern, "")
+      .replace(LEADING_ARCHIVE_MARKER_PATTERN, "")
       .replace(/^[\s._-]+/, "")
       .replace(/[\s._-]+$/, "")
       .replace(/[._-]{2,}/g, " ")
@@ -314,6 +308,26 @@ export class DateDashboardController {
       .trim();
 
     return withoutArchiveMarkers || withoutExtension;
+  }
+
+  private static compareRows(left: DashboardRow, right: DashboardRow): number {
+    const pathCompare = left.file.path.localeCompare(right.file.path);
+    if (pathCompare !== 0) {
+      return pathCompare;
+    }
+
+    return left.task.localeCompare(right.task);
+  }
+
+  private static compareDueRows(left: DashboardRow, right: DashboardRow): number {
+    const leftDueDate = left.dueDate ?? EMPTY_DUE_DATE_SORT_VALUE;
+    const rightDueDate = right.dueDate ?? EMPTY_DUE_DATE_SORT_VALUE;
+    const dueDateCompare = leftDueDate.localeCompare(rightDueDate);
+    if (dueDateCompare !== 0) {
+      return dueDateCompare;
+    }
+
+    return DateDashboardController.compareRows(left, right);
   }
 }
 
@@ -326,7 +340,7 @@ class DateDashboardView extends ItemView {
   }
 
   getViewType(): string {
-    return "task-manager-date-dashboard";
+    return DateDashboardController.VIEW_TYPE;
   }
 
   getDisplayText(): string {
@@ -340,8 +354,4 @@ class DateDashboardView extends ItemView {
   async refresh(): Promise<void> {
     await this.controller.renderContent(this.contentEl);
   }
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

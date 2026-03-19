@@ -6,6 +6,10 @@ export type DateSuggestion = {
 
 export const DEFAULT_LOOKAHEAD_DAYS = 30;
 
+const weekdayFormatter = new Intl.DateTimeFormat("en-US", {
+  weekday: "long",
+});
+
 export function buildDateSuggestions(lookaheadDays: number = DEFAULT_LOOKAHEAD_DAYS): DateSuggestion[] {
   const today = startOfDay(new Date());
   const suggestions: DateSuggestion[] = [];
@@ -34,9 +38,7 @@ function getDateLabel(date: Date, offset: number): string {
     return "Tomorrow";
   }
 
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "long",
-  }).format(date);
+  return weekdayFormatter.format(date);
 }
 
 function startOfDay(date: Date): Date {
