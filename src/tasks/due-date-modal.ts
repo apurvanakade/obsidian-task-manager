@@ -1,35 +1,11 @@
 import { App, Modal } from "obsidian";
+import { buildDateSuggestions } from "../date/date-suggestions";
 
 type DueDateModalOptions = {
   app: App;
   taskLine: string;
   onSubmit: (taskLine: string, dueDate: string) => Promise<void>;
 };
-
-function buildDateSuggestions(): { value: string; label: string }[] {
-  const suggestions: { value: string; label: string }[] = [];
-  const today = new Date();
-
-  for (let i = 0; i < 30; i++) {
-    const date = new Date(today);
-    date.setDate(date.getDate() + i);
-    const dateStr = formatDate(date);
-    const rel = i === 0 ? "Today" : i === 1 ? "Tomorrow" : `+${i}d`;
-    suggestions.push({
-      value: dateStr,
-      label: `${dateStr} (${rel})`
-    });
-  }
-
-  return suggestions;
-}
-
-function formatDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
 export class DueDateModal extends Modal {
   private taskLine: string;
@@ -89,7 +65,7 @@ export class DueDateModal extends Modal {
     const suggestions = buildDateSuggestions().slice(0, 10);
     suggestions.forEach((suggestion) => {
       const btn = suggestionsContainer.createEl("button", {
-        text: suggestion.label
+        text: `${suggestion.value} (${suggestion.label})`
       });
       btn.style.padding = "8px";
       btn.style.cursor = "pointer";
@@ -98,6 +74,7 @@ export class DueDateModal extends Modal {
         if (this.inputElement) {
           this.inputElement.value = suggestion.value;
         }
+        void this.submitDate(suggestion.value);
       };
     });
 
@@ -133,8 +110,8 @@ export class DueDateModal extends Modal {
     }
   }
 
-  private async submitDate(): Promise<void> {
-    const dateValue = this.inputElement?.value.trim() ?? this.selectedDate;
+  private async submitDate(dateOverride?: string): Promise<void> {
+    const dateValue = dateOverride ?? this.inputElement?.value.trim() ?? this.selectedDate;
 
     if (!dateValue) {
       return;

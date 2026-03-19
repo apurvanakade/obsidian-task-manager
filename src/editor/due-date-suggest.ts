@@ -6,15 +6,13 @@ import {
   EditorSuggestContext,
   EditorSuggestTriggerInfo,
 } from "obsidian";
+import {
+  buildDateSuggestions,
+  DateSuggestion,
+  DEFAULT_LOOKAHEAD_DAYS,
+} from "../date/date-suggestions";
 
-type DueDateSuggestion = {
-  value: string;
-  label: string;
-};
-
-const LOOKAHEAD_DAYS = 30;
-
-export class DueDateEditorSuggest extends EditorSuggest<DueDateSuggestion> {
+export class DueDateEditorSuggest extends EditorSuggest<DateSuggestion> {
   private triggerInfo: EditorSuggestTriggerInfo | null = null;
   private activeEditor: Editor | null = null;
 
@@ -34,7 +32,7 @@ export class DueDateEditorSuggest extends EditorSuggest<DueDateSuggestion> {
 
   onTrigger(cursor: EditorPosition, editor: Editor): EditorSuggestTriggerInfo | null {
     const linePrefix = editor.getLine(cursor.line).slice(0, cursor.ch);
-    const triggerMatch = linePrefix.match(/due::\s*([0-9-]*)$/i);
+    const triggerMatch = linePrefix.match(/due::\s*([a-z0-9-]*)$/i);
     if (!triggerMatch) {
       this.triggerInfo = null;
       this.activeEditor = null;
@@ -54,19 +52,19 @@ export class DueDateEditorSuggest extends EditorSuggest<DueDateSuggestion> {
     return trigger;
   }
 
-  getSuggestions(context: EditorSuggestContext): DueDateSuggestion[] {
-    const normalizedQuery = context.query.trim();
+  getSuggestions(context: EditorSuggestContext): DateSuggestion[] {
+    const normalizedQuery = context.query.trim().toLowerCase();
     return this.buildSuggestions().filter((suggestion) => {
-      return normalizedQuery.length === 0 || suggestion.value.startsWith(normalizedQuery);
+      return normalizedQuery.length === 0 || suggestion.searchText.includes(normalizedQuery);
     });
   }
 
-  renderSuggestion(value: DueDateSuggestion, el: HTMLElement): void {
+  renderSuggestion(value: DateSuggestion, el: HTMLElement): void {
     el.createDiv({ text: value.value });
     el.createEl("small", { text: value.label });
   }
 
-  selectSuggestion(value: DueDateSuggestion): void {
+  selectSuggestion(value: DateSuggestion): void {
     if (!this.activeEditor || !this.triggerInfo) {
       return;
     }
@@ -81,49 +79,7 @@ export class DueDateEditorSuggest extends EditorSuggest<DueDateSuggestion> {
     this.activeEditor = null;
   }
 
-  private buildSuggestions(): DueDateSuggestion[] {
-    const today = startOfDay(new Date());
-    const suggestions: DueDateSuggestion[] = [];
-
-    for (let offset = 0; offset <= LOOKAHEAD_DAYS; offset += 1) {
-      const date = addDays(today, offset);
-      suggestions.push({
-        value: formatDate(date),
-        label: this.getRelativeLabel(offset),
-      });
-    }
-
-    return suggestions;
+  private buildSuggestions(): DateSuggestion[] {
+    return buildDateSuggestions(DEFAULT_LOOKAHEAD_DAYS);
   }
-
-  private getRelativeLabel(offset: number): string {
-    if (offset === 0) {
-      return "Today";
-    }
-
-    if (offset === 1) {
-      return "Tomorrow";
-    }
-
-    return `In ${offset} days`;
-  }
-}
-
-function startOfDay(date: Date): Date {
-  const copy = new Date(date);
-  copy.setHours(0, 0, 0, 0);
-  return copy;
-}
-
-function addDays(date: Date, days: number): Date {
-  const copy = new Date(date);
-  copy.setDate(copy.getDate() + days);
-  return copy;
-}
-
-function formatDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }

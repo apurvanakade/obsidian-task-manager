@@ -294,7 +294,53 @@ function escapeRegExp(value) {
 
 // src/editor/due-date-suggest.ts
 var import_obsidian2 = require("obsidian");
-var LOOKAHEAD_DAYS = 30;
+
+// src/date/date-suggestions.ts
+var DEFAULT_LOOKAHEAD_DAYS = 30;
+function buildDateSuggestions(lookaheadDays = DEFAULT_LOOKAHEAD_DAYS) {
+  const today = startOfDay(/* @__PURE__ */ new Date());
+  const suggestions = [];
+  for (let offset = 0; offset <= lookaheadDays; offset += 1) {
+    const date = addDays(today, offset);
+    const value = formatDate(date);
+    const label = getDateLabel(date, offset);
+    suggestions.push({
+      value,
+      label,
+      searchText: `${value} ${label}`.toLowerCase()
+    });
+  }
+  return suggestions;
+}
+function getDateLabel(date, offset) {
+  if (offset === 0) {
+    return "Today";
+  }
+  if (offset === 1) {
+    return "Tomorrow";
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "long"
+  }).format(date);
+}
+function startOfDay(date) {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+function addDays(date, days) {
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() + days);
+  return copy;
+}
+function formatDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+// src/editor/due-date-suggest.ts
 var DueDateEditorSuggest = class extends import_obsidian2.EditorSuggest {
   constructor(app) {
     super(app);
@@ -314,7 +360,7 @@ var DueDateEditorSuggest = class extends import_obsidian2.EditorSuggest {
   onTrigger(cursor, editor) {
     var _a;
     const linePrefix = editor.getLine(cursor.line).slice(0, cursor.ch);
-    const triggerMatch = linePrefix.match(/due::\s*([0-9-]*)$/i);
+    const triggerMatch = linePrefix.match(/due::\s*([a-z0-9-]*)$/i);
     if (!triggerMatch) {
       this.triggerInfo = null;
       this.activeEditor = null;
@@ -332,9 +378,9 @@ var DueDateEditorSuggest = class extends import_obsidian2.EditorSuggest {
     return trigger;
   }
   getSuggestions(context) {
-    const normalizedQuery = context.query.trim();
+    const normalizedQuery = context.query.trim().toLowerCase();
     return this.buildSuggestions().filter((suggestion) => {
-      return normalizedQuery.length === 0 || suggestion.value.startsWith(normalizedQuery);
+      return normalizedQuery.length === 0 || suggestion.searchText.includes(normalizedQuery);
     });
   }
   renderSuggestion(value, el) {
@@ -354,43 +400,9 @@ var DueDateEditorSuggest = class extends import_obsidian2.EditorSuggest {
     this.activeEditor = null;
   }
   buildSuggestions() {
-    const today = startOfDay(/* @__PURE__ */ new Date());
-    const suggestions = [];
-    for (let offset = 0; offset <= LOOKAHEAD_DAYS; offset += 1) {
-      const date = addDays(today, offset);
-      suggestions.push({
-        value: formatDate(date),
-        label: this.getRelativeLabel(offset)
-      });
-    }
-    return suggestions;
-  }
-  getRelativeLabel(offset) {
-    if (offset === 0) {
-      return "Today";
-    }
-    if (offset === 1) {
-      return "Tomorrow";
-    }
-    return `In ${offset} days`;
+    return buildDateSuggestions(DEFAULT_LOOKAHEAD_DAYS);
   }
 };
-function startOfDay(date) {
-  const copy = new Date(date);
-  copy.setHours(0, 0, 0, 0);
-  return copy;
-}
-function addDays(date, days) {
-  const copy = new Date(date);
-  copy.setDate(copy.getDate() + days);
-  return copy;
-}
-function formatDate(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
 // src/settings/settings-utils.ts
 var DEFAULT_SETTINGS = {
@@ -815,27 +827,6 @@ function escapeRegExp3(value) {
 
 // src/tasks/due-date-modal.ts
 var import_obsidian5 = require("obsidian");
-function buildDateSuggestions() {
-  const suggestions = [];
-  const today = /* @__PURE__ */ new Date();
-  for (let i = 0; i < 30; i++) {
-    const date = new Date(today);
-    date.setDate(date.getDate() + i);
-    const dateStr = formatDate2(date);
-    const rel = i === 0 ? "Today" : i === 1 ? "Tomorrow" : `+${i}d`;
-    suggestions.push({
-      value: dateStr,
-      label: `${dateStr} (${rel})`
-    });
-  }
-  return suggestions;
-}
-function formatDate2(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 var DueDateModal = class extends import_obsidian5.Modal {
   constructor(options) {
     super(options.app);
@@ -880,7 +871,7 @@ var DueDateModal = class extends import_obsidian5.Modal {
     const suggestions = buildDateSuggestions().slice(0, 10);
     suggestions.forEach((suggestion) => {
       const btn = suggestionsContainer.createEl("button", {
-        text: suggestion.label
+        text: `${suggestion.value} (${suggestion.label})`
       });
       btn.style.padding = "8px";
       btn.style.cursor = "pointer";
@@ -889,6 +880,7 @@ var DueDateModal = class extends import_obsidian5.Modal {
         if (this.inputElement) {
           this.inputElement.value = suggestion.value;
         }
+        void this.submitDate(suggestion.value);
       };
     });
     const buttonContainer = contentEl.createEl("div");
@@ -918,9 +910,9 @@ var DueDateModal = class extends import_obsidian5.Modal {
       this.inputElement.focus();
     }
   }
-  async submitDate() {
+  async submitDate(dateOverride) {
     var _a, _b;
-    const dateValue = (_b = (_a = this.inputElement) == null ? void 0 : _a.value.trim()) != null ? _b : this.selectedDate;
+    const dateValue = (_b = dateOverride != null ? dateOverride : (_a = this.inputElement) == null ? void 0 : _a.value.trim()) != null ? _b : this.selectedDate;
     if (!dateValue) {
       return;
     }
@@ -1100,7 +1092,7 @@ async function processProjectsFolder(context) {
   return files.length;
 }
 function getCompletionDateString() {
-  return formatDate3(/* @__PURE__ */ new Date());
+  return formatDate2(/* @__PURE__ */ new Date());
 }
 function getCompletionTimeString() {
   const now = /* @__PURE__ */ new Date();
@@ -1134,15 +1126,15 @@ function getRepeatDueDate(repeatRule) {
   const now = /* @__PURE__ */ new Date();
   switch (repeatRule) {
     case "day":
-      return formatDate3(addDays2(now, 1));
+      return formatDate2(addDays2(now, 1));
     case "week":
-      return formatDate3(addDays2(now, 7));
+      return formatDate2(addDays2(now, 7));
     case "month":
-      return formatDate3(addMonthsClamped(now, 1));
+      return formatDate2(addMonthsClamped(now, 1));
     case "year":
-      return formatDate3(addMonthsClamped(now, 12));
+      return formatDate2(addMonthsClamped(now, 12));
     default:
-      return formatDate3(now);
+      return formatDate2(now);
   }
 }
 function addDays2(baseDate, days) {
@@ -1161,7 +1153,7 @@ function addMonthsClamped(baseDate, monthsToAdd) {
   const clampedDay = Math.min(day, lastDayOfTargetMonth);
   return new Date(targetYear, targetMonth, clampedDay);
 }
-function formatDate3(date) {
+function formatDate2(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");

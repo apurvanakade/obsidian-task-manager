@@ -77,8 +77,9 @@ Loop prevention:
 Editor suggest flow:
 
 1. `main.ts` registers `DueDateEditorSuggest` during plugin load.
-2. Typing `due::` triggers suggestions for dates from today through +30 days.
-3. Selected suggestion inserts `YYYY-MM-DD` at the cursor.
+2. Typing `due::` triggers suggestions for dates from today through +30 days, labeled as Today/Tomorrow/weekday names.
+3. Autocomplete matching works against both the ISO date and the natural-language label, so typing terms like `sat` or `sunday` can find the corresponding suggestion.
+4. Selected suggestion inserts `YYYY-MM-DD` at the cursor.
 
 ## 5) Status and Routing Rules
 
@@ -113,7 +114,8 @@ Completion (`[ ]` -> `[x]`):
 Next-Action Assignment (triggered when `#next-action` is newly assigned):
 
 - prompt user with due-date modal offering:
-  - suggested dates (today through +30 days with relative labels)
+  - suggested dates (today through +30 days with Today/Tomorrow/weekday labels)
+  - clicking a suggested date immediately adds that due date
   - text input field for custom date (YYYY-MM-DD format)
   - skip option to dismiss without adding due date
   - **modal is skipped if**: assignment was unchanged (already tagged before reconcile), assigned task is repeating, or task already has a due date
@@ -229,7 +231,7 @@ Run after meaningful logic changes:
 1. `npm run build` succeeds.
 2. `Process File` updates tags/status correctly on complete/uncomplete/delete cases.
 3. Task completion triggers due-date modal for newly assigned `next-action` task.
-4. Due-date modal allows selecting suggested dates or entering custom date.
+4. Due-date modal immediately adds a clicked suggested date, or allows manual date entry via the input and Add Due Date button.
 5. Selected/entered due date is correctly added to task as `[due:: YYYY-MM-DD]`.
 6. Modal skip action dismisses without modifying task.
 7. Recurring completion creates next open task with expected due date.
@@ -240,7 +242,7 @@ Run after meaningful logic changes:
 12. Date dashboard appears in sidebar for date note and renders Due/Completed correctly.
 13. Due table sorted ascending by due date and shows `MM-DD` column.
 14. Dashboard text cleanup removes inline fields/tags; filename display cleanup is applied.
-15. Typing `due::` shows date suggestions starting from today and inserts `YYYY-MM-DD`.
+15. Typing `due::` shows date suggestions starting from today, matches on ISO dates and weekday labels, and inserts `YYYY-MM-DD`.
 
 ## 11) Known Constraints
 
