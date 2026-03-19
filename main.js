@@ -108,7 +108,8 @@ var _DateDashboardController = class _DateDashboardController {
     const leaf = await this.app.workspace.ensureSideLeaf(_DateDashboardController.VIEW_TYPE, "right", {
       active: false,
       reveal: true,
-      split: false
+      // Prefer a split side leaf so the dashboard starts in a half-height sidebar pane.
+      split: true
     });
     await leaf.setViewState({ type: _DateDashboardController.VIEW_TYPE, active: false });
   }

@@ -122,8 +122,7 @@ export class DateDashboardController {
     const leaf = await this.app.workspace.ensureSideLeaf(DateDashboardController.VIEW_TYPE, "right", {
       active: false,
       reveal: true,
-      // Best-effort: request a split leaf so Obsidian tends to place this pane
-      // in a stacked (often lower) section of the right sidebar.
+      // Prefer a split side leaf so the dashboard starts in a half-height sidebar pane.
       split: true,
     });
     await leaf.setViewState({ type: DateDashboardController.VIEW_TYPE, active: false });
