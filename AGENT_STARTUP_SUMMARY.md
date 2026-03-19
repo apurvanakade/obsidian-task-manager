@@ -194,6 +194,12 @@ Normalization:
 
 ## 9) Safe Editing Guidance for Future Agents
 
+Maintenance rule (required):
+
+- After any code change that affects behavior, architecture, commands, settings, data flow, file organization, or validation steps, update this file in the same change set before finishing.
+- Keep updates minimal but explicit: revise affected sections and (when relevant) add/adjust regression checklist items.
+- Do not leave this summary stale relative to `main.ts` and `src/*` runtime behavior.
+
 When changing routing logic:
 
 - verify both command-driven and status-change-driven routing still work
