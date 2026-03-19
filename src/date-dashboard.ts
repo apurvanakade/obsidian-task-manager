@@ -65,10 +65,6 @@ export class DateDashboardController {
     this.queueRefresh();
   }
 
-  async refresh(): Promise<void> {
-    await this.refreshView();
-  }
-
   async renderContent(container: HTMLElement): Promise<void> {
     container.innerHTML = "";
 

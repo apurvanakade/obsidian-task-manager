@@ -110,9 +110,7 @@ export class TaskProcessor {
 
   async processTasks(): Promise<string> {
     const settings = this.getSettings();
-    const { projectsFolder, completedProjectsFolder, waitingProjectsFolder, scheduledProjectsFolder, somedayMaybeProjectsFolder } = settings;
-    const hasAnyFolder = [projectsFolder, completedProjectsFolder, waitingProjectsFolder, scheduledProjectsFolder, somedayMaybeProjectsFolder].some(Boolean);
-    if (!hasAnyFolder) {
+    if (getTaskFolderRoots(settings).length === 0) {
       throw new Error("Set at least one task folder in Task Manager settings first.");
     }
 

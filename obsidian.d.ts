@@ -39,16 +39,6 @@ declare module "obsidian" {
     renameFile(file: TAbstractFile, newPath: string): Promise<void>;
   }
 
-  export class MarkdownPreviewView {
-    containerEl: HTMLElement;
-    file: TFile;
-  }
-
-  export class MarkdownView {
-    file: TFile | null;
-    previewMode: MarkdownPreviewView;
-  }
-
   export interface Workspace {
     getActiveFile(): TFile | null;
     openLinkText(linktext: string, sourcePath: string, newLeaf?: boolean): Promise<void>;

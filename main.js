@@ -63,9 +63,6 @@ var _DateDashboardController = class _DateDashboardController {
   refreshSoon() {
     this.queueRefresh();
   }
-  async refresh() {
-    await this.refreshView();
-  }
   async renderContent(container) {
     container.innerHTML = "";
     const activeFile = this.app.workspace.getActiveFile();
@@ -663,6 +660,49 @@ function escapeRegExp2(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// src/status-routing.ts
+var ROUTABLE_STATUSES = ["todo", "completed", "waiting", "scheduled", "someday-maybe"];
+function isRoutableStatus(value) {
+  return ROUTABLE_STATUSES.includes(value);
+}
+function readStatusValue(content, statusField) {
+  const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!frontmatterMatch) {
+    return null;
+  }
+  const fieldRegex = new RegExp(`^\\s*${escapeRegExp3(statusField)}\\s*:\\s*(.*?)\\s*$`, "i");
+  const lines = frontmatterMatch[1].split(/\r?\n/);
+  for (const line of lines) {
+    const match = line.match(fieldRegex);
+    if (!match) {
+      continue;
+    }
+    return match[1].replace(/^['\"]|['\"]$/g, "").trim().toLowerCase();
+  }
+  return null;
+}
+function predictFinalStatus(currentStatus, hasOpenTasks) {
+  if (hasOpenTasks) {
+    if (currentStatus !== null && currentStatus !== "completed") {
+      return currentStatus;
+    }
+    return "todo";
+  }
+  return "completed";
+}
+function assertConfiguredDestinationForStatus(status, settings) {
+  if (!status || !isRoutableStatus(status)) {
+    return;
+  }
+  const destinationRoot = getDestinationRootForStatus(settings, status);
+  if (!destinationRoot) {
+    throw new Error(`Set destination folder for status '${status}' in Task Manager settings.`);
+  }
+}
+function escapeRegExp3(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // src/reconciler.ts
 function isInProjectsFolder(filePath, projectsFolder) {
   return filePath === projectsFolder || filePath.startsWith(`${projectsFolder}/`);
@@ -737,7 +777,7 @@ async function applyDeletedTagRules(context) {
 async function reconcileFile(context) {
   const { file, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
   const content = await readFile(file);
-  const currentStatus = readFrontmatterStatus(content, settings.statusField);
+  const currentStatus = readStatusValue(content, settings.statusField);
   const lines = content.split(/\r?\n/);
   const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
   const firstIncompleteTaskLine = findFirstIncompleteTaskLine(cleanedLines);
@@ -839,68 +879,6 @@ function formatDate(date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-function readFrontmatterStatus(content, statusField) {
-  const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!frontmatterMatch) {
-    return null;
-  }
-  const lines = frontmatterMatch[1].split(/\r?\n/);
-  const fieldRegex = new RegExp(`^\\s*${escapeRegExp3(statusField)}\\s*:\\s*(.*?)\\s*$`, "i");
-  for (const line of lines) {
-    const match = line.match(fieldRegex);
-    if (!match) {
-      continue;
-    }
-    return match[1].replace(/^['\"]|['\"]$/g, "").trim().toLowerCase();
-  }
-  return null;
-}
-function escapeRegExp3(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-// src/status-routing.ts
-var ROUTABLE_STATUSES = ["todo", "completed", "waiting", "scheduled", "someday-maybe"];
-function isRoutableStatus(value) {
-  return ROUTABLE_STATUSES.includes(value);
-}
-function readStatusValue(content, statusField) {
-  const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!frontmatterMatch) {
-    return null;
-  }
-  const fieldRegex = new RegExp(`^\\s*${escapeRegExp4(statusField)}\\s*:\\s*(.*?)\\s*$`, "i");
-  const lines = frontmatterMatch[1].split(/\r?\n/);
-  for (const line of lines) {
-    const match = line.match(fieldRegex);
-    if (!match) {
-      continue;
-    }
-    return match[1].replace(/^['\"]|['\"]$/g, "").trim().toLowerCase();
-  }
-  return null;
-}
-function predictFinalStatus(currentStatus, hasOpenTasks) {
-  if (hasOpenTasks) {
-    if (currentStatus !== null && currentStatus !== "completed") {
-      return currentStatus;
-    }
-    return "todo";
-  }
-  return "completed";
-}
-function assertConfiguredDestinationForStatus(status, settings) {
-  if (!status || !isRoutableStatus(status)) {
-    return;
-  }
-  const destinationRoot = getDestinationRootForStatus(settings, status);
-  if (!destinationRoot) {
-    throw new Error(`Set destination folder for status '${status}' in Task Manager settings.`);
-  }
-}
-function escapeRegExp4(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // src/task-state-store.ts
@@ -1021,9 +999,7 @@ var TaskProcessor = class {
   }
   async processTasks() {
     const settings = this.getSettings();
-    const { projectsFolder, completedProjectsFolder, waitingProjectsFolder, scheduledProjectsFolder, somedayMaybeProjectsFolder } = settings;
-    const hasAnyFolder = [projectsFolder, completedProjectsFolder, waitingProjectsFolder, scheduledProjectsFolder, somedayMaybeProjectsFolder].some(Boolean);
-    if (!hasAnyFolder) {
+    if (getTaskFolderRoots(settings).length === 0) {
       throw new Error("Set at least one task folder in Task Manager settings first.");
     }
     const count = await processProjectsFolder({

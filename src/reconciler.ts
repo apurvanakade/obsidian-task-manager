@@ -8,6 +8,7 @@ import {
   TaskState
 } from "./task-utils";
 import { TaskManagerSettings } from "./settings-utils";
+import { readStatusValue } from "./status-routing";
 
 type ReconcilerContext = {
   file: TFile;
@@ -135,7 +136,7 @@ export async function applyDeletedTagRules(context: DeletedTagContext): Promise<
 export async function reconcileFile(context: ReconcilerContext): Promise<void> {
   const { file, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
   const content = await readFile(file);
-  const currentStatus = readFrontmatterStatus(content, settings.statusField);
+  const currentStatus = readStatusValue(content, settings.statusField);
   const lines = content.split(/\r?\n/);
   const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
   const firstIncompleteTaskLine = findFirstIncompleteTaskLine(cleanedLines);
@@ -259,29 +260,4 @@ function formatDate(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function readFrontmatterStatus(content: string, statusField: string): string | null {
-  const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!frontmatterMatch) {
-    return null;
-  }
-
-  const lines = frontmatterMatch[1].split(/\r?\n/);
-  const fieldRegex = new RegExp(`^\\s*${escapeRegExp(statusField)}\\s*:\\s*(.*?)\\s*$`, "i");
-
-  for (const line of lines) {
-    const match = line.match(fieldRegex);
-    if (!match) {
-      continue;
-    }
-
-    return match[1].replace(/^['\"]|['\"]$/g, "").trim().toLowerCase();
-  }
-
-  return null;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
