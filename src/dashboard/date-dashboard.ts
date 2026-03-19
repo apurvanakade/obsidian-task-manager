@@ -20,7 +20,6 @@ type ParsedDashboardTask = {
 
 export class DateDashboardController {
   private static readonly DATE_FILE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
-  private static readonly LEGACY_DATE_DASHBOARD_CLASS = "task-manager-date-dashboard";
   private static readonly VIEW_TYPE = "task-manager-date-dashboard";
 
   private readonly app: App;
@@ -50,7 +49,6 @@ export class DateDashboardController {
       this.queueRefresh();
     }));
 
-    this.removeLegacyDashboardElements();
     await this.ensureView();
     await this.refreshView();
   }
@@ -102,15 +100,8 @@ export class DateDashboardController {
 
     this.refreshHandle = window.setTimeout(() => {
       this.refreshHandle = null;
-      this.removeLegacyDashboardElements();
       void this.refreshView();
     }, 50);
-  }
-
-  private removeLegacyDashboardElements(): void {
-    document.querySelectorAll(`.${DateDashboardController.LEGACY_DATE_DASHBOARD_CLASS}`).forEach((element) => {
-      element.remove();
-    });
   }
 
   private async ensureView(): Promise<void> {

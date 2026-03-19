@@ -168,10 +168,6 @@ Display formatting:
 - Filename display strips `.md` and leading numeric archival prefixes.
 - Task display strips inline fields and hashtag tags (e.g. `#next-action`).
 
-Compatibility cleanup:
-
-- Legacy inline dashboard DOM nodes (older reading-view injection) are removed during refresh.
-
 ## 8) Settings Model and Practical Defaults
 
 Key configurable paths:

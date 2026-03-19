@@ -50,7 +50,6 @@ var _DateDashboardController = class _DateDashboardController {
     plugin.registerEvent(this.app.workspace.on("layout-change", () => {
       this.queueRefresh();
     }));
-    this.removeLegacyDashboardElements();
     await this.ensureView();
     await this.refreshView();
   }
@@ -91,14 +90,8 @@ var _DateDashboardController = class _DateDashboardController {
     }
     this.refreshHandle = window.setTimeout(() => {
       this.refreshHandle = null;
-      this.removeLegacyDashboardElements();
       void this.refreshView();
     }, 50);
-  }
-  removeLegacyDashboardElements() {
-    document.querySelectorAll(`.${_DateDashboardController.LEGACY_DATE_DASHBOARD_CLASS}`).forEach((element) => {
-      element.remove();
-    });
   }
   async ensureView() {
     const existingLeaf = this.app.workspace.getLeavesOfType(_DateDashboardController.VIEW_TYPE)[0];
@@ -275,7 +268,6 @@ var _DateDashboardController = class _DateDashboardController {
   }
 };
 _DateDashboardController.DATE_FILE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
-_DateDashboardController.LEGACY_DATE_DASHBOARD_CLASS = "task-manager-date-dashboard";
 _DateDashboardController.VIEW_TYPE = "task-manager-date-dashboard";
 var DateDashboardController = _DateDashboardController;
 var DateDashboardView = class extends import_obsidian.ItemView {
