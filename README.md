@@ -101,29 +101,29 @@ graph TD
    TS[src/tasks/task-state-store.ts]
    TU[src/tasks/task-utils.ts]
 
-   M <-- D
-   M <-- E
-   M <-- SU
-   M <-- SUI
-   M <-- RT
-   M <-- TP
+   D --> M
+   E --> M
+   SU --> M
+   SUI --> M
+   RT --> M
+   TP --> M
 
-   SUI <-- SU
+   SU --> SUI
 
-   RS <-- SU
-   RS <-- RT
-   RT <-- SU
+   SU --> RS
+   RT --> RS
+   SU --> RT
 
-   TP <-- SU
-   TP <-- TU
-   TP <-- RC
-   TP <-- RT
-   TP <-- RS
-   TP <-- TS
+   SU --> TP
+   TU --> TP
+   RC --> TP
+   RT --> TP
+   RS --> TP
+   TS --> TP
 
-   RC <-- TU
-   RC <-- SU
-   RC <-- RS
+   TU --> RC
+   SU --> RC
+   RS --> RC
 
-   TS <-- TU
+   TU --> TS
 ```
