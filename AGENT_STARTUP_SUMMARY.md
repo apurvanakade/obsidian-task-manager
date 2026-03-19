@@ -56,7 +56,7 @@ Typing source:
 Commands:
 
 - `Process Tasks`: applies processing to all markdown files under all configured task folders.
-- `Process file`: processes only the currently active markdown file.
+- `Process File`: processes only the currently active markdown file.
 
 Event-driven flow:
 
@@ -209,7 +209,7 @@ When changing dashboard logic:
 Run after meaningful logic changes:
 
 1. `npm run build` succeeds.
-2. `Process file` updates tags/status correctly on complete/uncomplete/delete cases.
+2. `Process File` updates tags/status correctly on complete/uncomplete/delete cases.
 3. Recurring completion creates next open task with expected due date.
 4. Status change triggers automatic routing to correct destination.
 5. Move preserves subpath and does not flatten unexpectedly.

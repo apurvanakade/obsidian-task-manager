@@ -32,7 +32,7 @@ export default class TaskManagerPlugin extends Plugin {
     });
     this.addCommand({
       id: "process-current-file",
-      name: "Process file",
+      name: "Process File",
       callback: () => {
         void this.runProcessCurrentFile();
       }
@@ -82,7 +82,7 @@ export default class TaskManagerPlugin extends Plugin {
       const result = await this.taskProcessor!.processCurrentFile();
       new Notice(result);
     } catch (error) {
-      new Notice(error instanceof Error ? error.message : "Failed to process file.");
+      new Notice(error instanceof Error ? error.message : "Failed to Process File.");
     }
   }
 

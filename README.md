@@ -16,8 +16,8 @@ For a detailed architecture and behavior handoff, see [AGENT_STARTUP_SUMMARY.md]
    - `Next Action Tag`: tag applied to the current actionable task (default `#next-action`).
    - `Completed Status Field`: frontmatter field name to update (default `status`).
 3. Run the `Process Tasks` command from the Command Palette:
-   - Applies `Process file` behavior to all Markdown files under any configured task folder recursively.
-4. Run `Process file` to process only the active note:
+   - Applies `Process File` behavior to all Markdown files under any configured task folder recursively.
+4. Run `Process File` to process only the active note:
    - Reconciles next-action tags in the file.
    - If the file still has open tasks and current status is not `completed`, status is preserved.
    - Routes the file by status:

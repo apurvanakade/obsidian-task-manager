@@ -1237,7 +1237,7 @@ var TaskManagerPlugin = class extends import_obsidian5.Plugin {
     });
     this.addCommand({
       id: "process-current-file",
-      name: "Process file",
+      name: "Process File",
       callback: () => {
         void this.runProcessCurrentFile();
       }
@@ -1283,7 +1283,7 @@ var TaskManagerPlugin = class extends import_obsidian5.Plugin {
       const result = await this.taskProcessor.processCurrentFile();
       new import_obsidian5.Notice(result);
     } catch (error) {
-      new import_obsidian5.Notice(error instanceof Error ? error.message : "Failed to process file.");
+      new import_obsidian5.Notice(error instanceof Error ? error.message : "Failed to Process File.");
     }
   }
   async runProcessTasks() {
