@@ -1,5 +1,6 @@
 import { App, Notice, Plugin, PluginSettingTab, TFile } from "obsidian";
 import { DateDashboardController } from "./src/date-dashboard";
+import { DueDateEditorSuggest } from "./src/due-date-suggest";
 import { normalizeSettings, TaskManagerSettings } from "./src/settings-utils";
 import { TaskManagerSettingTabRenderer } from "./src/settings-ui";
 import { getTaskFolderRoots } from "./src/task-routing";
@@ -8,6 +9,7 @@ import { TaskProcessor } from "./src/task-processor";
 export default class TaskManagerPlugin extends Plugin {
   private taskProcessor: TaskProcessor | null = null;
   private dateDashboard: DateDashboardController | null = null;
+  private dueDateSuggest: DueDateEditorSuggest | null = null;
 
   private settings: TaskManagerSettings = normalizeSettings({});
 
@@ -22,6 +24,8 @@ export default class TaskManagerPlugin extends Plugin {
       app: this.app,
       getTaskFolderRoots: () => this.getTaskFolderRoots(),
     });
+    this.dueDateSuggest = new DueDateEditorSuggest(this.app);
+    this.registerEditorSuggest(this.dueDateSuggest);
     this.addSettingTab(new BaseTaskManagerSettingTab(this.app, this));
     this.addCommand({
       id: "process-tasks",
@@ -53,6 +57,7 @@ export default class TaskManagerPlugin extends Plugin {
     this.taskProcessor = null;
     this.dateDashboard?.onunload();
     this.dateDashboard = null;
+    this.dueDateSuggest = null;
     console.log("Unloading Task Manager plugin");
   }
 

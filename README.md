@@ -40,7 +40,11 @@ For a detailed architecture and behavior handoff, see [AGENT_STARTUP_SUMMARY.md]
    - **Task uncompleted**: if the reopened task is now the first open task in the file, strips the tag from all other tasks and applies it to this one; status is reset to `todo`.
    - **Tagged task deleted**: moves the next-action tag to the nearest preceding incomplete task; if none, sets status to `completed`.
    - **Status changed**: when a file's status changes to one of the routable statuses, the file is moved automatically to the matching destination folder.
-6. If the open note is named like `YYYY-MM-DD`, the plugin shows a live dashboard in the right sidebar with two tables:
+6. While typing in a Markdown editor, entering `due:` (or `due::`) opens a date suggestion list:
+   - Suggestions start at today and continue forward for 30 days.
+   - Inserted date format is `YYYY-MM-DD`.
+   - Typing a partial date filters suggestions by prefix.
+7. If the open note is named like `YYYY-MM-DD`, the plugin shows a live dashboard in the right sidebar with two tables:
    - The dashboard opens in a split right-sidebar leaf by default (typically the bottom half when a split is available).
    - Due: open tasks with `[due:: YYYY-MM-DD]` on or before the note date, with a `MM-DD` due-date column
    - Completed: tasks with `[completion-date:: YYYY-MM-DD]` exactly matching the note date
@@ -65,6 +69,7 @@ Recurring task copies use due dates in this format:
 - `main.ts`: TypeScript source entrypoint (source of truth).
 - `main.js`: bundled runtime output loaded by Obsidian (`npm run build` regenerates this file).
 - `src/date-dashboard.ts`: right-sidebar date dashboard view, data collection, and rendering.
+- `src/due-date-suggest.ts`: editor autocomplete provider for `due:`/`due::` date suggestions.
 - `src/task-processor.ts`: task reconciliation, modify handling, status tracking, and file routing orchestration.
 - `src/task-state-store.ts`: in-memory per-file task/status state and pending write guards.
 - `src/status-routing.ts`: status parsing, predicted status logic, and routing validation helpers.
