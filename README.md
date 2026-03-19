@@ -1,5 +1,9 @@
 # Task Manager Plugin
 
+## For Agents
+
+For a detailed architecture and behavior handoff, see [AGENT_STARTUP_SUMMARY.md](AGENT_STARTUP_SUMMARY.md).
+
 ## How To Use
 
 1. Open Obsidian and enable the `Task Manager` plugin.
