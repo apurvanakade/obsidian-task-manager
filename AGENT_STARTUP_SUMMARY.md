@@ -126,7 +126,9 @@ Next-Action Assignment (triggered when `#next-action` is newly assigned):
 - prompt user with due-date modal offering:
   - suggested dates (today through +30 days with Today/Tomorrow/weekday labels)
   - clicking a suggested date immediately adds that due date
-  - text input field for custom date (YYYY-MM-DD format)
+  - text input field for custom date (YYYY-MM-DD format) or natural-language date terms (e.g., today, tomorrow, weekday names) resolved to a matching suggested date
+  - Enter key submits the current input date and closes the modal on successful submit
+  - input autocomplete suggestions include ISO dates and natural-language labels from the shared date suggestions list
   - skip option to dismiss without adding due date
   - **modal is skipped if**: assignment was unchanged (already tagged before reconcile), assigned task is repeating, or task already has a due date
 - occurs on task completion, uncompletion, tagged task deletion, and during reconciliation (e.g., `process file` or `process tasks`)
@@ -246,7 +248,7 @@ Run after meaningful logic changes:
 1. `npm run build` succeeds.
 2. `Process File` updates tags/status correctly on complete/uncomplete/delete cases.
 3. Task completion triggers due-date modal for newly assigned `next-action` task.
-4. Due-date modal immediately adds a clicked suggested date, or allows manual date entry via the input and Add Due Date button.
+4. Due-date modal immediately adds a clicked suggested date, or allows manual date entry via the input and Add Due Date button using either YYYY-MM-DD or natural-language date terms.
 5. Selected/entered due date is correctly added to task as `[due:: YYYY-MM-DD]`.
 6. Modal skip action dismisses without modifying task.
 7. Recurring completion creates next open task with expected due date.

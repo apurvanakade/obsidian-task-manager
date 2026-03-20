@@ -338,6 +338,25 @@ function buildDateSuggestions(lookaheadDays = DEFAULT_LOOKAHEAD_DAYS) {
   }
   return suggestions;
 }
+function resolveDateInput(input, lookaheadDays = DEFAULT_LOOKAHEAD_DAYS) {
+  var _a;
+  const normalized = input.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return null;
+  }
+  if (isValidIsoDate(normalized)) {
+    return normalized;
+  }
+  const suggestions = buildDateSuggestions(lookaheadDays);
+  const exactMatch = suggestions.find((suggestion) => {
+    return suggestion.value.toLowerCase() === normalized || suggestion.label.toLowerCase() === normalized;
+  });
+  if (exactMatch) {
+    return exactMatch.value;
+  }
+  const fuzzyMatch = suggestions.find((suggestion) => suggestion.searchText.includes(normalized));
+  return (_a = fuzzyMatch == null ? void 0 : fuzzyMatch.value) != null ? _a : null;
+}
 function getDateLabel(date, offset) {
   if (offset === 0) {
     return "Today";
@@ -362,6 +381,17 @@ function formatDate(date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+function isValidIsoDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+  const [yearPart, monthPart, dayPart] = value.split("-");
+  const year = Number(yearPart);
+  const month = Number(monthPart);
+  const day = Number(dayPart);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
 // src/editor/due-date-suggest.ts
@@ -997,7 +1027,7 @@ var buttonStyles = {
   },
   secondary: {
     backgroundColor: "#f0f0f0",
-    border: "1px solid #ccc",
+    border: "1px solid #000",
     borderRadius: "4px"
   },
   suggestion: {
@@ -1008,6 +1038,7 @@ var buttonStyles = {
 var DueDateModal = class extends import_obsidian6.Modal {
   constructor(options) {
     super(options.app);
+    this.dateSuggestions = buildDateSuggestions();
     this.inputElement = null;
     this.taskLine = options.taskLine;
     this.onSubmit = options.onSubmit;
@@ -1032,10 +1063,29 @@ var DueDateModal = class extends import_obsidian6.Modal {
   createInputSection(container) {
     const inputContainer = container.createEl("div");
     applyStyles(inputContainer, spacingStyles.section);
-    this.createSectionLabel(inputContainer, "Due Date (YYYY-MM-DD):");
+    this.createSectionLabel(inputContainer, "Due Date (YYYY-MM-DD or natural language):");
+    const listId = `task-manager-due-date-options-${Date.now()}`;
+    const dateList = inputContainer.createEl("datalist");
+    dateList.id = listId;
+    for (const suggestion of this.dateSuggestions) {
+      dateList.createEl("option", {
+        value: suggestion.value
+      });
+      dateList.createEl("option", {
+        value: suggestion.label.toLowerCase()
+      });
+    }
     this.inputElement = inputContainer.createEl("input", {
       type: "text",
-      placeholder: "e.g., 2026-03-20"
+      placeholder: "e.g., 2026-03-20, today, tomorrow, monday"
+    });
+    this.inputElement.setAttribute("list", listId);
+    this.inputElement.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") {
+        return;
+      }
+      event.preventDefault();
+      void this.submitDate();
     });
     applyStyles(this.inputElement, inputStyles);
   }
@@ -1043,7 +1093,7 @@ var DueDateModal = class extends import_obsidian6.Modal {
     this.createSectionLabel(container, "Suggested Dates:");
     const suggestionsContainer = container.createEl("div");
     applyStyles(suggestionsContainer, suggestionsGridStyles);
-    for (const suggestion of buildDateSuggestions().slice(0, 10)) {
+    for (const suggestion of this.dateSuggestions.slice(0, 10)) {
       const button = suggestionsContainer.createEl("button", {
         text: `${suggestion.value} (${suggestion.label})`
       });
@@ -1084,8 +1134,13 @@ var DueDateModal = class extends import_obsidian6.Modal {
     if (!dateValue) {
       return;
     }
+    const resolvedDate = resolveDateInput(dateValue);
+    if (!resolvedDate) {
+      new import_obsidian6.Notice("Enter YYYY-MM-DD or a natural date like today, tomorrow, or a weekday.");
+      return;
+    }
     try {
-      await this.onSubmit(this.taskLine, dateValue);
+      await this.onSubmit(this.taskLine, resolvedDate);
       this.close();
     } catch (error) {
       console.error("Failed to add due date:", error);

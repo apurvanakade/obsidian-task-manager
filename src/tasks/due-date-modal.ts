@@ -14,8 +14,8 @@
  * Side Effects:
  * - opens modal UI, updates input state, and calls async submit callbacks
  */
-import { App, Modal } from "obsidian";
-import { buildDateSuggestions } from "../date/date-suggestions";
+import { App, Modal, Notice } from "obsidian";
+import { buildDateSuggestions, resolveDateInput } from "../date/date-suggestions";
 
 const spacingStyles = {
   description: { marginBottom: "20px" },
@@ -60,7 +60,7 @@ const buttonStyles = {
   },
   secondary: {
     backgroundColor: "#f0f0f0",
-    border: "1px solid #ccc",
+    border: "1px solid #000",
     borderRadius: "4px",
   },
   suggestion: {
@@ -78,6 +78,7 @@ type DueDateModalOptions = {
 export class DueDateModal extends Modal {
   private readonly taskLine: string;
   private readonly onSubmit: (taskLine: string, dueDate: string) => Promise<void>;
+  private readonly dateSuggestions = buildDateSuggestions();
   private inputElement: HTMLInputElement | null = null;
 
   constructor(options: DueDateModalOptions) {
@@ -111,11 +112,34 @@ export class DueDateModal extends Modal {
     const inputContainer = container.createEl("div");
     applyStyles(inputContainer, spacingStyles.section);
 
-    this.createSectionLabel(inputContainer, "Due Date (YYYY-MM-DD):");
+    this.createSectionLabel(inputContainer, "Due Date (YYYY-MM-DD or natural language):");
+
+    const listId = `task-manager-due-date-options-${Date.now()}`;
+    const dateList = inputContainer.createEl("datalist");
+    dateList.id = listId;
+
+    for (const suggestion of this.dateSuggestions) {
+      dateList.createEl("option", {
+        value: suggestion.value,
+      });
+
+      dateList.createEl("option", {
+        value: suggestion.label.toLowerCase(),
+      });
+    }
 
     this.inputElement = inputContainer.createEl("input", {
       type: "text",
-      placeholder: "e.g., 2026-03-20",
+      placeholder: "e.g., 2026-03-20, today, tomorrow, monday",
+    });
+    this.inputElement.setAttribute("list", listId);
+    this.inputElement.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") {
+        return;
+      }
+
+      event.preventDefault();
+      void this.submitDate();
     });
     applyStyles(this.inputElement, inputStyles);
   }
@@ -126,7 +150,7 @@ export class DueDateModal extends Modal {
     const suggestionsContainer = container.createEl("div");
     applyStyles(suggestionsContainer, suggestionsGridStyles);
 
-    for (const suggestion of buildDateSuggestions().slice(0, 10)) {
+    for (const suggestion of this.dateSuggestions.slice(0, 10)) {
       const button = suggestionsContainer.createEl("button", {
         text: `${suggestion.value} (${suggestion.label})`,
       });
@@ -173,8 +197,14 @@ export class DueDateModal extends Modal {
       return;
     }
 
+    const resolvedDate = resolveDateInput(dateValue);
+    if (!resolvedDate) {
+      new Notice("Enter YYYY-MM-DD or a natural date like today, tomorrow, or a weekday.");
+      return;
+    }
+
     try {
-      await this.onSubmit(this.taskLine, dateValue);
+      await this.onSubmit(this.taskLine, resolvedDate);
       this.close();
     } catch (error) {
       console.error("Failed to add due date:", error);
