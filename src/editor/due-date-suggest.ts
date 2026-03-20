@@ -1,12 +1,12 @@
 /**
  * Purpose:
- * - provide inline due-date suggestions after typing due:: in the editor.
+ * - provide inline date suggestions after typing due:: or created:: in the editor.
  *
  * Responsibilities:
  * - detects trigger context and current query text at cursor position
  * - returns date suggestions from shared date-suggestion generation
  * - supports matching by ISO date and natural-language labels
- * - inserts selected YYYY-MM-DD value into the active editor
+ * - inserts selected YYYY-MM-DD value into the active editor with normalized spacing
  *
  * Dependencies:
  * - Obsidian EditorSuggest APIs
@@ -29,14 +29,18 @@ import {
   DEFAULT_LOOKAHEAD_DAYS,
 } from "../date/date-suggestions";
 
-export class DueDateEditorSuggest extends EditorSuggest<DateSuggestion> {
+class DateFieldEditorSuggest extends EditorSuggest<DateSuggestion> {
+  private readonly fieldName: string;
+  private readonly suggestionFactory: () => DateSuggestion[];
   private triggerInfo: EditorSuggestTriggerInfo | null = null;
   private activeEditor: Editor | null = null;
-  private cachedSuggestions: DateSuggestion[] | null = null;
-  private cachedSuggestionsDate = "";
+  private triggerRegex: RegExp;
 
-  constructor(app: App) {
+  constructor(app: App, fieldName: string, suggestionFactory: () => DateSuggestion[]) {
     super(app);
+    this.fieldName = fieldName;
+    this.suggestionFactory = suggestionFactory;
+    this.triggerRegex = buildTriggerRegex(this.fieldName);
     this.setInstructions([
       {
         command: "Enter",
@@ -51,15 +55,16 @@ export class DueDateEditorSuggest extends EditorSuggest<DateSuggestion> {
 
   onTrigger(cursor: EditorPosition, editor: Editor): EditorSuggestTriggerInfo | null {
     const linePrefix = editor.getLine(cursor.line).slice(0, cursor.ch);
-    const triggerMatch = linePrefix.match(/due::\s*([a-z0-9-]*)$/i);
+    const triggerMatch = linePrefix.match(this.triggerRegex);
     if (!triggerMatch) {
       this.triggerInfo = null;
       this.activeEditor = null;
       return null;
     }
 
-    const query = triggerMatch[1] ?? "";
-    const startCh = linePrefix.length - query.length;
+    const query = triggerMatch[3] ?? "";
+    const typedWhitespace = triggerMatch[2] ?? "";
+    const startCh = linePrefix.length - typedWhitespace.length - query.length;
     const trigger: EditorSuggestTriggerInfo = {
       start: { line: cursor.line, ch: startCh },
       end: cursor,
@@ -88,7 +93,7 @@ export class DueDateEditorSuggest extends EditorSuggest<DateSuggestion> {
       return;
     }
 
-    this.activeEditor.replaceRange(value.value, this.triggerInfo.start, this.triggerInfo.end);
+    this.activeEditor.replaceRange(` ${value.value}`, this.triggerInfo.start, this.triggerInfo.end);
     this.close();
   }
 
@@ -99,13 +104,63 @@ export class DueDateEditorSuggest extends EditorSuggest<DateSuggestion> {
   }
 
   private buildSuggestions(): DateSuggestion[] {
+    return this.suggestionFactory();
+  }
+}
+
+const dueSuggestionFactory = createDailySuggestionFactory();
+
+export class DueDateEditorSuggest extends DateFieldEditorSuggest {
+  constructor(app: App) {
+    super(app, "due", dueSuggestionFactory);
+  }
+}
+
+export class CreatedDateEditorSuggest extends DateFieldEditorSuggest {
+  constructor(app: App) {
+    super(app, "created", createTodaySuggestionFactory());
+  }
+}
+
+function buildTriggerRegex(fieldName: string): RegExp {
+  const escapedFieldName = fieldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(${escapedFieldName}::)(\\s*)([a-z0-9-]*)$`, "i");
+}
+
+function createDailySuggestionFactory(): () => DateSuggestion[] {
+  let cachedSuggestions: DateSuggestion[] | null = null;
+  let cachedSuggestionsDate = "";
+
+  return () => {
     const today = new Date().toISOString().slice(0, 10);
-    if (this.cachedSuggestions !== null && this.cachedSuggestionsDate === today) {
-      return this.cachedSuggestions;
+    if (cachedSuggestions !== null && cachedSuggestionsDate === today) {
+      return cachedSuggestions;
     }
 
-    this.cachedSuggestions = buildDateSuggestions(DEFAULT_LOOKAHEAD_DAYS);
-    this.cachedSuggestionsDate = today;
-    return this.cachedSuggestions;
-  }
+    cachedSuggestions = buildDateSuggestions(DEFAULT_LOOKAHEAD_DAYS);
+    cachedSuggestionsDate = today;
+    return cachedSuggestions;
+  };
+}
+
+function createTodaySuggestionFactory(): () => DateSuggestion[] {
+  let cachedSuggestion: DateSuggestion[] | null = null;
+  let cachedSuggestionDate = "";
+
+  return () => {
+    const today = new Date().toISOString().slice(0, 10);
+    if (cachedSuggestion !== null && cachedSuggestionDate === today) {
+      return cachedSuggestion;
+    }
+
+    cachedSuggestion = [
+      {
+        value: today,
+        label: "Today",
+        searchText: `${today} today`,
+      },
+    ];
+    cachedSuggestionDate = today;
+    return cachedSuggestion;
+  };
 }

@@ -9,7 +9,7 @@ This Obsidian plugin manages project/task notes by:
 - reconciling task transitions (`[ ]` <-> `[x]`) and `next-action` tagging
 - writing completion metadata on completed tasks
 - creating recurring task follow-ups from repeat fields
-- offering editor autocomplete for `due::` date entry
+- offering editor autocomplete for `due::` and `created::` date entry
 - updating status and routing files between configured folders
 - rendering a date-note dashboard (`YYYY-MM-DD`) in a right sidebar view
 
@@ -47,7 +47,7 @@ Core modules:
 - `src/tasks/due-date-modal.ts`: modal dialog for adding due dates to newly assigned `next-action` tasks.
 - `src/dashboard/dashboard-task-data.ts`: dashboard task parsing, filtering, cleanup, and sorting helpers.
 - `src/dashboard/date-dashboard.ts`: right sidebar date dashboard view registration, refresh scheduling, and rendering.
-- `src/editor/due-date-suggest.ts`: editor suggest provider for `due::` date completion.
+- `src/editor/due-date-suggest.ts`: editor suggest providers for `due::` and `created::` completion.
 - `src/settings/folder-picker.ts`: vault folder picker modal used by the settings UI.
 - `src/settings/settings-field-definitions.ts`: declarative folder/text setting definitions consumed by the settings UI.
 - `src/tasks/task-utils.ts`: task parsing/diff helpers and tag manipulation helpers.
@@ -64,6 +64,7 @@ Commands:
 
 - `Process Tasks`: applies processing to all markdown files under all configured task folders.
 - `Process File`: processes only the currently active markdown file.
+- `Reset Tasks`: in the active markdown file, marks all tasks open (`[ ]`) and removes inline fields `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, and `[created:: ...]` from task lines, then runs `Process File` behavior on that file.
 
 Command registration:
 
@@ -84,10 +85,11 @@ Loop prevention:
 
 Editor suggest flow:
 
-1. `main.ts` registers `DueDateEditorSuggest` during plugin load.
+1. `main.ts` registers `DueDateEditorSuggest` and `CreatedDateEditorSuggest` during plugin load.
 2. Typing `due::` triggers suggestions for dates from today through +30 days, labeled as Today/Tomorrow/weekday names.
-3. Autocomplete matching works against both the ISO date and the natural-language label, so typing terms like `sat` or `sunday` can find the corresponding suggestion.
-4. Selected suggestion inserts `YYYY-MM-DD` at the cursor.
+3. Typing `created::` triggers a today-date suggestion.
+4. Autocomplete matching works against both the ISO date and natural-language labels where available.
+5. Selected suggestion inserts a single-space-prefixed date (` YYYY-MM-DD`) so field values are normalized as `due:: YYYY-MM-DD` and `created:: YYYY-MM-DD`.
 
 ## 5) Status and Routing Rules
 
@@ -255,7 +257,9 @@ Run after meaningful logic changes:
 12. Date dashboard appears in sidebar for date note and renders Due/Completed correctly.
 13. Due table sorted ascending by due date and shows `MM-DD` column.
 14. Dashboard text cleanup removes inline fields/tags; filename display cleanup is applied.
-15. Typing `due::` shows date suggestions starting from today, matches on ISO dates and weekday labels, and inserts `YYYY-MM-DD`.
+15. Typing `due::` shows date suggestions starting from today, matches on ISO dates and weekday labels, and inserts ` YYYY-MM-DD` (single space after `::`).
+16. Typing `created::` shows today suggestion and inserts ` YYYY-MM-DD` (single space after `::`).
+17. `Reset Tasks` (active file) reopens all tasks, removes due/completion/created inline metadata from task lines, and then runs the same processing flow as `Process File`.
 
 ## 11) Known Constraints
 

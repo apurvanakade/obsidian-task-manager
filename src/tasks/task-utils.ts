@@ -22,6 +22,12 @@ export type TaskState = {
   hasNextAction: boolean;
 };
 
+type ResetTaskContentResult = {
+  content: string;
+  taskCount: number;
+  changed: boolean;
+};
+
 export function extractTaskState(content: string, nextActionTag: string): TaskState[] {
   const lines = content.split(/\r?\n/);
   const taskState: TaskState[] = [];
@@ -137,6 +143,35 @@ export function addNextActionTag(lines: string[], targetLine: number, nextAction
   return nextLines.join("\n");
 }
 
+export function resetTaskContent(content: string): ResetTaskContentResult {
+  const lines = content.split(/\r?\n/);
+  let changed = false;
+  let taskCount = 0;
+
+  const nextLines = lines.map((line) => {
+    const match = line.match(TASK_LINE_REGEX);
+    if (!match) {
+      return line;
+    }
+
+    taskCount += 1;
+    const openPrefix = match[1].replace(/\[( |x|X)\]/, "[ ]");
+    const cleanedBody = stripResetTaskFields(match[3]);
+    const nextLine = `${openPrefix}${cleanedBody}`.trimEnd();
+    if (nextLine !== line) {
+      changed = true;
+    }
+
+    return nextLine;
+  });
+
+  return {
+    content: nextLines.join("\n"),
+    taskCount,
+    changed,
+  };
+}
+
 function lineHasTag(line: string, nextActionTag: string): boolean {
   return getTagPresenceRegex(nextActionTag).test(line);
 }
@@ -151,5 +186,12 @@ function getTagReplaceRegex(nextActionTag: string): RegExp {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function stripResetTaskFields(taskBody: string): string {
+  return taskBody
+    .replace(/\s*\[(?:due|completion-date|completion-time|created)::\s*[^\]]*\]/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trimEnd();
 }
 

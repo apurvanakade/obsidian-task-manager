@@ -20,6 +20,7 @@ import { Plugin } from "obsidian";
 type TaskCommandHandlers = {
   processTasks: () => void;
   processCurrentFile: () => void;
+  resetCurrentFileTasks: () => void;
 };
 
 export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandlers): void {
@@ -33,5 +34,11 @@ export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandle
     id: "process-current-file",
     name: "Process File",
     callback: handlers.processCurrentFile,
+  });
+
+  plugin.addCommand({
+    id: "reset-current-file-tasks",
+    name: "Reset Tasks",
+    callback: handlers.resetCurrentFileTasks,
   });
 }

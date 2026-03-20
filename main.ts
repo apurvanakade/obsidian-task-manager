@@ -18,7 +18,7 @@
 import { App, Notice, Plugin, PluginSettingTab, TFile } from "obsidian";
 import { registerTaskCommands } from "./src/commands/register-task-commands";
 import { DateDashboardController } from "./src/dashboard/date-dashboard";
-import { DueDateEditorSuggest } from "./src/editor/due-date-suggest";
+import { CreatedDateEditorSuggest, DueDateEditorSuggest } from "./src/editor/due-date-suggest";
 import { normalizeSettings, TaskManagerSettings } from "./src/settings/settings-utils";
 import { TaskManagerSettingTabRenderer } from "./src/settings/settings-ui";
 import { getTaskFolderRoots } from "./src/routing/task-routing";
@@ -28,6 +28,7 @@ export default class TaskManagerPlugin extends Plugin {
   private taskProcessor: TaskProcessor | null = null;
   private dateDashboard: DateDashboardController | null = null;
   private dueDateSuggest: DueDateEditorSuggest | null = null;
+  private createdDateSuggest: CreatedDateEditorSuggest | null = null;
 
   private settings: TaskManagerSettings = normalizeSettings({});
 
@@ -43,7 +44,9 @@ export default class TaskManagerPlugin extends Plugin {
       getTaskFolderRoots: () => this.getTaskFolderRoots(),
     });
     this.dueDateSuggest = new DueDateEditorSuggest(this.app);
+    this.createdDateSuggest = new CreatedDateEditorSuggest(this.app);
     this.registerEditorSuggest(this.dueDateSuggest);
+    this.registerEditorSuggest(this.createdDateSuggest);
     this.addSettingTab(new BaseTaskManagerSettingTab(this.app, this));
     registerTaskCommands(this, {
       processTasks: () => {
@@ -51,6 +54,9 @@ export default class TaskManagerPlugin extends Plugin {
       },
       processCurrentFile: () => {
         void this.runProcessCurrentFile();
+      },
+      resetCurrentFileTasks: () => {
+        void this.runResetCurrentFileTasks();
       },
     });
     this.registerEvent(this.app.vault.on("modify", (file) => {
@@ -70,6 +76,7 @@ export default class TaskManagerPlugin extends Plugin {
     this.dateDashboard?.onunload();
     this.dateDashboard = null;
     this.dueDateSuggest = null;
+    this.createdDateSuggest = null;
     console.log("Unloading Task Manager plugin");
   }
 
@@ -109,6 +116,15 @@ export default class TaskManagerPlugin extends Plugin {
       new Notice(result);
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Failed to process tasks.");
+    }
+  }
+
+  private async runResetCurrentFileTasks(): Promise<void> {
+    try {
+      const result = await this.taskProcessor!.resetCurrentFileTasks();
+      new Notice(result);
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : "Failed to reset tasks.");
     }
   }
 

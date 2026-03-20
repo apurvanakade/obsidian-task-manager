@@ -37,6 +37,11 @@ function registerTaskCommands(plugin, handlers) {
     name: "Process File",
     callback: handlers.processCurrentFile
   });
+  plugin.addCommand({
+    id: "reset-current-file-tasks",
+    name: "Reset Tasks",
+    callback: handlers.resetCurrentFileTasks
+  });
 }
 
 // src/dashboard/date-dashboard.ts
@@ -360,13 +365,14 @@ function formatDate(date) {
 }
 
 // src/editor/due-date-suggest.ts
-var DueDateEditorSuggest = class extends import_obsidian2.EditorSuggest {
-  constructor(app) {
+var DateFieldEditorSuggest = class extends import_obsidian2.EditorSuggest {
+  constructor(app, fieldName, suggestionFactory) {
     super(app);
     this.triggerInfo = null;
     this.activeEditor = null;
-    this.cachedSuggestions = null;
-    this.cachedSuggestionsDate = "";
+    this.fieldName = fieldName;
+    this.suggestionFactory = suggestionFactory;
+    this.triggerRegex = buildTriggerRegex(this.fieldName);
     this.setInstructions([
       {
         command: "Enter",
@@ -379,16 +385,17 @@ var DueDateEditorSuggest = class extends import_obsidian2.EditorSuggest {
     ]);
   }
   onTrigger(cursor, editor) {
-    var _a;
+    var _a, _b;
     const linePrefix = editor.getLine(cursor.line).slice(0, cursor.ch);
-    const triggerMatch = linePrefix.match(/due::\s*([a-z0-9-]*)$/i);
+    const triggerMatch = linePrefix.match(this.triggerRegex);
     if (!triggerMatch) {
       this.triggerInfo = null;
       this.activeEditor = null;
       return null;
     }
-    const query = (_a = triggerMatch[1]) != null ? _a : "";
-    const startCh = linePrefix.length - query.length;
+    const query = (_a = triggerMatch[3]) != null ? _a : "";
+    const typedWhitespace = (_b = triggerMatch[2]) != null ? _b : "";
+    const startCh = linePrefix.length - typedWhitespace.length - query.length;
     const trigger = {
       start: { line: cursor.line, ch: startCh },
       end: cursor,
@@ -412,7 +419,7 @@ var DueDateEditorSuggest = class extends import_obsidian2.EditorSuggest {
     if (!this.activeEditor || !this.triggerInfo) {
       return;
     }
-    this.activeEditor.replaceRange(value.value, this.triggerInfo.start, this.triggerInfo.end);
+    this.activeEditor.replaceRange(` ${value.value}`, this.triggerInfo.start, this.triggerInfo.end);
     this.close();
   }
   close() {
@@ -421,15 +428,56 @@ var DueDateEditorSuggest = class extends import_obsidian2.EditorSuggest {
     this.activeEditor = null;
   }
   buildSuggestions() {
-    const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    if (this.cachedSuggestions !== null && this.cachedSuggestionsDate === today) {
-      return this.cachedSuggestions;
-    }
-    this.cachedSuggestions = buildDateSuggestions(DEFAULT_LOOKAHEAD_DAYS);
-    this.cachedSuggestionsDate = today;
-    return this.cachedSuggestions;
+    return this.suggestionFactory();
   }
 };
+var dueSuggestionFactory = createDailySuggestionFactory();
+var DueDateEditorSuggest = class extends DateFieldEditorSuggest {
+  constructor(app) {
+    super(app, "due", dueSuggestionFactory);
+  }
+};
+var CreatedDateEditorSuggest = class extends DateFieldEditorSuggest {
+  constructor(app) {
+    super(app, "created", createTodaySuggestionFactory());
+  }
+};
+function buildTriggerRegex(fieldName) {
+  const escapedFieldName = fieldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(${escapedFieldName}::)(\\s*)([a-z0-9-]*)$`, "i");
+}
+function createDailySuggestionFactory() {
+  let cachedSuggestions = null;
+  let cachedSuggestionsDate = "";
+  return () => {
+    const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    if (cachedSuggestions !== null && cachedSuggestionsDate === today) {
+      return cachedSuggestions;
+    }
+    cachedSuggestions = buildDateSuggestions(DEFAULT_LOOKAHEAD_DAYS);
+    cachedSuggestionsDate = today;
+    return cachedSuggestions;
+  };
+}
+function createTodaySuggestionFactory() {
+  let cachedSuggestion = null;
+  let cachedSuggestionDate = "";
+  return () => {
+    const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    if (cachedSuggestion !== null && cachedSuggestionDate === today) {
+      return cachedSuggestion;
+    }
+    cachedSuggestion = [
+      {
+        value: today,
+        label: "Today",
+        searchText: `${today} today`
+      }
+    ];
+    cachedSuggestionDate = today;
+    return cachedSuggestion;
+  };
+}
 
 // src/settings/settings-utils.ts
 var DEFAULT_SETTINGS = {
@@ -825,6 +873,30 @@ function addNextActionTag(lines, targetLine, nextActionTag) {
   }
   return nextLines.join("\n");
 }
+function resetTaskContent(content) {
+  const lines = content.split(/\r?\n/);
+  let changed = false;
+  let taskCount = 0;
+  const nextLines = lines.map((line) => {
+    const match = line.match(TASK_LINE_REGEX2);
+    if (!match) {
+      return line;
+    }
+    taskCount += 1;
+    const openPrefix = match[1].replace(/\[( |x|X)\]/, "[ ]");
+    const cleanedBody = stripResetTaskFields(match[3]);
+    const nextLine = `${openPrefix}${cleanedBody}`.trimEnd();
+    if (nextLine !== line) {
+      changed = true;
+    }
+    return nextLine;
+  });
+  return {
+    content: nextLines.join("\n"),
+    taskCount,
+    changed
+  };
+}
 function lineHasTag(line, nextActionTag) {
   return getTagPresenceRegex(nextActionTag).test(line);
 }
@@ -836,6 +908,9 @@ function getTagReplaceRegex(nextActionTag) {
 }
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function stripResetTaskFields(taskBody) {
+  return taskBody.replace(/\s*\[(?:due|completion-date|completion-time|created)::\s*[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trimEnd();
 }
 
 // src/routing/status-routing.ts
@@ -1395,6 +1470,21 @@ var TaskProcessor = class {
     });
     return `Processed ${count} project file${count === 1 ? "" : "s"}.`;
   }
+  async resetCurrentFileTasks() {
+    const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      throw new Error("No active file.");
+    }
+    const settings = this.getSettings();
+    const initialContent = await this.app.vault.cachedRead(file);
+    const resetResult = resetTaskContent(initialContent);
+    if (!resetResult.changed) {
+      return `No tasks needed reset in ${file.name}.`;
+    }
+    await this.writeFileContent(file, resetResult.content, settings);
+    const processResult = await this.processAndRouteFile(file);
+    return `Reset ${resetResult.taskCount} task${resetResult.taskCount === 1 ? "" : "s"} in ${file.name}. ${processResult}`;
+  }
   async processAndRouteFile(file) {
     const settings = this.getSettings();
     const initialContent = await this.app.vault.cachedRead(file);
@@ -1572,6 +1662,7 @@ var TaskManagerPlugin = class extends import_obsidian8.Plugin {
     this.taskProcessor = null;
     this.dateDashboard = null;
     this.dueDateSuggest = null;
+    this.createdDateSuggest = null;
     this.settings = normalizeSettings({});
   }
   async onload() {
@@ -1586,7 +1677,9 @@ var TaskManagerPlugin = class extends import_obsidian8.Plugin {
       getTaskFolderRoots: () => this.getTaskFolderRoots()
     });
     this.dueDateSuggest = new DueDateEditorSuggest(this.app);
+    this.createdDateSuggest = new CreatedDateEditorSuggest(this.app);
     this.registerEditorSuggest(this.dueDateSuggest);
+    this.registerEditorSuggest(this.createdDateSuggest);
     this.addSettingTab(new BaseTaskManagerSettingTab(this.app, this));
     registerTaskCommands(this, {
       processTasks: () => {
@@ -1594,6 +1687,9 @@ var TaskManagerPlugin = class extends import_obsidian8.Plugin {
       },
       processCurrentFile: () => {
         void this.runProcessCurrentFile();
+      },
+      resetCurrentFileTasks: () => {
+        void this.runResetCurrentFileTasks();
       }
     });
     this.registerEvent(this.app.vault.on("modify", (file) => {
@@ -1613,6 +1709,7 @@ var TaskManagerPlugin = class extends import_obsidian8.Plugin {
     (_b = this.dateDashboard) == null ? void 0 : _b.onunload();
     this.dateDashboard = null;
     this.dueDateSuggest = null;
+    this.createdDateSuggest = null;
     console.log("Unloading Task Manager plugin");
   }
   async loadSettings() {
@@ -1647,6 +1744,14 @@ var TaskManagerPlugin = class extends import_obsidian8.Plugin {
       new import_obsidian8.Notice(result);
     } catch (error) {
       new import_obsidian8.Notice(error instanceof Error ? error.message : "Failed to process tasks.");
+    }
+  }
+  async runResetCurrentFileTasks() {
+    try {
+      const result = await this.taskProcessor.resetCurrentFileTasks();
+      new import_obsidian8.Notice(result);
+    } catch (error) {
+      new import_obsidian8.Notice(error instanceof Error ? error.message : "Failed to reset tasks.");
     }
   }
   getTaskFolderRoots() {

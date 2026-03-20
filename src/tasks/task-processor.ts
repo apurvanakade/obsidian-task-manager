@@ -20,7 +20,8 @@ import {
   extractTaskState,
   findDeletedTaggedTask,
   findNewlyCompletedTask,
-  findNewlyUncompletedTask
+  findNewlyUncompletedTask,
+  resetTaskContent,
 } from "./task-utils";
 import {
   applyCompletionRules,
@@ -139,6 +140,25 @@ export class TaskProcessor {
     });
 
     return `Processed ${count} project file${count === 1 ? "" : "s"}.`;
+  }
+
+  async resetCurrentFileTasks(): Promise<string> {
+    const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      throw new Error("No active file.");
+    }
+
+    const settings = this.getSettings();
+    const initialContent = await this.app.vault.cachedRead(file);
+    const resetResult = resetTaskContent(initialContent);
+    if (!resetResult.changed) {
+      return `No tasks needed reset in ${file.name}.`;
+    }
+
+    await this.writeFileContent(file, resetResult.content, settings);
+
+    const processResult = await this.processAndRouteFile(file);
+    return `Reset ${resetResult.taskCount} task${resetResult.taskCount === 1 ? "" : "s"} in ${file.name}. ${processResult}`;
   }
 
   private async processAndRouteFile(file: TFile): Promise<string> {
