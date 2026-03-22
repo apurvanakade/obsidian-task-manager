@@ -103,7 +103,7 @@ async function showDueDateModalForNextAction(
   const modal = new DueDateModal({
     app,
     taskLine,
-    onSubmit: async (taskLine, dueDate) => {
+    onSubmit: async (taskLine, dueDate, priority) => {
       // Validate date format
       if (!isValidDateFormat(dueDate)) {
         return;
@@ -121,6 +121,13 @@ async function showDueDateModalForNextAction(
           } else {
             updatedLines[i] = `${updatedLines[i].trimEnd()} [due:: ${dueDate}]`;
           }
+
+          if (updatedLines[i].includes("[priority::")) {
+            updatedLines[i] = updatedLines[i].replace(/\[priority::\s*[^\]]*\]/g, `[priority:: ${priority}]`);
+          } else {
+            updatedLines[i] = `${updatedLines[i].trimEnd()} [priority:: ${priority}]`;
+          }
+
           taskFound = true;
           break;
         }
@@ -237,7 +244,21 @@ export async function reconcileFile(context: ReconcilerContext): Promise<void> {
   const { file, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
   const content = await readFile(file);
   const currentStatus = readStatusValue(content, settings.statusField);
-  const lines = content.split(/\r?\n/);
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => {
+      const match = line.match(/^(\s*[-*+]\s+\[)( |x|X)(\]\s*.*)$/);
+      if (!match) {
+        return line;
+      }
+
+      // Open tasks should never keep completion metadata, even during manual Process File runs.
+      if (match[2].toLowerCase() === "x") {
+        return line;
+      }
+
+      return stripCompletionFields(line);
+    });
   const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
   const firstIncompleteTaskLine = findFirstIncompleteTaskLine(cleanedLines);
   let updatedContent = cleanedLines.join("\n");

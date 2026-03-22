@@ -22,14 +22,17 @@ const DATE_FILE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const TASK_LINE_REGEX = /^\s*[-*+]\s+\[( |x|X)\]\s+(.*)$/;
 const DUE_FIELD_REGEX = /\[due::\s*([^\]]+?)\s*\]/i;
 const COMPLETION_DATE_FIELD_REGEX = /\[completion-date::\s*([^\]]+?)\s*\]/i;
+const PRIORITY_FIELD_REGEX = /\[priority::\s*([^\]]+?)\s*\]/i;
 const INLINE_FIELD_REGEX = /\s*\[[^\]]+::\s*[^\]]*\]/g;
 const TAG_REGEX = /(^|\s)#[^\s#]+/g;
 const MULTISPACE_REGEX = /\s+/g;
+const DEFAULT_PRIORITY = 4;
 
 export type DashboardRow = {
   file: TFile;
   task: string;
   dueDate: string | null;
+  priority: number;
 };
 
 type ParsedDashboardTask = {
@@ -37,6 +40,7 @@ type ParsedDashboardTask = {
   status: "open" | "completed";
   dueDate: string | null;
   completedDate: string | null;
+  priority: number;
 };
 
 export function getDateStringFromFileName(fileName: string): string | null {
@@ -66,11 +70,11 @@ export async function collectTasksForDate(
       }
 
       if (parsedTask.status === "open" && parsedTask.dueDate !== null && parsedTask.dueDate <= dateString) {
-        dueTasks.push({ file, task: parsedTask.text, dueDate: parsedTask.dueDate });
+        dueTasks.push({ file, task: parsedTask.text, dueDate: parsedTask.dueDate, priority: parsedTask.priority });
       }
 
       if (parsedTask.completedDate === dateString) {
-        completedTasks.push({ file, task: parsedTask.text, dueDate: null });
+        completedTasks.push({ file, task: parsedTask.text, dueDate: null, priority: parsedTask.priority });
       }
     }
   }
@@ -91,6 +95,7 @@ function parseDashboardTaskLine(line: string): ParsedDashboardTask | null {
   const taskBody = match[2].trim();
   const dueDate = readInlineFieldValue(taskBody, DUE_FIELD_REGEX);
   const completedDate = readInlineFieldValue(taskBody, COMPLETION_DATE_FIELD_REGEX);
+  const priority = parsePriorityValue(readInlineFieldValue(taskBody, PRIORITY_FIELD_REGEX));
 
   if (!dueDate && !completedDate) {
     return null;
@@ -101,7 +106,21 @@ function parseDashboardTaskLine(line: string): ParsedDashboardTask | null {
     status,
     dueDate,
     completedDate,
+    priority,
   };
+}
+
+function parsePriorityValue(value: string | null): number {
+  if (!value) {
+    return DEFAULT_PRIORITY;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 4) {
+    return DEFAULT_PRIORITY;
+  }
+
+  return parsed;
 }
 
 function readInlineFieldValue(taskBody: string, fieldRegex: RegExp): string | null {
@@ -118,6 +137,11 @@ function cleanDashboardTaskText(taskBody: string): string {
 }
 
 function compareRows(left: DashboardRow, right: DashboardRow): number {
+  const priorityCompare = left.priority - right.priority;
+  if (priorityCompare !== 0) {
+    return priorityCompare;
+  }
+
   const pathCompare = left.file.path.localeCompare(right.file.path);
   if (pathCompare !== 0) {
     return pathCompare;
@@ -127,6 +151,11 @@ function compareRows(left: DashboardRow, right: DashboardRow): number {
 }
 
 function compareDueRows(left: DashboardRow, right: DashboardRow): number {
+  const priorityCompare = left.priority - right.priority;
+  if (priorityCompare !== 0) {
+    return priorityCompare;
+  }
+
   const leftDueDate = left.dueDate ?? EMPTY_DUE_DATE_SORT_VALUE;
   const rightDueDate = right.dueDate ?? EMPTY_DUE_DATE_SORT_VALUE;
   const dueDateCompare = leftDueDate.localeCompare(rightDueDate);

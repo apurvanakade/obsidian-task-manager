@@ -124,6 +124,8 @@ Completion (`[ ]` -> `[x]`):
 Next-Action Assignment (triggered when `#next-action` is newly assigned):
 
 - prompt user with due-date modal offering:
+  - task text preview so users can confirm which task is being updated
+  - priority dropdown with values `1`, `2`, `3`, `4` (default `4`)
   - suggested dates (today through +30 days with Today/Tomorrow/weekday labels)
   - clicking a suggested date immediately adds that due date
   - text input field for custom date (YYYY-MM-DD format) or natural-language date terms (e.g., today, tomorrow, weekday names) resolved to a matching suggested date
@@ -132,11 +134,13 @@ Next-Action Assignment (triggered when `#next-action` is newly assigned):
   - skip option to dismiss without adding due date
   - **modal is skipped if**: assignment was unchanged (already tagged before reconcile), assigned task is repeating, or task already has a due date
 - occurs on task completion, uncompletion, tagged task deletion, and during reconciliation (e.g., `process file` or `process tasks`)
+- modal submit writes both `[due:: YYYY-MM-DD]` and `[priority:: N]` (updating existing values if present)
 
 Uncompletion (`[x]` -> `[ ]`):
 
 - if reopened task is first open task, retag it as `next-action` and clear tag from others.
 - status resets toward `todo` behavior.
+- `Process File`/`Process Tasks` reconciliation also strips stale `[completion-date:: ...]` and `[completion-time:: ...]` metadata from open tasks.
 
 Tagged task deletion:
 
@@ -155,7 +159,8 @@ Recurring task handling:
 
 Activation condition:
 
-- Active note name (without `.md`) must match `YYYY-MM-DD`.
+- If active note name (without `.md`) matches `YYYY-MM-DD`, dashboard uses that date.
+- Otherwise, dashboard defaults to today's local date.
 
 Placement:
 
@@ -183,12 +188,13 @@ Completed table inclusion:
 
 Sorting:
 
-- Due rows: ascending by due date, then path/task tie-breakers.
-- Completed rows: path then task.
+- Due rows: ascending by priority (`1`..`4`, missing treated as `4`), then due date, then path/task tie-breakers.
+- Completed rows: ascending by priority (`1`..`4`, missing treated as `4`), then path/task.
 
 Display formatting:
 
 - Due includes a `Due` column in `MM-DD` format.
+- Due and Completed tables include a `Priority` column.
 - Filename display strips `.md` and removes leading archival-style dates, timestamps, and numeric fragments from the displayed name.
 - Task display strips inline fields and hashtag tags (e.g. `#next-action`).
 - Dashboard rendering relies on native Obsidian markdown/theme styling instead of plugin-specific dashboard CSS.
@@ -248,20 +254,22 @@ Run after meaningful logic changes:
 1. `npm run build` succeeds.
 2. `Process File` updates tags/status correctly on complete/uncomplete/delete cases.
 3. Task completion triggers due-date modal for newly assigned `next-action` task.
-4. Due-date modal immediately adds a clicked suggested date, or allows manual date entry via the input and Add Due Date button using either YYYY-MM-DD or natural-language date terms.
+4. Due-date modal shows the assigned task text, immediately adds a clicked suggested date, or allows manual date entry via the input and Add Due Date button using either YYYY-MM-DD or natural-language date terms.
 5. Selected/entered due date is correctly added to task as `[due:: YYYY-MM-DD]`.
-6. Modal skip action dismisses without modifying task.
-7. Recurring completion creates next open task with expected due date.
-8. Status change triggers automatic routing to correct destination.
-9. Move preserves subpath and does not flatten unexpectedly.
-10. Merge conflict prompt appears when destination file exists.
-11. Empty source directories are cleaned up after successful move/merge.
-12. Date dashboard appears in sidebar for date note and renders Due/Completed correctly.
-13. Due table sorted ascending by due date and shows `MM-DD` column.
-14. Dashboard text cleanup removes inline fields/tags; filename display cleanup is applied.
-15. Typing `due::` shows date suggestions starting from today, matches on ISO dates and weekday labels, and inserts ` YYYY-MM-DD` (single space after `::`).
-16. Typing `created::` shows today suggestion and inserts ` YYYY-MM-DD` (single space after `::`).
-17. `Reset Tasks` (active file) reopens all tasks, removes due/completion/created inline metadata from task lines, and then runs the same processing flow as `Process File`.
+6. Selected priority is added/updated as `[priority:: N]` (default `N=4` when unchanged).
+7. Modal skip action dismisses without modifying task.
+8. Recurring completion creates next open task with expected due date.
+9. Status change triggers automatic routing to correct destination.
+10. Move preserves subpath and does not flatten unexpectedly.
+11. Merge conflict prompt appears when destination file exists.
+12. Empty source directories are cleaned up after successful move/merge.
+13. Date dashboard appears in sidebar and renders Due/Completed for active date notes; on non-date notes it defaults to today's date.
+13. Due and Completed tables show a `Priority` column; missing priority is treated as `4`.
+14. Due table sorted by increasing priority first, then ascending due date, and shows `MM-DD` Due column.
+15. Dashboard text cleanup removes inline fields/tags; filename display cleanup is applied.
+16. Typing `due::` shows date suggestions starting from today, matches on ISO dates and weekday labels, and inserts ` YYYY-MM-DD` (single space after `::`).
+17. Typing `created::` shows today suggestion and inserts ` YYYY-MM-DD` (single space after `::`).
+18. `Reset Tasks` (active file) reopens all tasks, removes due/completion/created inline metadata from task lines, and then runs the same processing flow as `Process File`.
 
 ## 11) Known Constraints
 

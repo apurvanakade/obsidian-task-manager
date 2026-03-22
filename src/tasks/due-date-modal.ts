@@ -19,6 +19,13 @@ import { buildDateSuggestions, resolveDateInput } from "../date/date-suggestions
 
 const spacingStyles = {
   description: { marginBottom: "20px" },
+  taskPreview: {
+    marginBottom: "16px",
+    padding: "10px",
+    border: "1px solid var(--background-modifier-border)",
+    borderRadius: "6px",
+    backgroundColor: "var(--background-secondary)",
+  },
   section: { marginBottom: "15px" },
   label: {
     display: "block",
@@ -72,14 +79,15 @@ const buttonStyles = {
 type DueDateModalOptions = {
   app: App;
   taskLine: string;
-  onSubmit: (taskLine: string, dueDate: string) => Promise<void>;
+  onSubmit: (taskLine: string, dueDate: string, priority: "1" | "2" | "3" | "4") => Promise<void>;
 };
 
 export class DueDateModal extends Modal {
   private readonly taskLine: string;
-  private readonly onSubmit: (taskLine: string, dueDate: string) => Promise<void>;
+  private readonly onSubmit: (taskLine: string, dueDate: string, priority: "1" | "2" | "3" | "4") => Promise<void>;
   private readonly dateSuggestions = buildDateSuggestions();
   private inputElement: HTMLInputElement | null = null;
+  private prioritySelectElement: HTMLSelectElement | null = null;
 
   constructor(options: DueDateModalOptions) {
     super(options.app);
@@ -94,7 +102,9 @@ export class DueDateModal extends Modal {
     contentEl.createEl("h2", { text: "Add Due Date" });
 
     this.createDescription(contentEl);
+    this.createTaskPreview(contentEl);
     this.createInputSection(contentEl);
+    this.createPrioritySection(contentEl);
     this.createSuggestionsSection(contentEl);
     this.createActionButtons(contentEl);
 
@@ -106,6 +116,26 @@ export class DueDateModal extends Modal {
       text: "Would you like to add a due date for this task?",
     });
     applyStyles(description, spacingStyles.description);
+  }
+
+  private createTaskPreview(container: HTMLElement): void {
+    const taskPreview = container.createEl("div");
+    applyStyles(taskPreview, spacingStyles.taskPreview);
+
+    const taskLabel = taskPreview.createEl("strong", { text: "Task:" });
+    taskLabel.style.display = "block";
+    taskLabel.style.marginBottom = "4px";
+
+    taskPreview.createEl("span", {
+      text: this.getTaskDisplayText(),
+    });
+  }
+
+  private getTaskDisplayText(): string {
+    const withoutTaskPrefix = this.taskLine
+      .replace(/^\s*[-*+]\s+\[[^\]]\]\s*/, "")
+      .trim();
+    return withoutTaskPrefix.length > 0 ? withoutTaskPrefix : this.taskLine.trim();
   }
 
   private createInputSection(container: HTMLElement): void {
@@ -142,6 +172,28 @@ export class DueDateModal extends Modal {
       void this.submitDate();
     });
     applyStyles(this.inputElement, inputStyles);
+  }
+
+  private createPrioritySection(container: HTMLElement): void {
+    const priorityContainer = container.createEl("div");
+    applyStyles(priorityContainer, spacingStyles.section);
+
+    this.createSectionLabel(priorityContainer, "Priority:");
+
+    const selectElement = priorityContainer.createEl("select");
+    applyStyles(selectElement, inputStyles);
+
+    (["1", "2", "3", "4"] as const).forEach((priority) => {
+      const option = selectElement.createEl("option", {
+        text: priority,
+        value: priority,
+      });
+      if (priority === "4") {
+        option.selected = true;
+      }
+    });
+
+    this.prioritySelectElement = selectElement;
   }
 
   private createSuggestionsSection(container: HTMLElement): void {
@@ -192,6 +244,7 @@ export class DueDateModal extends Modal {
 
   private async submitDate(dateOverride?: string): Promise<void> {
     const dateValue = dateOverride ?? this.inputElement?.value.trim() ?? "";
+    const priority = (this.prioritySelectElement?.value ?? "4") as "1" | "2" | "3" | "4";
 
     if (!dateValue) {
       return;
@@ -204,7 +257,7 @@ export class DueDateModal extends Modal {
     }
 
     try {
-      await this.onSubmit(this.taskLine, resolvedDate);
+      await this.onSubmit(this.taskLine, resolvedDate, priority);
       this.close();
     } catch (error) {
       console.error("Failed to add due date:", error);

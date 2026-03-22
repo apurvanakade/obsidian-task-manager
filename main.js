@@ -54,9 +54,11 @@ var DATE_FILE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 var TASK_LINE_REGEX = /^\s*[-*+]\s+\[( |x|X)\]\s+(.*)$/;
 var DUE_FIELD_REGEX = /\[due::\s*([^\]]+?)\s*\]/i;
 var COMPLETION_DATE_FIELD_REGEX = /\[completion-date::\s*([^\]]+?)\s*\]/i;
+var PRIORITY_FIELD_REGEX = /\[priority::\s*([^\]]+?)\s*\]/i;
 var INLINE_FIELD_REGEX = /\s*\[[^\]]+::\s*[^\]]*\]/g;
 var TAG_REGEX = /(^|\s)#[^\s#]+/g;
 var MULTISPACE_REGEX = /\s+/g;
+var DEFAULT_PRIORITY = 4;
 function getDateStringFromFileName(fileName) {
   const baseName = fileName.replace(MARKDOWN_EXTENSION_REGEX, "");
   return DATE_FILE_REGEX.test(baseName) ? baseName : null;
@@ -76,10 +78,10 @@ async function collectTasksForDate(app, taskFolderRoots, dateString) {
         continue;
       }
       if (parsedTask.status === "open" && parsedTask.dueDate !== null && parsedTask.dueDate <= dateString) {
-        dueTasks.push({ file, task: parsedTask.text, dueDate: parsedTask.dueDate });
+        dueTasks.push({ file, task: parsedTask.text, dueDate: parsedTask.dueDate, priority: parsedTask.priority });
       }
       if (parsedTask.completedDate === dateString) {
-        completedTasks.push({ file, task: parsedTask.text, dueDate: null });
+        completedTasks.push({ file, task: parsedTask.text, dueDate: null, priority: parsedTask.priority });
       }
     }
   }
@@ -96,6 +98,7 @@ function parseDashboardTaskLine(line) {
   const taskBody = match[2].trim();
   const dueDate = readInlineFieldValue(taskBody, DUE_FIELD_REGEX);
   const completedDate = readInlineFieldValue(taskBody, COMPLETION_DATE_FIELD_REGEX);
+  const priority = parsePriorityValue(readInlineFieldValue(taskBody, PRIORITY_FIELD_REGEX));
   if (!dueDate && !completedDate) {
     return null;
   }
@@ -103,8 +106,19 @@ function parseDashboardTaskLine(line) {
     text: cleanDashboardTaskText(taskBody),
     status,
     dueDate,
-    completedDate
+    completedDate,
+    priority
   };
+}
+function parsePriorityValue(value) {
+  if (!value) {
+    return DEFAULT_PRIORITY;
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 4) {
+    return DEFAULT_PRIORITY;
+  }
+  return parsed;
 }
 function readInlineFieldValue(taskBody, fieldRegex) {
   const match = taskBody.match(fieldRegex);
@@ -114,6 +128,10 @@ function cleanDashboardTaskText(taskBody) {
   return taskBody.replace(INLINE_FIELD_REGEX, "").replace(TAG_REGEX, "$1").replace(MULTISPACE_REGEX, " ").trim();
 }
 function compareRows(left, right) {
+  const priorityCompare = left.priority - right.priority;
+  if (priorityCompare !== 0) {
+    return priorityCompare;
+  }
   const pathCompare = left.file.path.localeCompare(right.file.path);
   if (pathCompare !== 0) {
     return pathCompare;
@@ -122,6 +140,10 @@ function compareRows(left, right) {
 }
 function compareDueRows(left, right) {
   var _a, _b;
+  const priorityCompare = left.priority - right.priority;
+  if (priorityCompare !== 0) {
+    return priorityCompare;
+  }
   const leftDueDate = (_a = left.dueDate) != null ? _a : EMPTY_DUE_DATE_SORT_VALUE;
   const rightDueDate = (_b = right.dueDate) != null ? _b : EMPTY_DUE_DATE_SORT_VALUE;
   const dueDateCompare = leftDueDate.localeCompare(rightDueDate);
@@ -171,25 +193,19 @@ var _DateDashboardController = class _DateDashboardController {
     this.queueRefresh();
   }
   async renderContent(container) {
+    var _a, _b;
     container.innerHTML = "";
     container.classList.add("markdown-rendered");
     const activeFile = this.app.workspace.getActiveFile();
-    if (!activeFile) {
-      container.appendChild(this.createEmptyState());
-      return;
-    }
-    const dateString = getDateStringFromFileName(activeFile.name);
-    if (!dateString) {
-      container.appendChild(this.createEmptyState());
-      return;
-    }
+    const dateString = activeFile ? (_a = getDateStringFromFileName(activeFile.name)) != null ? _a : this.getTodayDateString() : this.getTodayDateString();
+    const sourcePath = (_b = activeFile == null ? void 0 : activeFile.path) != null ? _b : "";
     const dashboard = document.createElement("section");
     const title = document.createElement("h2");
     title.textContent = `Tasks for ${dateString}`;
     dashboard.appendChild(title);
     const tasks = await collectTasksForDate(this.app, this.getTaskFolderRoots(), dateString);
-    this.appendTaskTable(dashboard, "Due", tasks.dueTasks, activeFile.path, true);
-    this.appendTaskTable(dashboard, "Completed", tasks.completedTasks, activeFile.path, false);
+    this.appendTaskTable(dashboard, "Due", tasks.dueTasks, sourcePath, true);
+    this.appendTaskTable(dashboard, "Completed", tasks.completedTasks, sourcePath, false);
     container.appendChild(dashboard);
   }
   queueRefresh() {
@@ -228,6 +244,13 @@ var _DateDashboardController = class _DateDashboardController {
     emptyState.textContent = "Open a date note named like YYYY-MM-DD to view the dashboard.";
     return emptyState;
   }
+  getTodayDateString() {
+    const now = /* @__PURE__ */ new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
   appendTaskTable(container, title, rows, sourcePath, showDueDate) {
     const heading = document.createElement("h3");
     heading.textContent = title;
@@ -241,7 +264,7 @@ var _DateDashboardController = class _DateDashboardController {
     const table = document.createElement("table");
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
-    const labels = showDueDate ? ["Filename", "Task", "Due"] : ["Filename", "Task"];
+    const labels = showDueDate ? ["Filename", "Task", "Priority", "Due"] : ["Filename", "Task", "Priority"];
     for (const label of labels) {
       headerRow.appendChild(this.createTextElement("th", label));
     }
@@ -258,6 +281,7 @@ var _DateDashboardController = class _DateDashboardController {
     const tableRow = document.createElement("tr");
     tableRow.appendChild(this.createFileCell(row, sourcePath));
     tableRow.appendChild(this.createTextElement("td", row.task));
+    tableRow.appendChild(this.createTextElement("td", String(row.priority)));
     if (showDueDate) {
       tableRow.appendChild(this.createTextElement("td", this.formatMonthDay(row.dueDate)));
     }
@@ -990,6 +1014,13 @@ function escapeRegExp2(value) {
 var import_obsidian6 = require("obsidian");
 var spacingStyles = {
   description: { marginBottom: "20px" },
+  taskPreview: {
+    marginBottom: "16px",
+    padding: "10px",
+    border: "1px solid var(--background-modifier-border)",
+    borderRadius: "6px",
+    backgroundColor: "var(--background-secondary)"
+  },
   section: { marginBottom: "15px" },
   label: {
     display: "block",
@@ -1040,6 +1071,7 @@ var DueDateModal = class extends import_obsidian6.Modal {
     super(options.app);
     this.dateSuggestions = buildDateSuggestions();
     this.inputElement = null;
+    this.prioritySelectElement = null;
     this.taskLine = options.taskLine;
     this.onSubmit = options.onSubmit;
   }
@@ -1049,7 +1081,9 @@ var DueDateModal = class extends import_obsidian6.Modal {
     contentEl.empty();
     contentEl.createEl("h2", { text: "Add Due Date" });
     this.createDescription(contentEl);
+    this.createTaskPreview(contentEl);
     this.createInputSection(contentEl);
+    this.createPrioritySection(contentEl);
     this.createSuggestionsSection(contentEl);
     this.createActionButtons(contentEl);
     (_a = this.inputElement) == null ? void 0 : _a.focus();
@@ -1059,6 +1093,20 @@ var DueDateModal = class extends import_obsidian6.Modal {
       text: "Would you like to add a due date for this task?"
     });
     applyStyles(description, spacingStyles.description);
+  }
+  createTaskPreview(container) {
+    const taskPreview = container.createEl("div");
+    applyStyles(taskPreview, spacingStyles.taskPreview);
+    const taskLabel = taskPreview.createEl("strong", { text: "Task:" });
+    taskLabel.style.display = "block";
+    taskLabel.style.marginBottom = "4px";
+    taskPreview.createEl("span", {
+      text: this.getTaskDisplayText()
+    });
+  }
+  getTaskDisplayText() {
+    const withoutTaskPrefix = this.taskLine.replace(/^\s*[-*+]\s+\[[^\]]\]\s*/, "").trim();
+    return withoutTaskPrefix.length > 0 ? withoutTaskPrefix : this.taskLine.trim();
   }
   createInputSection(container) {
     const inputContainer = container.createEl("div");
@@ -1088,6 +1136,23 @@ var DueDateModal = class extends import_obsidian6.Modal {
       void this.submitDate();
     });
     applyStyles(this.inputElement, inputStyles);
+  }
+  createPrioritySection(container) {
+    const priorityContainer = container.createEl("div");
+    applyStyles(priorityContainer, spacingStyles.section);
+    this.createSectionLabel(priorityContainer, "Priority:");
+    const selectElement = priorityContainer.createEl("select");
+    applyStyles(selectElement, inputStyles);
+    ["1", "2", "3", "4"].forEach((priority) => {
+      const option = selectElement.createEl("option", {
+        text: priority,
+        value: priority
+      });
+      if (priority === "4") {
+        option.selected = true;
+      }
+    });
+    this.prioritySelectElement = selectElement;
   }
   createSuggestionsSection(container) {
     this.createSectionLabel(container, "Suggested Dates:");
@@ -1129,8 +1194,9 @@ var DueDateModal = class extends import_obsidian6.Modal {
     return label;
   }
   async submitDate(dateOverride) {
-    var _a, _b;
+    var _a, _b, _c, _d;
     const dateValue = (_b = dateOverride != null ? dateOverride : (_a = this.inputElement) == null ? void 0 : _a.value.trim()) != null ? _b : "";
+    const priority = (_d = (_c = this.prioritySelectElement) == null ? void 0 : _c.value) != null ? _d : "4";
     if (!dateValue) {
       return;
     }
@@ -1140,7 +1206,7 @@ var DueDateModal = class extends import_obsidian6.Modal {
       return;
     }
     try {
-      await this.onSubmit(this.taskLine, resolvedDate);
+      await this.onSubmit(this.taskLine, resolvedDate, priority);
       this.close();
     } catch (error) {
       console.error("Failed to add due date:", error);
@@ -1179,7 +1245,7 @@ async function showDueDateModalForNextAction(file, taskLineIndex, previousConten
   const modal = new DueDateModal({
     app,
     taskLine,
-    onSubmit: async (taskLine2, dueDate) => {
+    onSubmit: async (taskLine2, dueDate, priority) => {
       if (!isValidDateFormat(dueDate)) {
         return;
       }
@@ -1192,6 +1258,11 @@ async function showDueDateModalForNextAction(file, taskLineIndex, previousConten
             updatedLines[i] = updatedLines[i].replace(/\[due::\s*[^\]]*\]/g, `[due:: ${dueDate}]`);
           } else {
             updatedLines[i] = `${updatedLines[i].trimEnd()} [due:: ${dueDate}]`;
+          }
+          if (updatedLines[i].includes("[priority::")) {
+            updatedLines[i] = updatedLines[i].replace(/\[priority::\s*[^\]]*\]/g, `[priority:: ${priority}]`);
+          } else {
+            updatedLines[i] = `${updatedLines[i].trimEnd()} [priority:: ${priority}]`;
           }
           taskFound = true;
           break;
@@ -1281,7 +1352,16 @@ async function reconcileFile(context) {
   const { file, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
   const content = await readFile(file);
   const currentStatus = readStatusValue(content, settings.statusField);
-  const lines = content.split(/\r?\n/);
+  const lines = content.split(/\r?\n/).map((line) => {
+    const match = line.match(/^(\s*[-*+]\s+\[)( |x|X)(\]\s*.*)$/);
+    if (!match) {
+      return line;
+    }
+    if (match[2].toLowerCase() === "x") {
+      return line;
+    }
+    return stripCompletionFields(line);
+  });
   const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
   const firstIncompleteTaskLine = findFirstIncompleteTaskLine(cleanedLines);
   let updatedContent = cleanedLines.join("\n");

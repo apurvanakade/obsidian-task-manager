@@ -77,16 +77,10 @@ export class DateDashboardController {
     container.classList.add("markdown-rendered");
 
     const activeFile = this.app.workspace.getActiveFile();
-    if (!activeFile) {
-      container.appendChild(this.createEmptyState());
-      return;
-    }
-
-    const dateString = getDateStringFromFileName(activeFile.name);
-    if (!dateString) {
-      container.appendChild(this.createEmptyState());
-      return;
-    }
+    const dateString = activeFile
+      ? getDateStringFromFileName(activeFile.name) ?? this.getTodayDateString()
+      : this.getTodayDateString();
+    const sourcePath = activeFile?.path ?? "";
 
     const dashboard = document.createElement("section");
 
@@ -95,8 +89,8 @@ export class DateDashboardController {
     dashboard.appendChild(title);
 
     const tasks = await collectTasksForDate(this.app, this.getTaskFolderRoots(), dateString);
-    this.appendTaskTable(dashboard, "Due", tasks.dueTasks, activeFile.path, true);
-    this.appendTaskTable(dashboard, "Completed", tasks.completedTasks, activeFile.path, false);
+    this.appendTaskTable(dashboard, "Due", tasks.dueTasks, sourcePath, true);
+    this.appendTaskTable(dashboard, "Completed", tasks.completedTasks, sourcePath, false);
 
     container.appendChild(dashboard);
   }
@@ -143,6 +137,14 @@ export class DateDashboardController {
     return emptyState;
   }
 
+  private getTodayDateString(): string {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
   private appendTaskTable(container: HTMLElement, title: string, rows: DashboardRow[], sourcePath: string, showDueDate: boolean): void {
     const heading = document.createElement("h3");
     heading.textContent = title;
@@ -159,7 +161,7 @@ export class DateDashboardController {
 
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
-    const labels = showDueDate ? ["Filename", "Task", "Due"] : ["Filename", "Task"];
+    const labels = showDueDate ? ["Filename", "Task", "Priority", "Due"] : ["Filename", "Task", "Priority"];
     for (const label of labels) {
       headerRow.appendChild(this.createTextElement("th", label));
     }
@@ -179,6 +181,7 @@ export class DateDashboardController {
     const tableRow = document.createElement("tr");
     tableRow.appendChild(this.createFileCell(row, sourcePath));
     tableRow.appendChild(this.createTextElement("td", row.task));
+    tableRow.appendChild(this.createTextElement("td", String(row.priority)));
 
     if (showDueDate) {
       tableRow.appendChild(this.createTextElement("td", this.formatMonthDay(row.dueDate)));
