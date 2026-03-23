@@ -103,12 +103,12 @@ export class DueDateModal extends Modal {
 
     this.createDescription(contentEl);
     this.createTaskPreview(contentEl);
-    this.createInputSection(contentEl);
     this.createPrioritySection(contentEl);
+    this.createInputSection(contentEl);
     this.createSuggestionsSection(contentEl);
     this.createActionButtons(contentEl);
 
-    this.inputElement?.focus();
+    this.prioritySelectElement?.focus();
   }
 
   private createDescription(container: HTMLElement): void {

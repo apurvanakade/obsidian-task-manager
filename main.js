@@ -1162,11 +1162,11 @@ var DueDateModal = class extends import_obsidian7.Modal {
     contentEl.createEl("h2", { text: "Add Due Date" });
     this.createDescription(contentEl);
     this.createTaskPreview(contentEl);
-    this.createInputSection(contentEl);
     this.createPrioritySection(contentEl);
+    this.createInputSection(contentEl);
     this.createSuggestionsSection(contentEl);
     this.createActionButtons(contentEl);
-    (_a = this.inputElement) == null ? void 0 : _a.focus();
+    (_a = this.prioritySelectElement) == null ? void 0 : _a.focus();
   }
   createDescription(container) {
     const description = container.createEl("p", {
