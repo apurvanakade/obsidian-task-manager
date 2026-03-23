@@ -1,4 +1,41 @@
 /**
+ * Collects incomplete tasks from the journal file for the given date.
+ * The journal file is expected at: journalFolder/YYYY/YYYY-MM/YYYY-MM-DD.md
+ */
+export async function collectInboxTasksForDate(
+  app: App,
+  journalFolder: string,
+  dateString: string,
+): Promise<DashboardRow[]> {
+  // Build the expected path: journalFolder/YYYY/YYYY-MM/YYYY-MM-DD.md
+  if (!journalFolder) return [];
+  const [year, month, day] = dateString.split("-");
+  if (!year || !month || !day) return [];
+  const filePath = `${journalFolder}/${year}/${year}-${month}/${dateString}.md`;
+  const file = app.vault.getAbstractFileByPath(filePath);
+  if (!file || !(file instanceof TFile)) return [];
+  const content = await app.vault.cachedRead(file);
+  const lines = content.split(/\r?\n/);
+  const inboxTasks: DashboardRow[] = [];
+  for (const line of lines) {
+    const match = line.match(TASK_LINE_REGEX);
+    if (!match) continue;
+    const status = match[1].trim().toLowerCase() === "x" ? "completed" : "open";
+    if (status !== "open") continue;
+    // Use the same text cleanup and priority logic as other dashboard rows
+    const taskBody = match[2].trim();
+    const priority = parsePriorityValue(readInlineFieldValue(taskBody, PRIORITY_FIELD_REGEX));
+    inboxTasks.push({
+      file: file as TFile,
+      task: cleanDashboardTaskText(taskBody),
+      dueDate: null,
+      priority,
+    });
+  }
+  inboxTasks.sort(compareRows);
+  return inboxTasks;
+}
+/**
  * Purpose:
  * - provide pure task-data parsing/filtering utilities for the date dashboard.
  *

@@ -15,6 +15,7 @@
  */
 import { FolderSettingKey, TaskManagerSettings } from "./settings-utils";
 
+
 export type FolderSettingConfig = {
   name: string;
   description: string;
@@ -60,6 +61,13 @@ export function getFolderSettingConfigs(settings: TaskManagerSettings): FolderSe
       key: "somedayMaybeProjectsFolder",
       value: settings.somedayMaybeProjectsFolder,
       placeholder: "Projects/Someday-Maybe",
+    },
+    {
+      name: "Journal Folder",
+      description: "Root folder for daily journal notes (used for Inbox section in dashboard).",
+      key: "journalFolder",
+      value: settings.journalFolder,
+      placeholder: "Journal",
     },
   ];
 }

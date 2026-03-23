@@ -4,5 +4,6 @@
   "projectsFolder": "Projects",
   "completedProjectsFolder": "Completed",
   "waitingProjectsFolder": "Waiting",
-  "somedayMaybeProjectsFolder": "Someday-Maybe"
+  "somedayMaybeProjectsFolder": "Someday-Maybe",
+  "journalFolder": "Journal"
 }

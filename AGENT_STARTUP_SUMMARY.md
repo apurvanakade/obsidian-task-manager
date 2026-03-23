@@ -169,12 +169,21 @@ Placement:
 
 Data scope:
 
-- Scans only markdown files under configured task-folder roots.
+- Scans only markdown files under configured task-folder roots (for Due/Completed sections).
+- For Inbox section, scans the daily journal file for the date under the configured Journal Folder.
 
 Sections:
 
 - `Due`
+- `Inbox`
 - `Completed`
+
+Inbox section:
+
+- Appears between Due and Completed.
+- Collects all incomplete tasks from the journal file for the date, expected at `journalFolder/YYYY/YYYY-MM/YYYY-MM-DD.md`.
+- Renders as a heading, a link to the journal file, and a plain unordered list of tasks (no table, no priorities).
+- If no tasks, shows "No tasks." message.
 
 Due table inclusion:
 
@@ -190,6 +199,7 @@ Sorting:
 
 - Due rows: ascending by priority (`1`..`4`, missing treated as `4`), then due date, then path/task tie-breakers.
 - Completed rows: ascending by priority (`1`..`4`, missing treated as `4`), then path/task.
+- Inbox rows: sorted by file path and task text.
 
 Display formatting:
 
@@ -201,12 +211,14 @@ Display formatting:
 
 ## 8) Settings Model and Practical Defaults
 
+
 Key configurable paths:
 
 - Projects Folder
 - Completed Projects Folder
 - Waiting Projects Folder
 - Someday-Maybe Projects Folder
+- Journal Folder (used for Inbox section in dashboard; expects daily notes at `journalFolder/YYYY/YYYY-MM/YYYY-MM-DD.md`)
 
 Other key settings:
 

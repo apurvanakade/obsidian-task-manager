@@ -20,11 +20,12 @@ export type TaskManagerSettings = {
   completedProjectsFolder: string;
   waitingProjectsFolder: string;
   somedayMaybeProjectsFolder: string;
+  journalFolder: string;
 };
 
 export type FolderSettingKey = keyof Pick<
   TaskManagerSettings,
-  "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder"
+  "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder" | "journalFolder"
 >;
 
 export const DEFAULT_SETTINGS: TaskManagerSettings = {
@@ -33,7 +34,8 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   projectsFolder: "",
   completedProjectsFolder: "",
   waitingProjectsFolder: "",
-  somedayMaybeProjectsFolder: ""
+  somedayMaybeProjectsFolder: "",
+  journalFolder: ""
 };
 
 function normalizeTag(tag: string | null | undefined): string {
@@ -63,6 +65,7 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
     projectsFolder: normalizeFolder(rawSettings.projectsFolder),
     completedProjectsFolder: normalizeFolder(rawSettings.completedProjectsFolder),
     waitingProjectsFolder: normalizeFolder(rawSettings.waitingProjectsFolder),
-    somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder)
+    somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder),
+    journalFolder: normalizeFolder(rawSettings.journalFolder),
   };
 }
