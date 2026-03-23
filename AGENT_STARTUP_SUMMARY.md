@@ -63,7 +63,7 @@ Typing source:
 Commands:
 
 - `Process Tasks`: applies processing to all markdown files under all configured task folders.
-- `Process File`: processes only the currently active markdown file.
+- `Process File`: processes only the currently active markdown file, but only if it is inside one of the four configured Projects folders (Projects, Completed Projects, Waiting Projects, Someday-Maybe Projects). If not, the command does nothing and silently skips processing.
 - `Reset Tasks`: in the active markdown file, marks all tasks open (`[ ]`) and removes inline fields `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, and `[created:: ...]` from task lines, then runs `Process File` behavior on that file.
 
 Command registration:

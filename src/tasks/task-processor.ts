@@ -119,7 +119,14 @@ export class TaskProcessor {
   async processCurrentFile(): Promise<string> {
     const file = this.app.workspace.getActiveFile();
     if (!file) {
-      throw new Error("No active file.");
+      return "No active file.";
+    }
+
+    const settings = this.getSettings();
+    const taskFolderRoots = getTaskFolderRoots(settings);
+    const inProjectsFolder = taskFolderRoots.some((root) => file.path.startsWith(`${root}/`) || file.path === root);
+    if (!inProjectsFolder) {
+      return "";
     }
 
     return await this.processAndRouteFile(file);
