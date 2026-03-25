@@ -42,7 +42,7 @@ export default class TaskManagerPlugin extends Plugin {
     this.dateDashboard = new DateDashboardController({
       app: this.app,
       getTaskFolderRoots: () => this.getTaskFolderRoots(),
-      getJournalFolder: () => this.settings.journalFolder,
+      getInboxFile: () => this.settings.inboxFile,
     });
     this.dueDateSuggest = new DueDateEditorSuggest(this.app);
     this.createdDateSuggest = new CreatedDateEditorSuggest(this.app);

@@ -5,7 +5,7 @@
  * Responsibilities:
  * - renders folder and text setting controls from declarative definitions
  * - binds UI events to plugin updateSetting persistence hooks
- * - delegates folder browsing to the folder-picker helper
+ * - delegates folder and file browsing to the folder-picker helper
  *
  * Dependencies:
  * - depends on settings definitions/utilities and picker helper
@@ -13,9 +13,12 @@
  *
  * Side Effects:
  * - mutates settings container DOM and persists setting values
+ *
+ * Notes:
+ * - Uses file picker for Inbox File, folder picker for other folder settings.
  */
 import { PluginSettingTab, Setting, TextComponent } from "obsidian";
-import { openFolderPicker } from "./folder-picker";
+import { openFolderPicker, openFilePicker } from "./folder-picker";
 import { getFolderSettingConfigs, getTextSettingConfigs, FolderSettingConfig, TextSettingConfig } from "./settings-field-definitions";
 import { FolderSettingKey, TaskManagerSettings } from "./settings-utils";
 
@@ -49,9 +52,10 @@ export class TaskManagerSettingTabRenderer {
   }
 
   private addFolderSetting(containerEl: HTMLElement, config: FolderSettingConfig): void {
+    const isInboxFile = config.key === "inboxFile";
     new Setting(containerEl)
       .setName(config.name)
-      .setDesc(`${config.description} Use Browse to pick a vault path.`)
+      .setDesc(`${config.description} Use Browse to pick a vault ${isInboxFile ? "file" : "path"}.`)
       .addText((text) => {
         this.configureFolderTextInput(text, config.key, config.value, config.placeholder);
       })
@@ -59,10 +63,17 @@ export class TaskManagerSettingTabRenderer {
         button
           .setButtonText("Browse")
           .onClick(() => {
-            openFolderPicker(this.baseSettingTab.app, async (selectedFolderPath) => {
-              await this.plugin.updateSetting(config.key, selectedFolderPath);
-              this.display();
-            });
+            if (isInboxFile) {
+              openFilePicker(this.baseSettingTab.app, async (selectedFilePath) => {
+                await this.plugin.updateSetting(config.key, selectedFilePath);
+                this.display();
+              });
+            } else {
+              openFolderPicker(this.baseSettingTab.app, async (selectedFolderPath) => {
+                await this.plugin.updateSetting(config.key, selectedFolderPath);
+                this.display();
+              });
+            }
           });
       });
   }

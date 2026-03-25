@@ -3,7 +3,7 @@
  * - define declarative metadata for settings controls.
  *
  * Responsibilities:
- * - provides folder-setting metadata
+ * - provides folder-setting metadata (including file-path for Inbox File)
  * - provides text-setting metadata
  * - keeps configuration shape separate from rendering logic
  *
@@ -12,6 +12,9 @@
  *
  * Side Effects:
  * - none (pure data definitions)
+ *
+ * Notes:
+ * - Inbox File uses a file picker, not a folder picker, in settings UI.
  */
 import { FolderSettingKey, TaskManagerSettings } from "./settings-utils";
 
@@ -63,11 +66,11 @@ export function getFolderSettingConfigs(settings: TaskManagerSettings): FolderSe
       placeholder: "Projects/Someday-Maybe",
     },
     {
-      name: "Journal Folder",
-      description: "Root folder for daily journal notes (used for Inbox section in dashboard).",
-      key: "journalFolder",
-      value: settings.journalFolder,
-      placeholder: "Journal",
+      name: "Inbox File",
+      description: "Path to the inbox file (used for Inbox section in dashboard).",
+      key: "inboxFile",
+      value: settings.inboxFile,
+      placeholder: "Inbox.md",
     },
   ];
 }

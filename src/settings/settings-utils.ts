@@ -5,13 +5,16 @@
  * Responsibilities:
  * - defines TaskManagerSettings shape and key aliases
  * - provides plugin defaults for first-run and missing values
- * - normalizes tag, status-field, and folder-path inputs for safe runtime usage
+ * - normalizes tag, status-field, folder-path, and file-path inputs for safe runtime usage
  *
  * Dependencies:
  * - none outside language/runtime primitives
  *
  * Side Effects:
  * - none (pure normalization helpers)
+ *
+ * Notes:
+ * - As of 2026-03, supports an "Inbox File" (file path, not folder) for dashboard inbox section.
  */
 export type TaskManagerSettings = {
   nextActionTag: string;
@@ -20,12 +23,12 @@ export type TaskManagerSettings = {
   completedProjectsFolder: string;
   waitingProjectsFolder: string;
   somedayMaybeProjectsFolder: string;
-  journalFolder: string;
+  inboxFile: string;
 };
 
 export type FolderSettingKey = keyof Pick<
   TaskManagerSettings,
-  "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder" | "journalFolder"
+  "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder" | "inboxFile"
 >;
 
 export const DEFAULT_SETTINGS: TaskManagerSettings = {
@@ -35,7 +38,7 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   completedProjectsFolder: "",
   waitingProjectsFolder: "",
   somedayMaybeProjectsFolder: "",
-  journalFolder: ""
+  inboxFile: ""
 };
 
 function normalizeTag(tag: string | null | undefined): string {
@@ -66,6 +69,6 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
     completedProjectsFolder: normalizeFolder(rawSettings.completedProjectsFolder),
     waitingProjectsFolder: normalizeFolder(rawSettings.waitingProjectsFolder),
     somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder),
-    journalFolder: normalizeFolder(rawSettings.journalFolder),
+    inboxFile: normalizeFolder(rawSettings.inboxFile),
   };
 }

@@ -9,14 +9,17 @@
  * - formats display fields (filename cleanup and MM-DD due-date rendering)
  *
  * Dependencies:
- * - depends on dashboard-task-data.ts for data collection/parsing.
+ * - depends on dashboard-task-data.ts for data collection/parsing (including inbox file logic).
  * - Obsidian view/workspace/vault APIs for lifecycle and rendering
  *
  * Side Effects:
  * - manipulates dashboard DOM and opens links in workspace
+ *
+ * Notes:
+ * - Inbox section now lists all open tasks from the configured inbox file (set in settings).
  */
 import { App, ItemView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
-import { collectTasksForDate, collectInboxTasksForDate, DashboardRow, getDateStringFromFileName } from "./dashboard-task-data";
+import { collectTasksForDate, collectInboxTasks, DashboardRow, getDateStringFromFileName } from "./dashboard-task-data";
 
 const MARKDOWN_EXTENSION_REGEX = /\.md$/i;
 const MONTH_DAY_REGEX = /^\d{4}-(\d{2})-(\d{2})$/;
@@ -25,7 +28,7 @@ const LEADING_ARCHIVE_MARKER_PATTERN = /^(?:[\s._-]*(?:\d{4}[-_. ]\d{1,2}[-_. ]\
 type DateDashboardControllerOptions = {
   app: App;
   getTaskFolderRoots: () => string[];
-  getJournalFolder: () => string;
+  getInboxFile: () => string;
 };
 
 export class DateDashboardController {
@@ -34,12 +37,12 @@ export class DateDashboardController {
   private readonly app: App;
   private readonly getTaskFolderRoots: () => string[];
   private refreshHandle: number | null = null;
-  private readonly getJournalFolder: () => string;
+  private readonly getInboxFile: () => string;
 
   constructor(options: DateDashboardControllerOptions) {
     this.app = options.app;
     this.getTaskFolderRoots = options.getTaskFolderRoots;
-    this.getJournalFolder = options.getJournalFolder;
+    this.getInboxFile = options.getInboxFile;
   }
 
   async onload(plugin: Plugin): Promise<void> {
@@ -95,10 +98,10 @@ export class DateDashboardController {
     const tasks = await collectTasksForDate(this.app, this.getTaskFolderRoots(), dateString);
     this.appendTaskTable(dashboard, "Due", tasks.dueTasks, sourcePath, true);
 
-    // Inbox section (from journal)
-    const journalFolder = this.getJournalFolder();
-    const inboxTasks = await collectInboxTasksForDate(this.app, journalFolder, dateString);
-    this.appendInboxSection(dashboard, journalFolder, dateString, inboxTasks);
+    // Inbox section (from inbox file)
+    const inboxFile = this.getInboxFile();
+    const inboxTasks = await collectInboxTasks(this.app, inboxFile);
+    this.appendInboxSection(dashboard, inboxFile, inboxTasks);
     // Completed tasks
     this.appendTaskTable(dashboard, "Completed", tasks.completedTasks, sourcePath, false);
 
@@ -106,29 +109,21 @@ export class DateDashboardController {
   }
 
   /**
-   * Renders the Inbox section: heading, link to journal file, and a plain list of tasks (no table, no priorities).
+   * Renders the Inbox section: heading, link to inbox file, and a plain list of tasks (no table, no priorities).
    */
-  private appendInboxSection(container: HTMLElement, journalFolder: string, dateString: string, inboxTasks: DashboardRow[]): void {
+  private appendInboxSection(container: HTMLElement, inboxFile: string, inboxTasks: DashboardRow[]): void {
     const heading = document.createElement("h3");
     heading.textContent = "Inbox";
     container.appendChild(heading);
 
-    // Build the expected path: journalFolder/YYYY/YYYY-MM/YYYY-MM-DD.md
-    let journalFilePath = "";
-    if (journalFolder) {
-      const [year, month, day] = dateString.split("-");
-      if (year && month && day) {
-        journalFilePath = `${journalFolder}/${year}/${year}-${month}/${dateString}.md`;
-      }
-    }
-    if (journalFilePath) {
+    if (inboxFile) {
       const link = document.createElement("a");
       link.href = "#";
-      link.textContent = `Open journal for ${dateString}`;
+      link.textContent = `Open inbox file`;
       link.classList.add("internal-link");
       link.addEventListener("click", (event) => {
         event.preventDefault();
-        void this.app.workspace.openLinkText(journalFilePath, "");
+        void this.app.workspace.openLinkText(inboxFile, "");
       });
       container.appendChild(link);
     }

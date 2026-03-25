@@ -1,18 +1,13 @@
 /**
- * Collects incomplete tasks from the journal file for the given date.
- * The journal file is expected at: journalFolder/YYYY/YYYY-MM/YYYY-MM-DD.md
+ * Collects all open tasks from the configured inbox file (not date-based).
+ * Used for the Inbox section in the dashboard.
  */
-export async function collectInboxTasksForDate(
+export async function collectInboxTasks(
   app: App,
-  journalFolder: string,
-  dateString: string,
+  inboxFile: string,
 ): Promise<DashboardRow[]> {
-  // Build the expected path: journalFolder/YYYY/YYYY-MM/YYYY-MM-DD.md
-  if (!journalFolder) return [];
-  const [year, month, day] = dateString.split("-");
-  if (!year || !month || !day) return [];
-  const filePath = `${journalFolder}/${year}/${year}-${month}/${dateString}.md`;
-  const file = app.vault.getAbstractFileByPath(filePath);
+  if (!inboxFile) return [];
+  const file = app.vault.getAbstractFileByPath(inboxFile);
   if (!file || !(file instanceof TFile)) return [];
   const content = await app.vault.cachedRead(file);
   const lines = content.split(/\r?\n/);

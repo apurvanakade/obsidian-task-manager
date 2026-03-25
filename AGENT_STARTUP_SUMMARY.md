@@ -167,10 +167,11 @@ Placement:
 - Dashboard is a custom view in right sidebar.
 - Creation prefers split side-leaf (`split: true`) so it opens in half-height pane by default when layout permits.
 
+
 Data scope:
 
 - Scans only markdown files under configured task-folder roots (for Due/Completed sections).
-- For Inbox section, scans the daily journal file for the date under the configured Journal Folder.
+- For Inbox section, scans all open tasks from the configured Inbox File (path set in settings).
 
 Sections:
 
@@ -181,8 +182,8 @@ Sections:
 Inbox section:
 
 - Appears between Due and Completed.
-- Collects all incomplete tasks from the journal file for the date, expected at `journalFolder/YYYY/YYYY-MM/YYYY-MM-DD.md`.
-- Renders as a heading, a link to the journal file, and a plain unordered list of tasks (no table, no priorities).
+- Collects all incomplete tasks from the configured Inbox File (regardless of date).
+- Renders as a heading, a link to the inbox file, and a plain unordered list of tasks (no table, no priorities).
 - If no tasks, shows "No tasks." message.
 
 Due table inclusion:
@@ -212,13 +213,14 @@ Display formatting:
 ## 8) Settings Model and Practical Defaults
 
 
+
 Key configurable paths:
 
 - Projects Folder
 - Completed Projects Folder
 - Waiting Projects Folder
 - Someday-Maybe Projects Folder
-- Journal Folder (used for Inbox section in dashboard; expects daily notes at `journalFolder/YYYY/YYYY-MM/YYYY-MM-DD.md`)
+- Inbox File (used for Inbox section in dashboard; all open tasks in this file are shown in the dashboard; set using a file picker in settings)
 
 Other key settings:
 
