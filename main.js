@@ -322,6 +322,12 @@ var _DateDashboardController = class _DateDashboardController {
       container.appendChild(emptyState);
       return;
     }
+    const grouped = {};
+    for (const row of rows) {
+      const fileKey = row.file.path;
+      if (!grouped[fileKey]) grouped[fileKey] = [];
+      grouped[fileKey].push(row);
+    }
     const table = document.createElement("table");
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
@@ -332,8 +338,25 @@ var _DateDashboardController = class _DateDashboardController {
     thead.appendChild(headerRow);
     table.appendChild(thead);
     const tbody = document.createElement("tbody");
-    for (const row of rows) {
-      tbody.appendChild(this.createTaskRow(row, sourcePath, showDueDate));
+    for (const fileKey of Object.keys(grouped)) {
+      const fileRows = grouped[fileKey];
+      for (let i = 0; i < fileRows.length; i++) {
+        const row = fileRows[i];
+        const tableRow = document.createElement("tr");
+        if (i === 0) {
+          const fileCell = this.createFileCell(row, sourcePath);
+          if (fileRows.length > 1) {
+            fileCell.rowSpan = fileRows.length;
+          }
+          tableRow.appendChild(fileCell);
+        }
+        tableRow.appendChild(this.createTextElement("td", row.task));
+        tableRow.appendChild(this.createTextElement("td", String(row.priority)));
+        if (showDueDate) {
+          tableRow.appendChild(this.createTextElement("td", this.formatMonthDay(row.dueDate)));
+        }
+        tbody.appendChild(tableRow);
+      }
     }
     table.appendChild(tbody);
     container.appendChild(table);

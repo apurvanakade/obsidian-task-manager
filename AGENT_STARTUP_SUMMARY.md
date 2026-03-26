@@ -202,10 +202,12 @@ Sorting:
 - Completed rows: ascending by priority (`1`..`4`, missing treated as `4`), then path/task.
 - Inbox rows: sorted by file path and task text.
 
+
 Display formatting:
 
 - Due includes a `Due` column in `MM-DD` format.
 - Due and Completed tables include a `Priority` column.
+- **Tasks from the same file are grouped together in the table, with the filename cell spanning multiple rows (using rowspan) if there are multiple tasks from that file.**
 - Filename display strips `.md` and removes leading archival-style dates, timestamps, and numeric fragments from the displayed name.
 - Task display strips inline fields and hashtag tags (e.g. `#next-action`).
 - Dashboard rendering relies on native Obsidian markdown/theme styling instead of plugin-specific dashboard CSS.
