@@ -313,6 +313,7 @@ var _DateDashboardController = class _DateDashboardController {
     return `${year}-${month}-${day}`;
   }
   appendTaskTable(container, title, rows, sourcePath, showDueDate) {
+    var _a, _b;
     const heading = document.createElement("h3");
     heading.textContent = title;
     container.appendChild(heading);
@@ -322,54 +323,64 @@ var _DateDashboardController = class _DateDashboardController {
       container.appendChild(emptyState);
       return;
     }
-    const grouped = {};
+    const folderMap = /* @__PURE__ */ new Map();
     for (const row of rows) {
-      const fileKey = row.file.path;
-      if (!grouped[fileKey]) grouped[fileKey] = [];
-      grouped[fileKey].push(row);
+      const folderPath = (_b = (_a = row.file.parent) == null ? void 0 : _a.path) != null ? _b : "";
+      const filePath = row.file.path;
+      if (!folderMap.has(folderPath)) {
+        folderMap.set(folderPath, /* @__PURE__ */ new Map());
+      }
+      const fileMap = folderMap.get(folderPath);
+      if (!fileMap.has(filePath)) {
+        fileMap.set(filePath, []);
+      }
+      fileMap.get(filePath).push(row);
     }
+    const sortedFolderEntries = [...folderMap.entries()].sort(([a], [b]) => a.localeCompare(b));
     const table = document.createElement("table");
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
-    const labels = showDueDate ? ["Filename", "Task", "Priority", "Due"] : ["Filename", "Task", "Priority"];
+    const labels = showDueDate ? ["Folder", "Filename", "Task", "Priority", "Due"] : ["Folder", "Filename", "Task", "Priority"];
     for (const label of labels) {
       headerRow.appendChild(this.createTextElement("th", label));
     }
     thead.appendChild(headerRow);
     table.appendChild(thead);
     const tbody = document.createElement("tbody");
-    for (const fileKey of Object.keys(grouped)) {
-      const fileRows = grouped[fileKey];
-      for (let i = 0; i < fileRows.length; i++) {
-        const row = fileRows[i];
-        const tableRow = document.createElement("tr");
-        if (i === 0) {
-          const fileCell = this.createFileCell(row, sourcePath);
-          if (fileRows.length > 1) {
-            fileCell.rowSpan = fileRows.length;
+    for (const [folderPath, fileMap] of sortedFolderEntries) {
+      const sortedFileEntries = [...fileMap.entries()].sort(([a], [b]) => a.localeCompare(b));
+      const folderRowCount = sortedFileEntries.reduce((sum, [, fileRows]) => sum + fileRows.length, 0);
+      let folderCellEmitted = false;
+      for (const [, fileRows] of sortedFileEntries) {
+        for (let i = 0; i < fileRows.length; i++) {
+          const row = fileRows[i];
+          const tableRow = document.createElement("tr");
+          if (!folderCellEmitted) {
+            const folderCell = this.createTextElement("td", this.getDisplayFolderName(folderPath));
+            if (folderRowCount > 1) {
+              folderCell.rowSpan = folderRowCount;
+            }
+            tableRow.appendChild(folderCell);
+            folderCellEmitted = true;
           }
-          tableRow.appendChild(fileCell);
+          if (i === 0) {
+            const fileCell = this.createFileCell(row, sourcePath);
+            if (fileRows.length > 1) {
+              fileCell.rowSpan = fileRows.length;
+            }
+            tableRow.appendChild(fileCell);
+          }
+          tableRow.appendChild(this.createTextElement("td", row.task));
+          tableRow.appendChild(this.createTextElement("td", String(row.priority)));
+          if (showDueDate) {
+            tableRow.appendChild(this.createTextElement("td", this.formatMonthDay(row.dueDate)));
+          }
+          tbody.appendChild(tableRow);
         }
-        tableRow.appendChild(this.createTextElement("td", row.task));
-        tableRow.appendChild(this.createTextElement("td", String(row.priority)));
-        if (showDueDate) {
-          tableRow.appendChild(this.createTextElement("td", this.formatMonthDay(row.dueDate)));
-        }
-        tbody.appendChild(tableRow);
       }
     }
     table.appendChild(tbody);
     container.appendChild(table);
-  }
-  createTaskRow(row, sourcePath, showDueDate) {
-    const tableRow = document.createElement("tr");
-    tableRow.appendChild(this.createFileCell(row, sourcePath));
-    tableRow.appendChild(this.createTextElement("td", row.task));
-    tableRow.appendChild(this.createTextElement("td", String(row.priority)));
-    if (showDueDate) {
-      tableRow.appendChild(this.createTextElement("td", this.formatMonthDay(row.dueDate)));
-    }
-    return tableRow;
   }
   createFileCell(row, sourcePath) {
     const fileCell = document.createElement("td");
@@ -396,19 +407,27 @@ var _DateDashboardController = class _DateDashboardController {
     const match = dateString.match(MONTH_DAY_REGEX);
     return match ? `${match[1]}-${match[2]}` : dateString;
   }
-  getDisplayFileName(fileName) {
-    const withoutExtension = fileName.replace(MARKDOWN_EXTENSION_REGEX2, "");
+  applyHideKeywords(name) {
     const keywords = this.getHideKeywords().split(",").map((k) => k.trim()).filter((k) => k.length > 0);
     if (keywords.length === 0) {
-      return withoutExtension;
+      return name;
     }
-    let result = withoutExtension;
+    let result = name;
     for (const keyword of keywords) {
       const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       result = result.replace(new RegExp(escaped, "gi"), "");
     }
     result = result.replace(/\s+/g, " ").trim();
-    return result || withoutExtension;
+    return result || name;
+  }
+  getDisplayFileName(fileName) {
+    const withoutExtension = fileName.replace(MARKDOWN_EXTENSION_REGEX2, "");
+    return this.applyHideKeywords(withoutExtension);
+  }
+  getDisplayFolderName(folderPath) {
+    var _a;
+    const lastSegment = (_a = folderPath.split("/").pop()) != null ? _a : folderPath;
+    return this.applyHideKeywords(lastSegment);
   }
 };
 _DateDashboardController.VIEW_TYPE = "task-manager-date-dashboard";

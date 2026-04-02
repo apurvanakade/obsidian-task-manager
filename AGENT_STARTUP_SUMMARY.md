@@ -208,8 +208,8 @@ Display formatting:
 
 - Due includes a `Due` column in `MM-DD` format.
 - Due and Completed tables include a `Priority` column.
-- **Tasks from the same file are grouped together in the table, with the filename cell spanning multiple rows (using rowspan) if there are multiple tasks from that file.**
-- Filename display strips `.md` extension; if the user has configured **Dashboard Filename Hide Keywords**, each comma-separated keyword is removed (case-insensitive) from the displayed filename; no automatic date/number stripping is applied.
+- **Tables have a `Folder` column at the start, followed by `Filename`. Rows are grouped first by parent folder (sorted alphabetically by folder path), then by filename within each folder. Folder and filename cells use `rowspan` to span all their respective rows.**
+- Folder display uses the immediate parent directory segment of the file path with hide-keywords applied. Filename display strips `.md` and applies hide-keywords. If the user has configured **Dashboard Filename Hide Keywords**, each comma-separated keyword is removed (case-insensitive) from both folder and filename display; no automatic date/number stripping is applied.
 - Task display strips inline fields and hashtag tags (e.g. `#next-action`).
 - Dashboard rendering relies on native Obsidian markdown/theme styling instead of plugin-specific dashboard CSS.
 
