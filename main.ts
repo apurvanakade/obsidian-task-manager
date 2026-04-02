@@ -43,6 +43,7 @@ export default class TaskManagerPlugin extends Plugin {
       app: this.app,
       getTaskFolderRoots: () => this.getTaskFolderRoots(),
       getInboxFile: () => this.settings.inboxFile,
+      getHideKeywords: () => this.settings.dashboardHideKeywords,
     });
     this.dueDateSuggest = new DueDateEditorSuggest(this.app);
     this.createdDateSuggest = new CreatedDateEditorSuggest(this.app);

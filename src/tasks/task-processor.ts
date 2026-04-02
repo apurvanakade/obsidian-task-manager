@@ -83,7 +83,8 @@ export class TaskProcessor {
     }
 
     const settings = this.getSettings();
-    const content = await this.app.vault.cachedRead(file);
+    // Use a fresh read here to avoid stale cache snapshots during live modify events.
+    const content = await this.app.vault.read(file);
     const nextState = extractTaskState(content, settings.nextActionTag);
     const previousState = this.stateStore.getTaskState(file.path);
     const previousStatus = this.stateStore.getStatus(file.path);
@@ -197,7 +198,7 @@ export class TaskProcessor {
   }
 
   private async routeAfterStatusChange(file: TFile, previousStatus: string | null, settings: TaskManagerSettings): Promise<void> {
-    const latestContent = await this.app.vault.cachedRead(file);
+    const latestContent = await this.app.vault.read(file);
     const latestStatus = readStatusValue(latestContent, settings.statusField);
     this.stateStore.setStatus(file.path, latestStatus);
 
@@ -214,7 +215,7 @@ export class TaskProcessor {
   }
 
   private async routeFileByStatus(file: TFile, settings: TaskManagerSettings, statusOverride?: string | null): Promise<string | null> {
-    const status = statusOverride ?? readStatusValue(await this.app.vault.cachedRead(file), settings.statusField);
+    const status = statusOverride ?? readStatusValue(await this.app.vault.read(file), settings.statusField);
     if (!status || !isRoutableStatus(status)) {
       return null;
     }

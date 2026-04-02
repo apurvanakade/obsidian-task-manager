@@ -31,8 +31,9 @@ export type TextSettingConfig = {
   name: string;
   description: string;
   placeholder: string;
-  key: keyof Pick<TaskManagerSettings, "nextActionTag" | "statusField">;
+  key: keyof Pick<TaskManagerSettings, "nextActionTag" | "statusField" | "dashboardHideKeywords">;
   value: string;
+  multiLine?: boolean;
 };
 
 export function getFolderSettingConfigs(settings: TaskManagerSettings): FolderSettingConfig[] {
@@ -90,6 +91,14 @@ export function getTextSettingConfigs(settings: TaskManagerSettings): TextSettin
       placeholder: "status",
       key: "statusField",
       value: settings.statusField,
+    },
+    {
+      name: "Dashboard Filename Hide Keywords",
+      description: "Comma-separated list of keywords to remove from filenames shown in the date dashboard (e.g. \"2024, draft, archive\").",
+      placeholder: "e.g. draft, archive, 2024",
+      key: "dashboardHideKeywords",
+      value: settings.dashboardHideKeywords,
+      multiLine: false,
     },
   ];
 }

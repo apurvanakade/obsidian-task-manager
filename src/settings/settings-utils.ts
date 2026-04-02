@@ -24,6 +24,7 @@ export type TaskManagerSettings = {
   waitingProjectsFolder: string;
   somedayMaybeProjectsFolder: string;
   inboxFile: string;
+  dashboardHideKeywords: string;
 };
 
 export type FolderSettingKey = keyof Pick<
@@ -38,7 +39,8 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   completedProjectsFolder: "",
   waitingProjectsFolder: "",
   somedayMaybeProjectsFolder: "",
-  inboxFile: ""
+  inboxFile: "",
+  dashboardHideKeywords: "",
 };
 
 function normalizeTag(tag: string | null | undefined): string {
@@ -70,5 +72,6 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
     waitingProjectsFolder: normalizeFolder(rawSettings.waitingProjectsFolder),
     somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder),
     inboxFile: normalizeFolder(rawSettings.inboxFile),
+    dashboardHideKeywords: String(rawSettings.dashboardHideKeywords ?? ""),
   };
 }

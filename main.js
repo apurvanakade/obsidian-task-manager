@@ -181,13 +181,13 @@ function compareDueRows(left, right) {
 // src/dashboard/date-dashboard.ts
 var MARKDOWN_EXTENSION_REGEX2 = /\.md$/i;
 var MONTH_DAY_REGEX = /^\d{4}-(\d{2})-(\d{2})$/;
-var LEADING_ARCHIVE_MARKER_PATTERN = /^(?:[\s._-]*(?:\d{4}[-_. ]\d{1,2}[-_. ]\d{1,2}|\d{1,2}[-_:]\d{2}(?:[-_:]\d{2})?|\d+(?:-\d+)+|\d+))+[\s._-]*/;
 var _DateDashboardController = class _DateDashboardController {
   constructor(options) {
     this.refreshHandle = null;
     this.app = options.app;
     this.getTaskFolderRoots = options.getTaskFolderRoots;
     this.getInboxFile = options.getInboxFile;
+    this.getHideKeywords = options.getHideKeywords;
   }
   async onload(plugin) {
     plugin.registerView(_DateDashboardController.VIEW_TYPE, (leaf) => new DateDashboardView(leaf, this));
@@ -398,8 +398,17 @@ var _DateDashboardController = class _DateDashboardController {
   }
   getDisplayFileName(fileName) {
     const withoutExtension = fileName.replace(MARKDOWN_EXTENSION_REGEX2, "");
-    const withoutArchiveMarkers = withoutExtension.replace(LEADING_ARCHIVE_MARKER_PATTERN, "").replace(/^[\s._-]+/, "").replace(/[\s._-]+$/, "").replace(/[._-]{2,}/g, " ").replace(/\s+/g, " ").trim();
-    return withoutArchiveMarkers || withoutExtension;
+    const keywords = this.getHideKeywords().split(",").map((k) => k.trim()).filter((k) => k.length > 0);
+    if (keywords.length === 0) {
+      return withoutExtension;
+    }
+    let result = withoutExtension;
+    for (const keyword of keywords) {
+      const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      result = result.replace(new RegExp(escaped, "gi"), "");
+    }
+    result = result.replace(/\s+/g, " ").trim();
+    return result || withoutExtension;
   }
 };
 _DateDashboardController.VIEW_TYPE = "task-manager-date-dashboard";
@@ -625,7 +634,8 @@ var DEFAULT_SETTINGS = {
   completedProjectsFolder: "",
   waitingProjectsFolder: "",
   somedayMaybeProjectsFolder: "",
-  inboxFile: ""
+  inboxFile: "",
+  dashboardHideKeywords: ""
 };
 function normalizeTag(tag) {
   const trimmedTag = String(tag || "").trim();
@@ -642,6 +652,7 @@ function normalizeFolder(folder) {
   return String(folder || "").trim().replace(/^\/+|\/+$/g, "");
 }
 function normalizeSettings(rawSettings) {
+  var _a;
   return {
     ...DEFAULT_SETTINGS,
     ...rawSettings,
@@ -651,7 +662,8 @@ function normalizeSettings(rawSettings) {
     completedProjectsFolder: normalizeFolder(rawSettings.completedProjectsFolder),
     waitingProjectsFolder: normalizeFolder(rawSettings.waitingProjectsFolder),
     somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder),
-    inboxFile: normalizeFolder(rawSettings.inboxFile)
+    inboxFile: normalizeFolder(rawSettings.inboxFile),
+    dashboardHideKeywords: String((_a = rawSettings.dashboardHideKeywords) != null ? _a : "")
   };
 }
 
@@ -765,6 +777,14 @@ function getTextSettingConfigs(settings) {
       placeholder: "status",
       key: "statusField",
       value: settings.statusField
+    },
+    {
+      name: "Dashboard Filename Hide Keywords",
+      description: 'Comma-separated list of keywords to remove from filenames shown in the date dashboard (e.g. "2024, draft, archive").',
+      placeholder: "e.g. draft, archive, 2024",
+      key: "dashboardHideKeywords",
+      value: settings.dashboardHideKeywords,
+      multiLine: false
     }
   ];
 }
@@ -807,11 +827,20 @@ var TaskManagerSettingTabRenderer = class {
     });
   }
   addTextSetting(containerEl, config) {
-    new import_obsidian6.Setting(containerEl).setName(config.name).setDesc(config.description).addText((text) => {
-      text.setPlaceholder(config.placeholder).setValue(config.value).onChange(async (value) => {
-        await this.plugin.updateSetting(config.key, value);
+    const setting = new import_obsidian6.Setting(containerEl).setName(config.name).setDesc(config.description);
+    if (config.multiLine) {
+      setting.addTextArea((textArea) => {
+        textArea.setPlaceholder(config.placeholder).setValue(config.value).onChange(async (value) => {
+          await this.plugin.updateSetting(config.key, value);
+        });
       });
-    });
+    } else {
+      setting.addText((text) => {
+        text.setPlaceholder(config.placeholder).setValue(config.value).onChange(async (value) => {
+          await this.plugin.updateSetting(config.key, value);
+        });
+      });
+    }
   }
   configureFolderTextInput(text, settingKey, folderPath, placeholder) {
     text.setPlaceholder(placeholder).setValue(folderPath).onChange(async (value) => {
@@ -1683,7 +1712,7 @@ var TaskProcessor = class {
       return;
     }
     const settings = this.getSettings();
-    const content = await this.app.vault.cachedRead(file);
+    const content = await this.app.vault.read(file);
     const nextState = extractTaskState(content, settings.nextActionTag);
     const previousState = this.stateStore.getTaskState(file.path);
     const previousStatus = this.stateStore.getStatus(file.path);
@@ -1777,7 +1806,7 @@ var TaskProcessor = class {
     });
   }
   async routeAfterStatusChange(file, previousStatus, settings) {
-    const latestContent = await this.app.vault.cachedRead(file);
+    const latestContent = await this.app.vault.read(file);
     const latestStatus = readStatusValue(latestContent, settings.statusField);
     this.stateStore.setStatus(file.path, latestStatus);
     if (latestStatus === previousStatus) {
@@ -1791,7 +1820,7 @@ var TaskProcessor = class {
     }
   }
   async routeFileByStatus(file, settings, statusOverride) {
-    const status = statusOverride != null ? statusOverride : readStatusValue(await this.app.vault.cachedRead(file), settings.statusField);
+    const status = statusOverride != null ? statusOverride : readStatusValue(await this.app.vault.read(file), settings.statusField);
     if (!status || !isRoutableStatus(status)) {
       return null;
     }
@@ -1942,7 +1971,8 @@ var TaskManagerPlugin = class extends import_obsidian10.Plugin {
     this.dateDashboard = new DateDashboardController({
       app: this.app,
       getTaskFolderRoots: () => this.getTaskFolderRoots(),
-      getInboxFile: () => this.settings.inboxFile
+      getInboxFile: () => this.settings.inboxFile,
+      getHideKeywords: () => this.settings.dashboardHideKeywords
     });
     this.dueDateSuggest = new DueDateEditorSuggest(this.app);
     this.createdDateSuggest = new CreatedDateEditorSuggest(this.app);

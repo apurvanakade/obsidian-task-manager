@@ -23,12 +23,12 @@ import { collectTasksForDate, collectInboxTasks, DashboardRow, getDateStringFrom
 
 const MARKDOWN_EXTENSION_REGEX = /\.md$/i;
 const MONTH_DAY_REGEX = /^\d{4}-(\d{2})-(\d{2})$/;
-const LEADING_ARCHIVE_MARKER_PATTERN = /^(?:[\s._-]*(?:\d{4}[-_. ]\d{1,2}[-_. ]\d{1,2}|\d{1,2}[-_:]\d{2}(?:[-_:]\d{2})?|\d+(?:-\d+)+|\d+))+[\s._-]*/;
 
 type DateDashboardControllerOptions = {
   app: App;
   getTaskFolderRoots: () => string[];
   getInboxFile: () => string;
+  getHideKeywords: () => string;
 };
 
 export class DateDashboardController {
@@ -38,11 +38,13 @@ export class DateDashboardController {
   private readonly getTaskFolderRoots: () => string[];
   private refreshHandle: number | null = null;
   private readonly getInboxFile: () => string;
+  private readonly getHideKeywords: () => string;
 
   constructor(options: DateDashboardControllerOptions) {
     this.app = options.app;
     this.getTaskFolderRoots = options.getTaskFolderRoots;
     this.getInboxFile = options.getInboxFile;
+    this.getHideKeywords = options.getHideKeywords;
   }
 
   async onload(plugin: Plugin): Promise<void> {
@@ -297,15 +299,23 @@ export class DateDashboardController {
 
   private getDisplayFileName(fileName: string): string {
     const withoutExtension = fileName.replace(MARKDOWN_EXTENSION_REGEX, "");
-    const withoutArchiveMarkers = withoutExtension
-      .replace(LEADING_ARCHIVE_MARKER_PATTERN, "")
-      .replace(/^[\s._-]+/, "")
-      .replace(/[\s._-]+$/, "")
-      .replace(/[._-]{2,}/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+    const keywords = this.getHideKeywords()
+      .split(",")
+      .map((k) => k.trim())
+      .filter((k) => k.length > 0);
 
-    return withoutArchiveMarkers || withoutExtension;
+    if (keywords.length === 0) {
+      return withoutExtension;
+    }
+
+    let result = withoutExtension;
+    for (const keyword of keywords) {
+      const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      result = result.replace(new RegExp(escaped, "gi"), "");
+    }
+    result = result.replace(/\s+/g, " ").trim();
+
+    return result || withoutExtension;
   }
 }
 

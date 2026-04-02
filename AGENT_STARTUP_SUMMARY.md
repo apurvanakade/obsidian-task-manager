@@ -73,11 +73,12 @@ Command registration:
 Event-driven flow:
 
 1. `vault.modify` event triggers `TaskProcessor.handleFileModify`.
-2. Processor compares previous and current task snapshots.
-3. Reconciler applies task transition logic.
-4. Status is updated/predicted.
-5. File may be routed to another configured folder when status becomes routable.
-6. In-memory store is refreshed/rekeyed to avoid stale path references.
+2. Modify-event processing reads file content with `vault.read` (non-cached) to avoid stale task snapshots during immediate checkbox toggles.
+3. Processor compares previous and current task snapshots.
+4. Reconciler applies task transition logic.
+5. Status is updated/predicted.
+6. File may be routed to another configured folder when status becomes routable.
+7. In-memory store is refreshed/rekeyed to avoid stale path references.
 
 Loop prevention:
 
@@ -208,7 +209,7 @@ Display formatting:
 - Due includes a `Due` column in `MM-DD` format.
 - Due and Completed tables include a `Priority` column.
 - **Tasks from the same file are grouped together in the table, with the filename cell spanning multiple rows (using rowspan) if there are multiple tasks from that file.**
-- Filename display strips `.md` and removes leading archival-style dates, timestamps, and numeric fragments from the displayed name.
+- Filename display strips `.md` extension; if the user has configured **Dashboard Filename Hide Keywords**, each comma-separated keyword is removed (case-insensitive) from the displayed filename; no automatic date/number stripping is applied.
 - Task display strips inline fields and hashtag tags (e.g. `#next-action`).
 - Dashboard rendering relies on native Obsidian markdown/theme styling instead of plugin-specific dashboard CSS.
 
@@ -228,6 +229,7 @@ Other key settings:
 
 - Next Action Tag (default `#next-action`)
 - Completed Status Field (default `status`)
+- Dashboard Filename Hide Keywords (comma-separated list of keywords to strip from filenames shown in the date dashboard; replaces former auto-stripping of leading date/numeric fragments)
 
 Normalization:
 

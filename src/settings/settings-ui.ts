@@ -17,7 +17,7 @@
  * Notes:
  * - Uses file picker for Inbox File, folder picker for other folder settings.
  */
-import { PluginSettingTab, Setting, TextComponent } from "obsidian";
+import { PluginSettingTab, Setting, TextComponent, TextAreaComponent } from "obsidian";
 import { openFolderPicker, openFilePicker } from "./folder-picker";
 import { getFolderSettingConfigs, getTextSettingConfigs, FolderSettingConfig, TextSettingConfig } from "./settings-field-definitions";
 import { FolderSettingKey, TaskManagerSettings } from "./settings-utils";
@@ -79,10 +79,21 @@ export class TaskManagerSettingTabRenderer {
   }
 
   private addTextSetting(containerEl: HTMLElement, config: TextSettingConfig): void {
-    new Setting(containerEl)
+    const setting = new Setting(containerEl)
       .setName(config.name)
-      .setDesc(config.description)
-      .addText((text) => {
+      .setDesc(config.description);
+
+    if (config.multiLine) {
+      setting.addTextArea((textArea: TextAreaComponent) => {
+        textArea
+          .setPlaceholder(config.placeholder)
+          .setValue(config.value)
+          .onChange(async (value) => {
+            await this.plugin.updateSetting(config.key, value);
+          });
+      });
+    } else {
+      setting.addText((text) => {
         text
           .setPlaceholder(config.placeholder)
           .setValue(config.value)
@@ -90,6 +101,7 @@ export class TaskManagerSettingTabRenderer {
             await this.plugin.updateSetting(config.key, value);
           });
       });
+    }
   }
 
   private configureFolderTextInput(
