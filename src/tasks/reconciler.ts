@@ -304,11 +304,11 @@ export async function processProjectsFolder(context: ProcessTasksContext): Promi
   return files.length;
 }
 
-function getCompletionDateString(): string {
+export function getCompletionDateString(): string {
   return formatDate(new Date());
 }
 
-function getCompletionTimeString(): string {
+export function getCompletionTimeString(): string {
   const now = new Date();
   const hours = String(now.getHours()).padStart(2, "0");
   const mins = String(now.getMinutes()).padStart(2, "0");

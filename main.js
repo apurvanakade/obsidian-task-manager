@@ -1960,6 +1960,10 @@ ${sourceContent}`;
     try {
       await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
         frontmatter[settings.statusField] = status;
+        if (status === "completed") {
+          frontmatter["completion-date"] = getCompletionDateString();
+          frontmatter["completion-time"] = getCompletionTimeString();
+        }
       });
       this.stateStore.setStatus(file.path, status);
     } finally {

@@ -27,6 +27,8 @@ import {
   applyCompletionRules,
   applyDeletedTagRules,
   applyUncompletionRules,
+  getCompletionDateString,
+  getCompletionTimeString,
   processProjectsFolder,
   reconcileFile
 } from "./reconciler";
@@ -352,6 +354,10 @@ export class TaskProcessor {
     try {
       await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, string>) => {
         frontmatter[settings.statusField] = status;
+        if (status === "completed") {
+          frontmatter["completion-date"] = getCompletionDateString();
+          frontmatter["completion-time"] = getCompletionTimeString();
+        }
       });
       this.stateStore.setStatus(file.path, status);
     } finally {
