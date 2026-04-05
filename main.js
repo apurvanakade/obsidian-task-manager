@@ -1101,6 +1101,42 @@ function addNextActionTag(lines, targetLine, nextActionTag) {
   }
   return nextLines.join("\n");
 }
+var COMPLETED_SECTION_HEADER = "## Completed Tasks";
+function moveTaskToCompletedSection(lines, taskLineIndex) {
+  if (isLineInCompletedSection(lines, taskLineIndex)) {
+    return lines;
+  }
+  const taskLine = lines[taskLineIndex];
+  const result = [...lines];
+  result.splice(taskLineIndex, 1);
+  const sectionIdx = result.findIndex((l) => l.trim() === COMPLETED_SECTION_HEADER);
+  if (sectionIdx !== -1) {
+    let insertAt = sectionIdx + 1;
+    for (let i = sectionIdx + 1; i < result.length; i++) {
+      if (/^#{1,2}\s/.test(result[i])) break;
+      if (result[i].trim() !== "") insertAt = i + 1;
+    }
+    result.splice(insertAt, 0, taskLine);
+  } else {
+    if (result.length > 0 && result[result.length - 1].trim() !== "") {
+      result.push("");
+    }
+    result.push(COMPLETED_SECTION_HEADER);
+    result.push(taskLine);
+  }
+  return result;
+}
+function isLineInCompletedSection(lines, lineIndex) {
+  let inSection = false;
+  for (let i = 0; i < lineIndex; i++) {
+    if (lines[i].trim() === COMPLETED_SECTION_HEADER) {
+      inSection = true;
+    } else if (inSection && /^#{1,2}\s/.test(lines[i])) {
+      inSection = false;
+    }
+  }
+  return inSection;
+}
 function resetTaskContent(content) {
   const lines = content.split(/\r?\n/);
   let changed = false;
@@ -1468,17 +1504,26 @@ async function applyCompletionRules(context) {
   const cleanedLines = stripNextActionTags(nextLines, settings.nextActionTag);
   const nextTaskLine = findFirstIncompleteTaskLine(cleanedLines);
   const newStatus = nextTaskLine === null ? "completed" : "todo";
-  let updatedContent = cleanedLines.join("\n");
+  let workingLines = cleanedLines;
   if (nextTaskLine !== null) {
-    updatedContent = addNextActionTag(cleanedLines, nextTaskLine, settings.nextActionTag);
+    workingLines = addNextActionTag(cleanedLines, nextTaskLine, settings.nextActionTag).split(/\r?\n/);
   }
+  const stampedLine = workingLines[completedLineIndex];
+  const actualCompletedLineIndex = workingLines.indexOf(stampedLine, completedLineIndex);
+  if (actualCompletedLineIndex !== -1) {
+    workingLines = moveTaskToCompletedSection(workingLines, actualCompletedLineIndex);
+  }
+  const updatedContent = workingLines.join("\n");
   if (updatedContent !== content) {
     await writeFileContent(file, updatedContent);
   }
   await setFileStatus(file, newStatus);
   setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
   if (nextTaskLine !== null) {
-    await showDueDateModalForNextAction(file, nextTaskLine, content, updatedContent, context);
+    const nextTaskLineInFinal = findFirstIncompleteTaskLine(workingLines);
+    if (nextTaskLineInFinal !== null) {
+      await showDueDateModalForNextAction(file, nextTaskLineInFinal, content, updatedContent, context);
+    }
   }
 }
 async function applyUncompletionRules(context) {

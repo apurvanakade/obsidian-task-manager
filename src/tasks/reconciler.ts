@@ -20,6 +20,7 @@ import {
   extractTaskState,
   findFirstIncompleteTaskLine,
   findPreviousIncompleteTaskLine,
+  moveTaskToCompletedSection,
   stripNextActionTags,
   TaskState
 } from "./task-utils";
@@ -165,11 +166,22 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
   const nextTaskLine = findFirstIncompleteTaskLine(cleanedLines);
   const newStatus = nextTaskLine === null ? "completed" : "todo";
 
-  let updatedContent = cleanedLines.join("\n");
+  let workingLines = cleanedLines;
 
   if (nextTaskLine !== null) {
-    updatedContent = addNextActionTag(cleanedLines, nextTaskLine, settings.nextActionTag);
+    workingLines = addNextActionTag(cleanedLines, nextTaskLine, settings.nextActionTag).split(/\r?\n/);
   }
+
+  // Move the stamped completed task into the "## Completed Tasks" section.
+  // completedLineIndex may have shifted if a recurring task was inserted above it,
+  // so search for the exact stamped line to get the current index.
+  const stampedLine = workingLines[completedLineIndex];
+  const actualCompletedLineIndex = workingLines.indexOf(stampedLine, completedLineIndex);
+  if (actualCompletedLineIndex !== -1) {
+    workingLines = moveTaskToCompletedSection(workingLines, actualCompletedLineIndex);
+  }
+
+  const updatedContent = workingLines.join("\n");
 
   if (updatedContent !== content) {
     await writeFileContent(file, updatedContent);
@@ -178,9 +190,14 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
   await setFileStatus(file, newStatus);
   setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
 
-  // Show due date modal if next-action was assigned
+  // Show due date modal if next-action was assigned.
+  // Re-find the next task index in the final content since moveTaskToCompletedSection
+  // may have shifted line positions.
   if (nextTaskLine !== null) {
-    await showDueDateModalForNextAction(file, nextTaskLine, content, updatedContent, context);
+    const nextTaskLineInFinal = findFirstIncompleteTaskLine(workingLines);
+    if (nextTaskLineInFinal !== null) {
+      await showDueDateModalForNextAction(file, nextTaskLineInFinal, content, updatedContent, context);
+    }
   }
 }
 

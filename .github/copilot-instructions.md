@@ -88,6 +88,7 @@ The next-action tag (default `#next-action`) marks the single active task in a f
 ### Completion (`[ ]` → `[x]`)
 
 - Append `[completion-date:: YYYY-MM-DD]` and `[completion-time:: HH:MM:SS]` to the completed task line
+- Move the completed task line into the `## Completed Tasks` section of the same file; if that section doesn't exist, it is appended to the end of the file
 - Move `#next-action` tag to the first remaining open task; if none remain, status becomes `completed`
 - When status becomes `completed`, also stamp `completion-date` and `completion-time` into the **file frontmatter** (in addition to the task-line inline fields)
 
