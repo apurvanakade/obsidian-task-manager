@@ -73,10 +73,21 @@ export class TaskProcessor {
     this.stateStore.clear();
 
     for (const file of markdownFiles) {
-      const content = await this.app.vault.cachedRead(file);
+      const content = await this.app.vault.read(file);
       this.stateStore.setTaskState(file.path, extractTaskState(content, settings.nextActionTag));
       this.stateStore.setStatus(file.path, readStatusValue(content, settings.statusField));
     }
+  }
+
+  async handleFileCreate(file: TFile): Promise<void> {
+    if (file.extension !== "md") {
+      return;
+    }
+
+    const settings = this.getSettings();
+    const content = await this.app.vault.read(file);
+    this.stateStore.setTaskState(file.path, extractTaskState(content, settings.nextActionTag));
+    this.stateStore.setStatus(file.path, readStatusValue(content, settings.statusField));
   }
 
   async handleFileModify(file: TFile): Promise<void> {
@@ -85,7 +96,6 @@ export class TaskProcessor {
     }
 
     const settings = this.getSettings();
-    // Use a fresh read here to avoid stale cache snapshots during live modify events.
     const content = await this.app.vault.read(file);
     const nextState = extractTaskState(content, settings.nextActionTag);
     const previousState = this.stateStore.getTaskState(file.path);
@@ -159,7 +169,7 @@ export class TaskProcessor {
     }
 
     const settings = this.getSettings();
-    const initialContent = await this.app.vault.cachedRead(file);
+    const initialContent = await this.app.vault.read(file);
     const resetResult = resetTaskContent(initialContent);
     if (!resetResult.changed) {
       return `No tasks needed reset in ${file.name}.`;
@@ -173,7 +183,7 @@ export class TaskProcessor {
 
   private async processAndRouteFile(file: TFile): Promise<string> {
     const settings = this.getSettings();
-    const initialContent = await this.app.vault.cachedRead(file);
+    const initialContent = await this.app.vault.read(file);
     const initialStatus = readStatusValue(initialContent, settings.statusField);
     const hasOpenTasks = extractTaskState(initialContent, settings.nextActionTag).some((task) => task.status === "open");
     const predictedStatus = predictFinalStatus(initialStatus, hasOpenTasks);
@@ -190,7 +200,7 @@ export class TaskProcessor {
       file,
       settings,
       app: this.app,
-      readFile: (target) => this.app.vault.cachedRead(target),
+      readFile: (target) => this.app.vault.read(target),
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
       setTaskState: (filePath, nextState) => {
@@ -259,8 +269,8 @@ export class TaskProcessor {
 
   private async mergeIntoExistingFile(sourceFile: TFile, destinationFile: TFile, settings: TaskManagerSettings): Promise<void> {
     const sourcePath = sourceFile.path;
-    const destinationContent = await this.app.vault.cachedRead(destinationFile);
-    const sourceContent = await this.app.vault.cachedRead(sourceFile);
+    const destinationContent = await this.app.vault.read(destinationFile);
+    const sourceContent = await this.app.vault.read(sourceFile);
     const mergedContent = destinationContent.includes(sourceContent)
       ? destinationContent
       : `${destinationContent.trimEnd()}\n\n---\n\n${sourceContent}`;
@@ -293,7 +303,7 @@ export class TaskProcessor {
       completedLine,
       settings,
       app: this.app,
-      readFile: (target) => this.app.vault.cachedRead(target),
+      readFile: (target) => this.app.vault.read(target),
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
       setTaskState: (filePath, nextState) => {
@@ -309,7 +319,7 @@ export class TaskProcessor {
       uncompletedLine,
       settings,
       app: this.app,
-      readFile: (target) => this.app.vault.cachedRead(target),
+      readFile: (target) => this.app.vault.read(target),
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
       setTaskState: (filePath, nextState) => {
@@ -325,7 +335,7 @@ export class TaskProcessor {
       deletedTaggedTaskLine,
       settings,
       app: this.app,
-      readFile: (target) => this.app.vault.cachedRead(target),
+      readFile: (target) => this.app.vault.read(target),
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
       setTaskState: (filePath, nextState) => {

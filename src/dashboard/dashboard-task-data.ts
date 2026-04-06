@@ -1,42 +1,11 @@
 /**
- * Collects all open tasks from the configured inbox file (not date-based).
- * Used for the Inbox section in the dashboard.
- */
-export async function collectInboxTasks(
-  app: App,
-  inboxFile: string,
-): Promise<DashboardRow[]> {
-  if (!inboxFile) return [];
-  const file = app.vault.getAbstractFileByPath(inboxFile);
-  if (!file || !(file instanceof TFile)) return [];
-  const content = await app.vault.cachedRead(file);
-  const lines = content.split(/\r?\n/);
-  const inboxTasks: DashboardRow[] = [];
-  for (const line of lines) {
-    const match = line.match(TASK_LINE_REGEX);
-    if (!match) continue;
-    const status = match[1].trim().toLowerCase() === "x" ? "completed" : "open";
-    if (status !== "open") continue;
-    // Use the same text cleanup and priority logic as other dashboard rows
-    const taskBody = match[2].trim();
-    const priority = parsePriorityValue(readInlineFieldValue(taskBody, PRIORITY_FIELD_REGEX));
-    inboxTasks.push({
-      file: file as TFile,
-      task: cleanDashboardTaskText(taskBody),
-      dueDate: null,
-      priority,
-    });
-  }
-  inboxTasks.sort(compareRows);
-  return inboxTasks;
-}
-/**
  * Purpose:
  * - provide pure task-data parsing/filtering utilities for the date dashboard.
  *
  * Responsibilities:
  * - parses task lines for due/completion metadata
  * - filters tasks into Due and Completed sets for a target date note
+ * - collects open tasks from the inbox file for the Inbox section
  * - normalizes task display text and sorting behavior
  * - exposes date-note filename parsing helper
  *
@@ -92,7 +61,7 @@ export async function collectTasksForDate(
   );
 
   for (const file of files) {
-    const content = await app.vault.cachedRead(file);
+    const content = await app.vault.read(file);
     const lines = content.split(/\r?\n/);
 
     for (const line of lines) {
@@ -115,6 +84,38 @@ export async function collectTasksForDate(
   completedTasks.sort(compareRows);
 
   return { dueTasks, completedTasks };
+}
+
+/**
+ * Collects all open tasks from the configured inbox file (not date-based).
+ * Used for the Inbox section in the dashboard.
+ */
+export async function collectInboxTasks(
+  app: App,
+  inboxFile: string,
+): Promise<DashboardRow[]> {
+  if (!inboxFile) return [];
+  const file = app.vault.getAbstractFileByPath(inboxFile);
+  if (!file || !(file instanceof TFile)) return [];
+  const content = await app.vault.read(file);
+  const lines = content.split(/\r?\n/);
+  const inboxTasks: DashboardRow[] = [];
+  for (const line of lines) {
+    const match = line.match(TASK_LINE_REGEX);
+    if (!match) continue;
+    const status = match[1].trim().toLowerCase() === "x" ? "completed" : "open";
+    if (status !== "open") continue;
+    const taskBody = match[2].trim();
+    const priority = parsePriorityValue(readInlineFieldValue(taskBody, PRIORITY_FIELD_REGEX));
+    inboxTasks.push({
+      file: file as TFile,
+      task: cleanDashboardTaskText(taskBody),
+      dueDate: null,
+      priority,
+    });
+  }
+  inboxTasks.sort(compareRows);
+  return inboxTasks;
 }
 
 function parseDashboardTaskLine(line: string): ParsedDashboardTask | null {

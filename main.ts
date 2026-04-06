@@ -61,6 +61,13 @@ export default class TaskManagerPlugin extends Plugin {
         void this.runResetCurrentFileTasks();
       },
     });
+    this.registerEvent(this.app.vault.on("create", (file) => {
+      if (!(file instanceof TFile)) {
+        return;
+      }
+
+      void this.taskProcessor?.handleFileCreate(file);
+    }));
     this.registerEvent(this.app.vault.on("modify", (file) => {
       if (!(file instanceof TFile)) {
         return;

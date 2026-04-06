@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => TaskManagerPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian10 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 
 // src/commands/register-task-commands.ts
 function registerTaskCommands(plugin, handlers) {
@@ -49,30 +49,6 @@ var import_obsidian2 = require("obsidian");
 
 // src/dashboard/dashboard-task-data.ts
 var import_obsidian = require("obsidian");
-async function collectInboxTasks(app, inboxFile) {
-  if (!inboxFile) return [];
-  const file = app.vault.getAbstractFileByPath(inboxFile);
-  if (!file || !(file instanceof import_obsidian.TFile)) return [];
-  const content = await app.vault.cachedRead(file);
-  const lines = content.split(/\r?\n/);
-  const inboxTasks = [];
-  for (const line of lines) {
-    const match = line.match(TASK_LINE_REGEX);
-    if (!match) continue;
-    const status = match[1].trim().toLowerCase() === "x" ? "completed" : "open";
-    if (status !== "open") continue;
-    const taskBody = match[2].trim();
-    const priority = parsePriorityValue(readInlineFieldValue(taskBody, PRIORITY_FIELD_REGEX));
-    inboxTasks.push({
-      file,
-      task: cleanDashboardTaskText(taskBody),
-      dueDate: null,
-      priority
-    });
-  }
-  inboxTasks.sort(compareRows);
-  return inboxTasks;
-}
 var EMPTY_DUE_DATE_SORT_VALUE = "9999-99-99";
 var MARKDOWN_EXTENSION_REGEX = /\.md$/i;
 var DATE_FILE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
@@ -95,7 +71,7 @@ async function collectTasksForDate(app, taskFolderRoots, dateString) {
     (file) => taskFolderRoots.some((root) => file.path.startsWith(`${root}/`))
   );
   for (const file of files) {
-    const content = await app.vault.cachedRead(file);
+    const content = await app.vault.read(file);
     const lines = content.split(/\r?\n/);
     for (const line of lines) {
       const parsedTask = parseDashboardTaskLine(line);
@@ -113,6 +89,30 @@ async function collectTasksForDate(app, taskFolderRoots, dateString) {
   dueTasks.sort(compareDueRows);
   completedTasks.sort(compareRows);
   return { dueTasks, completedTasks };
+}
+async function collectInboxTasks(app, inboxFile) {
+  if (!inboxFile) return [];
+  const file = app.vault.getAbstractFileByPath(inboxFile);
+  if (!file || !(file instanceof import_obsidian.TFile)) return [];
+  const content = await app.vault.read(file);
+  const lines = content.split(/\r?\n/);
+  const inboxTasks = [];
+  for (const line of lines) {
+    const match = line.match(TASK_LINE_REGEX);
+    if (!match) continue;
+    const status = match[1].trim().toLowerCase() === "x" ? "completed" : "open";
+    if (status !== "open") continue;
+    const taskBody = match[2].trim();
+    const priority = parsePriorityValue(readInlineFieldValue(taskBody, PRIORITY_FIELD_REGEX));
+    inboxTasks.push({
+      file,
+      task: cleanDashboardTaskText(taskBody),
+      dueDate: null,
+      priority
+    });
+  }
+  inboxTasks.sort(compareRows);
+  return inboxTasks;
 }
 function parseDashboardTaskLine(line) {
   const match = line.match(TASK_LINE_REGEX);
@@ -687,27 +687,25 @@ function normalizeSettings(rawSettings) {
 }
 
 // src/settings/settings-ui.ts
-var import_obsidian6 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 
 // src/settings/folder-picker.ts
 var import_obsidian4 = require("obsidian");
-var import_obsidian5 = require("obsidian");
 function openFilePicker(app, onChoose) {
-  if (typeof import_obsidian5.FuzzySuggestModal !== "function") {
-    new import_obsidian5.Notice("File picker is not available in this Obsidian version.");
+  if (typeof import_obsidian4.FuzzySuggestModal !== "function") {
+    new import_obsidian4.Notice("File picker is not available in this Obsidian version.");
     return;
   }
   new FileSuggestModal(app, onChoose).open();
 }
-var FileSuggestModal = class extends import_obsidian5.FuzzySuggestModal {
+var FileSuggestModal = class extends import_obsidian4.FuzzySuggestModal {
   constructor(app, onChoose) {
     super(app);
     this.onChoose = onChoose;
     this.setPlaceholder("Select a file");
   }
   getItems() {
-    const files = this.app.vault.getAllLoadedFiles().filter((file) => file instanceof import_obsidian4.TFile).map((file) => file.path).sort((left, right) => left.localeCompare(right));
-    return files;
+    return this.app.vault.getAllLoadedFiles().filter((file) => file instanceof import_obsidian4.TFile).map((file) => file.path).sort((left, right) => left.localeCompare(right));
   }
   getItemText(filePath) {
     return filePath;
@@ -717,20 +715,20 @@ var FileSuggestModal = class extends import_obsidian5.FuzzySuggestModal {
   }
 };
 function openFolderPicker(app, onChoose) {
-  if (typeof import_obsidian5.FuzzySuggestModal !== "function") {
-    new import_obsidian5.Notice("Folder picker is not available in this Obsidian version.");
+  if (typeof import_obsidian4.FuzzySuggestModal !== "function") {
+    new import_obsidian4.Notice("Folder picker is not available in this Obsidian version.");
     return;
   }
   new FolderSuggestModal(app, onChoose).open();
 }
-var FolderSuggestModal = class extends import_obsidian5.FuzzySuggestModal {
+var FolderSuggestModal = class extends import_obsidian4.FuzzySuggestModal {
   constructor(app, onChoose) {
     super(app);
     this.onChoose = onChoose;
     this.setPlaceholder("Select a folder");
   }
   getItems() {
-    const folders = this.app.vault.getAllLoadedFiles().filter((file) => file instanceof import_obsidian5.TFolder).map((folder) => folder.path).sort((left, right) => left.localeCompare(right));
+    const folders = this.app.vault.getAllLoadedFiles().filter((file) => file instanceof import_obsidian4.TFolder).map((folder) => folder.path).sort((left, right) => left.localeCompare(right));
     return ["", ...folders];
   }
   getItemText(folderPath) {
@@ -827,7 +825,7 @@ var TaskManagerSettingTabRenderer = class {
   }
   addFolderSetting(containerEl, config) {
     const isInboxFile = config.key === "inboxFile";
-    new import_obsidian6.Setting(containerEl).setName(config.name).setDesc(`${config.description} Use Browse to pick a vault ${isInboxFile ? "file" : "path"}.`).addText((text) => {
+    new import_obsidian5.Setting(containerEl).setName(config.name).setDesc(`${config.description} Use Browse to pick a vault ${isInboxFile ? "file" : "path"}.`).addText((text) => {
       this.configureFolderTextInput(text, config.key, config.value, config.placeholder);
     }).addButton((button) => {
       button.setButtonText("Browse").onClick(() => {
@@ -846,7 +844,7 @@ var TaskManagerSettingTabRenderer = class {
     });
   }
   addTextSetting(containerEl, config) {
-    const setting = new import_obsidian6.Setting(containerEl).setName(config.name).setDesc(config.description);
+    const setting = new import_obsidian5.Setting(containerEl).setName(config.name).setDesc(config.description);
     if (config.multiLine) {
       setting.addTextArea((textArea) => {
         textArea.setPlaceholder(config.placeholder).setValue(config.value).onChange(async (value) => {
@@ -869,7 +867,7 @@ var TaskManagerSettingTabRenderer = class {
 };
 
 // src/routing/task-routing.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 function getDestinationRootForStatus(settings, status) {
   switch (status) {
     case "todo":
@@ -912,7 +910,7 @@ async function ensureParentFoldersExist(app, targetFilePath) {
       await app.vault.createFolder(currentPath);
       continue;
     }
-    if (existing instanceof import_obsidian7.TFile) {
+    if (existing instanceof import_obsidian6.TFile) {
       throw new Error(`Cannot create folder '${currentPath}' because a file already exists at that path.`);
     }
   }
@@ -925,7 +923,7 @@ async function deleteEmptyParentFolders(app, protectedRoots, sourceFilePath) {
       return;
     }
     const entry = app.vault.getAbstractFileByPath(currentPath);
-    if (!(entry instanceof import_obsidian7.TFolder)) {
+    if (!(entry instanceof import_obsidian6.TFolder)) {
       return;
     }
     const hasDescendants = app.vault.getAllLoadedFiles().some((candidate) => candidate.path !== currentPath && candidate.path.startsWith(`${currentPath}/`));
@@ -938,7 +936,7 @@ async function deleteEmptyParentFolders(app, protectedRoots, sourceFilePath) {
 }
 async function promptMergeOrSkip(app, sourcePath, destinationPath) {
   return await new Promise((resolve) => {
-    class MergeConflictModal extends import_obsidian7.Modal {
+    class MergeConflictModal extends import_obsidian6.Modal {
       constructor() {
         super(...arguments);
         this.resolved = false;
@@ -1007,7 +1005,7 @@ function getParentPath(path) {
 }
 
 // src/tasks/task-processor.ts
-var import_obsidian9 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 
 // src/tasks/task-utils.ts
 var TASK_LINE_REGEX2 = /^(\s*[-*+]\s+\[( |x|X)\]\s+)(.*)$/;
@@ -1221,7 +1219,7 @@ function escapeRegExp2(value) {
 }
 
 // src/tasks/due-date-modal.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 var spacingStyles = {
   description: { marginBottom: "20px" },
   taskPreview: {
@@ -1276,7 +1274,7 @@ var buttonStyles = {
     cursor: "pointer"
   }
 };
-var DueDateModal = class extends import_obsidian8.Modal {
+var DueDateModal = class extends import_obsidian7.Modal {
   constructor(options) {
     super(options.app);
     this.dateSuggestions = buildDateSuggestions();
@@ -1412,7 +1410,7 @@ var DueDateModal = class extends import_obsidian8.Modal {
     }
     const resolvedDate = resolveDateInput(dateValue);
     if (!resolvedDate) {
-      new import_obsidian8.Notice("Enter YYYY-MM-DD or a natural date like today, tomorrow, or a weekday.");
+      new import_obsidian7.Notice("Enter YYYY-MM-DD or a natural date like today, tomorrow, or a weekday.");
       return;
     }
     try {
@@ -1766,10 +1764,19 @@ var TaskProcessor = class {
     const settings = this.getSettings();
     this.stateStore.clear();
     for (const file of markdownFiles) {
-      const content = await this.app.vault.cachedRead(file);
+      const content = await this.app.vault.read(file);
       this.stateStore.setTaskState(file.path, extractTaskState(content, settings.nextActionTag));
       this.stateStore.setStatus(file.path, readStatusValue(content, settings.statusField));
     }
+  }
+  async handleFileCreate(file) {
+    if (file.extension !== "md") {
+      return;
+    }
+    const settings = this.getSettings();
+    const content = await this.app.vault.read(file);
+    this.stateStore.setTaskState(file.path, extractTaskState(content, settings.nextActionTag));
+    this.stateStore.setStatus(file.path, readStatusValue(content, settings.statusField));
   }
   async handleFileModify(file) {
     if (file.extension !== "md" || this.stateStore.isPending(file.path)) {
@@ -1836,7 +1843,7 @@ var TaskProcessor = class {
       throw new Error("No active file.");
     }
     const settings = this.getSettings();
-    const initialContent = await this.app.vault.cachedRead(file);
+    const initialContent = await this.app.vault.read(file);
     const resetResult = resetTaskContent(initialContent);
     if (!resetResult.changed) {
       return `No tasks needed reset in ${file.name}.`;
@@ -1847,7 +1854,7 @@ var TaskProcessor = class {
   }
   async processAndRouteFile(file) {
     const settings = this.getSettings();
-    const initialContent = await this.app.vault.cachedRead(file);
+    const initialContent = await this.app.vault.read(file);
     const initialStatus = readStatusValue(initialContent, settings.statusField);
     const hasOpenTasks = extractTaskState(initialContent, settings.nextActionTag).some((task) => task.status === "open");
     const predictedStatus = predictFinalStatus(initialStatus, hasOpenTasks);
@@ -1861,7 +1868,7 @@ var TaskProcessor = class {
       file,
       settings,
       app: this.app,
-      readFile: (target) => this.app.vault.cachedRead(target),
+      readFile: (target) => this.app.vault.read(target),
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
       setTaskState: (filePath, nextState) => {
@@ -1880,7 +1887,7 @@ var TaskProcessor = class {
       assertConfiguredDestinationForStatus(latestStatus, settings);
       await this.routeFileByStatus(file, settings, latestStatus);
     } catch (error) {
-      new import_obsidian9.Notice(error instanceof Error ? error.message : "Failed to route file after status change.");
+      new import_obsidian8.Notice(error instanceof Error ? error.message : "Failed to route file after status change.");
     }
   }
   async routeFileByStatus(file, settings, statusOverride) {
@@ -1898,10 +1905,10 @@ var TaskProcessor = class {
     }
     await ensureParentFoldersExist(this.app, destinationPath);
     const destinationEntry = this.app.vault.getAbstractFileByPath(destinationPath);
-    if (destinationEntry instanceof import_obsidian9.TFolder) {
+    if (destinationEntry instanceof import_obsidian8.TFolder) {
       throw new Error(`Cannot move '${file.path}' because '${destinationPath}' is a folder.`);
     }
-    if (destinationEntry instanceof import_obsidian9.TFile) {
+    if (destinationEntry instanceof import_obsidian8.TFile) {
       const shouldMerge = await promptMergeOrSkip(this.app, file.path, destinationPath);
       if (!shouldMerge) {
         return `Skipped ${file.name} (destination exists).`;
@@ -1917,8 +1924,8 @@ var TaskProcessor = class {
   }
   async mergeIntoExistingFile(sourceFile, destinationFile, settings) {
     const sourcePath = sourceFile.path;
-    const destinationContent = await this.app.vault.cachedRead(destinationFile);
-    const sourceContent = await this.app.vault.cachedRead(sourceFile);
+    const destinationContent = await this.app.vault.read(destinationFile);
+    const sourceContent = await this.app.vault.read(sourceFile);
     const mergedContent = destinationContent.includes(sourceContent) ? destinationContent : `${destinationContent.trimEnd()}
 
 ---
@@ -1950,7 +1957,7 @@ ${sourceContent}`;
       completedLine,
       settings,
       app: this.app,
-      readFile: (target) => this.app.vault.cachedRead(target),
+      readFile: (target) => this.app.vault.read(target),
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
       setTaskState: (filePath, nextState) => {
@@ -1965,7 +1972,7 @@ ${sourceContent}`;
       uncompletedLine,
       settings,
       app: this.app,
-      readFile: (target) => this.app.vault.cachedRead(target),
+      readFile: (target) => this.app.vault.read(target),
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
       setTaskState: (filePath, nextState) => {
@@ -1980,7 +1987,7 @@ ${sourceContent}`;
       deletedTaggedTaskLine,
       settings,
       app: this.app,
-      readFile: (target) => this.app.vault.cachedRead(target),
+      readFile: (target) => this.app.vault.read(target),
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
       setTaskState: (filePath, nextState) => {
@@ -2020,7 +2027,7 @@ ${sourceContent}`;
 };
 
 // main.ts
-var TaskManagerPlugin = class extends import_obsidian10.Plugin {
+var TaskManagerPlugin = class extends import_obsidian9.Plugin {
   constructor() {
     super(...arguments);
     this.taskProcessor = null;
@@ -2058,9 +2065,16 @@ var TaskManagerPlugin = class extends import_obsidian10.Plugin {
         void this.runResetCurrentFileTasks();
       }
     });
+    this.registerEvent(this.app.vault.on("create", (file) => {
+      var _a;
+      if (!(file instanceof import_obsidian9.TFile)) {
+        return;
+      }
+      void ((_a = this.taskProcessor) == null ? void 0 : _a.handleFileCreate(file));
+    }));
     this.registerEvent(this.app.vault.on("modify", (file) => {
       var _a;
-      if (!(file instanceof import_obsidian10.TFile)) {
+      if (!(file instanceof import_obsidian9.TFile)) {
         return;
       }
       void ((_a = this.taskProcessor) == null ? void 0 : _a.handleFileModify(file));
@@ -2099,32 +2113,32 @@ var TaskManagerPlugin = class extends import_obsidian10.Plugin {
   async runProcessCurrentFile() {
     try {
       const result = await this.taskProcessor.processCurrentFile();
-      new import_obsidian10.Notice(result);
+      new import_obsidian9.Notice(result);
     } catch (error) {
-      new import_obsidian10.Notice(error instanceof Error ? error.message : "Failed to Process File.");
+      new import_obsidian9.Notice(error instanceof Error ? error.message : "Failed to Process File.");
     }
   }
   async runProcessTasks() {
     try {
       const result = await this.taskProcessor.processTasks();
-      new import_obsidian10.Notice(result);
+      new import_obsidian9.Notice(result);
     } catch (error) {
-      new import_obsidian10.Notice(error instanceof Error ? error.message : "Failed to process tasks.");
+      new import_obsidian9.Notice(error instanceof Error ? error.message : "Failed to process tasks.");
     }
   }
   async runResetCurrentFileTasks() {
     try {
       const result = await this.taskProcessor.resetCurrentFileTasks();
-      new import_obsidian10.Notice(result);
+      new import_obsidian9.Notice(result);
     } catch (error) {
-      new import_obsidian10.Notice(error instanceof Error ? error.message : "Failed to reset tasks.");
+      new import_obsidian9.Notice(error instanceof Error ? error.message : "Failed to reset tasks.");
     }
   }
   getTaskFolderRoots() {
     return getTaskFolderRoots(this.settings);
   }
 };
-var BaseTaskManagerSettingTab = class extends import_obsidian10.PluginSettingTab {
+var BaseTaskManagerSettingTab = class extends import_obsidian9.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.renderer = new TaskManagerSettingTabRenderer(this, plugin);
