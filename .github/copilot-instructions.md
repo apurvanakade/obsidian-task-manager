@@ -181,6 +181,23 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 - Dependency injection: services receive `app` and callbacks rather than importing globals
 - Thrown errors are caught at command-handler boundaries and surfaced via `new Notice()`
 
+### Keeping README.md Up to Date
+
+**After every change that affects user-visible behavior, update `README.md` immediately.** This includes:
+
+- New or removed commands
+- New, changed, or removed settings
+- Changes to task reconciliation behavior (completion, uncompletion, deletion, recurring)
+- Changes to the Due Date Modal (fields, skip conditions, defaults)
+- Changes to inline field names or formats
+- Changes to editor autocomplete triggers or behavior
+- Changes to dashboard sections, columns, sorting, or display rules
+- Changes to file routing logic or destination folder behavior
+
+Also update the **Code Organization table** and **Dependency Graph** in `README.md` when modules are added, removed, or renamed.
+
+Do not defer README updates to a follow-up task — keep them in the same commit as the code change.
+
 ### When Changing Routing Logic
 
 - Verify both command-driven and event-driven routing still work
