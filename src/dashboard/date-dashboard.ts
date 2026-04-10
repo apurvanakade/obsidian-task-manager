@@ -49,8 +49,10 @@ export class DateDashboardController {
 
   async onload(plugin: Plugin): Promise<void> {
     plugin.registerView(DateDashboardController.VIEW_TYPE, (leaf) => new DateDashboardView(leaf, this));
-    plugin.registerEvent(this.app.vault.on("modify", () => {
-      this.queueRefresh();
+    plugin.registerEvent(this.app.vault.on("modify", (file) => {
+      if (this.isRelevantFile(file)) {
+        this.queueRefresh();
+      }
     }));
     plugin.registerEvent(this.app.vault.on("rename", () => {
       this.queueRefresh();
@@ -144,6 +146,16 @@ export class DateDashboardController {
       ul.appendChild(li);
     }
     container.appendChild(ul);
+  }
+
+  private isRelevantFile(file: unknown): boolean {
+    if (!(file instanceof TFile)) return false;
+    if (!MARKDOWN_EXTENSION_REGEX.test(file.name)) return false;
+    const roots = this.getTaskFolderRoots().filter(Boolean);
+    const inboxFile = this.getInboxFile();
+    const inTaskFolder = roots.some((root) => file.path.startsWith(`${root}/`));
+    const isInbox = !!inboxFile && file.path === inboxFile;
+    return inTaskFolder || isInbox;
   }
 
   private queueRefresh(): void {

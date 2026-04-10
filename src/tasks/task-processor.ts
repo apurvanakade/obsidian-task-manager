@@ -367,6 +367,9 @@ export class TaskProcessor {
         if (status === "completed") {
           frontmatter["completion-date"] = getCompletionDateString();
           frontmatter["completion-time"] = getCompletionTimeString();
+        } else {
+          delete frontmatter["completion-date"];
+          delete frontmatter["completion-time"];
         }
       });
       this.stateStore.setStatus(file.path, status);

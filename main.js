@@ -191,8 +191,10 @@ var _DateDashboardController = class _DateDashboardController {
   }
   async onload(plugin) {
     plugin.registerView(_DateDashboardController.VIEW_TYPE, (leaf) => new DateDashboardView(leaf, this));
-    plugin.registerEvent(this.app.vault.on("modify", () => {
-      this.queueRefresh();
+    plugin.registerEvent(this.app.vault.on("modify", (file) => {
+      if (this.isRelevantFile(file)) {
+        this.queueRefresh();
+      }
     }));
     plugin.registerEvent(this.app.vault.on("rename", () => {
       this.queueRefresh();
@@ -268,6 +270,15 @@ var _DateDashboardController = class _DateDashboardController {
       ul.appendChild(li);
     }
     container.appendChild(ul);
+  }
+  isRelevantFile(file) {
+    if (!(file instanceof import_obsidian2.TFile)) return false;
+    if (!MARKDOWN_EXTENSION_REGEX2.test(file.name)) return false;
+    const roots = this.getTaskFolderRoots().filter(Boolean);
+    const inboxFile = this.getInboxFile();
+    const inTaskFolder = roots.some((root) => file.path.startsWith(`${root}/`));
+    const isInbox = !!inboxFile && file.path === inboxFile;
+    return inTaskFolder || isInbox;
   }
   queueRefresh() {
     if (this.refreshHandle !== null) {
@@ -2015,6 +2026,9 @@ ${sourceContent}`;
         if (status === "completed") {
           frontmatter["completion-date"] = getCompletionDateString();
           frontmatter["completion-time"] = getCompletionTimeString();
+        } else {
+          delete frontmatter["completion-date"];
+          delete frontmatter["completion-time"];
         }
       });
       this.stateStore.setStatus(file.path, status);
