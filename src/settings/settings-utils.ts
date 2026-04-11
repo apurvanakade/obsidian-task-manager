@@ -14,7 +14,7 @@
  * - none (pure normalization helpers)
  *
  * Notes:
- * - As of 2026-03, supports an "Inbox File" (file path, not folder) for dashboard inbox section.
+ * - Supports file-path settings for Inbox File and Tasks Summary File.
  */
 export type TaskManagerSettings = {
   nextActionTag: string;
@@ -24,12 +24,13 @@ export type TaskManagerSettings = {
   waitingProjectsFolder: string;
   somedayMaybeProjectsFolder: string;
   inboxFile: string;
+  tasksSummaryFile: string;
   dashboardHideKeywords: string;
 };
 
 export type FolderSettingKey = keyof Pick<
   TaskManagerSettings,
-  "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder" | "inboxFile"
+  "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder" | "inboxFile" | "tasksSummaryFile"
 >;
 
 export const DEFAULT_SETTINGS: TaskManagerSettings = {
@@ -40,6 +41,7 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   waitingProjectsFolder: "",
   somedayMaybeProjectsFolder: "",
   inboxFile: "",
+  tasksSummaryFile: "Tasks Summary.md",
   dashboardHideKeywords: "",
 };
 
@@ -72,6 +74,7 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
     waitingProjectsFolder: normalizeFolder(rawSettings.waitingProjectsFolder),
     somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder),
     inboxFile: normalizeFolder(rawSettings.inboxFile),
+    tasksSummaryFile: normalizeFolder(rawSettings.tasksSummaryFile) || DEFAULT_SETTINGS.tasksSummaryFile,
     dashboardHideKeywords: String(rawSettings.dashboardHideKeywords ?? ""),
   };
 }

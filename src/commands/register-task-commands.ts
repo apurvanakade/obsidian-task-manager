@@ -21,6 +21,7 @@ type TaskCommandHandlers = {
   processTasks: () => void;
   processCurrentFile: () => void;
   resetCurrentFileTasks: () => void;
+  createTasksSummary: () => void;
 };
 
 export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandlers): void {
@@ -40,5 +41,11 @@ export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandle
     id: "reset-current-file-tasks",
     name: "Reset Tasks",
     callback: handlers.resetCurrentFileTasks,
+  });
+
+  plugin.addCommand({
+    id: "create-tasks-summary",
+    name: "Tasks Summary",
+    callback: handlers.createTasksSummary,
   });
 }

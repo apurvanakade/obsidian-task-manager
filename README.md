@@ -1,6 +1,6 @@
 # Task Manager Plugin
 
-Automates task lifecycle management in Obsidian: state transitions, completion metadata stamping, recurring task creation, file routing by status, editor autocomplete for date fields, and a right-sidebar date dashboard.
+Automates task lifecycle management in Obsidian: state transitions, completion metadata stamping, recurring task creation, file routing by status, editor autocomplete for date fields, a right-sidebar date dashboard, and generated task summary notes.
 
 > For developer/agent architecture reference, see [`.github/copilot-instructions.md`](.github/copilot-instructions.md).
 
@@ -16,6 +16,7 @@ Automates task lifecycle management in Obsidian: state transitions, completion m
    | Waiting Projects Folder | Destination for waiting projects | — |
    | Someday-Maybe Projects Folder | Destination for someday-maybe projects | — |
    | Inbox File | File whose tasks appear in the dashboard Inbox section | — |
+   | Tasks Summary File | File written by the Tasks Summary command | `Tasks Summary.md` |
    | Next Action Tag | Tag marking the current actionable task | `#next-action` |
    | Completed Status Field | Frontmatter field name written on completion | `status` |
    | Dashboard Filename Hide Keywords | Comma-separated keywords stripped from dashboard display names | — |
@@ -48,6 +49,18 @@ In the active file:
 - Removes `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, `[created:: ...]`, and `[priority:: ...]` from every task line.
 - Then runs the same flow as **Process File**.
 
+### Tasks Summary
+Creates or overwrites the configured **Tasks Summary File** with sections for **Projects**, **Waiting**, **Someday-Maybe**, and **Inbox**.
+
+For each file, the summary includes the **first open task tagged `#next-action`** and renders a grouped table with:
+- Folder
+- Filename
+- Task
+- Priority
+- Due (`MM-DD`)
+
+Folder and filename display use the same hide-keyword cleanup as the date dashboard.
+
 ## Automatic Behavior (live editing)
 
 The plugin reacts to checkbox changes as you edit:
@@ -65,22 +78,22 @@ The plugin reacts to checkbox changes as you edit:
 - Reassigns `#next-action` to the nearest preceding open task. If none, sets status to `completed`.
 
 ### Recurring Tasks
-If a completed task has `[repeat:: every X]` or `[repeats:: every X]`, a new open copy is inserted above the completed task with a computed due date:
+If a completed task has `[repeat:: X]` or `[repeats:: X]`, a new open copy is inserted above the completed task with a computed due date:
 
 | Interval | New due date |
 |---|---|
-| `every day` | Tomorrow |
-| `every 2 days` | +2 days |
-| `every week` | +7 days |
-| `every 2 weeks` | +14 days |
-| `every month` | +1 month (clamped to last day of month) |
-| `every 3 months` | +3 months (clamped to last day of month) |
-| `every year` | +1 year (clamped to last day of month) |
-| `every 2 years` | +2 years (clamped to last day of month) |
-| `every Monday` | Next Monday |
-| `every Fri` | Next Friday |
-| `every 1st` | Next occurrence of the 1st day of a month |
-| `every 5th` | Next occurrence of the 5th day of a month |
+| `day` | Tomorrow |
+| `2 days` | +2 days |
+| `week` | +7 days |
+| `2 weeks` | +14 days |
+| `month` | +1 month (clamped to last day of month) |
+| `3 months` | +3 months (clamped to last day of month) |
+| `year` | +1 year (clamped to last day of month) |
+| `2 years` | +2 years (clamped to last day of month) |
+| `Monday` | Next Monday |
+| `Fri` | Next Friday |
+| `1st` | Next occurrence of the 1st day of a month |
+| `5th` | Next occurrence of the 5th day of a month |
 
 Accepted aliases are normalized automatically:
 - Day: `day`, `days`, `daily`
@@ -90,7 +103,7 @@ Accepted aliases are normalized automatically:
 - Weekdays: full or short names like `monday` / `mon`
 - Month days: ordinal forms `1st` through `31st`
 
-Weekday and ordinal repeats always resolve to the **next future occurrence**. For example, `every Monday` completed on a Monday becomes next Monday, and `every 5th` completed on the 5th becomes next month's 5th.
+Weekday and ordinal repeats always resolve to the **next future occurrence**. For example, `Monday` completed on a Monday becomes next Monday, and `5th` completed on the 5th becomes next month's 5th.
 
 Recurring tasks skip the Due Date Modal on the new copy.
 
@@ -118,7 +131,7 @@ Tasks use Dataview-style double-colon inline fields on the same line as the chec
 | `[due:: YYYY-MM-DD]` | Due date |
 | `[completion-date:: YYYY-MM-DD]` | Stamped on task completion |
 | `[completion-time:: HH:MM:SS]` | Stamped on task completion |
-| `[repeat:: every X]` / `[repeats:: every X]` | Recurring interval; supports aliases, numeric intervals, weekday names like `every Monday`, and ordinal month-days like `every 5th` |
+| `[repeat:: X]` / `[repeats:: X]` | Recurring interval; supports aliases, numeric intervals, weekday names like `Monday`, and ordinal month-days like `5th` |
 | `[priority:: N]` | Priority 1–4 (1 = highest, default 4) |
 | `[created:: YYYY-MM-DD]` | Creation date (editor suggest only) |
 
@@ -155,6 +168,7 @@ Display notes:
 | `src/tasks/task-utils.ts` | Pure parsing/diffing utilities (no side effects) |
 | `src/tasks/task-state-store.ts` | In-memory per-file task/status snapshot cache and pending-write guards |
 | `src/tasks/due-date-modal.ts` | Modal for collecting due date and priority on next-action assignment |
+| `src/summary/tasks-summary.ts` | Builds and writes the Tasks Summary note from configured sources |
 | `src/routing/status-routing.ts` | Status extraction, validation, routable-status constants |
 | `src/routing/task-routing.ts` | File movement: destination resolution, folder creation, merge handling |
 | `src/dashboard/date-dashboard.ts` | Right-sidebar ItemView controller and renderer |
@@ -165,7 +179,7 @@ Display notes:
 | `src/settings/settings-ui.ts` | PluginSettingTab renderer |
 | `src/settings/settings-field-definitions.ts` | Declarative metadata for settings controls |
 | `src/settings/folder-picker.ts` | FuzzySuggestModal wrappers for vault folder/file pickers |
-| `src/commands/register-task-commands.ts` | Registers Process Tasks, Process File, and Reset Tasks commands |
+| `src/commands/register-task-commands.ts` | Registers Process Tasks, Process File, Reset Tasks, and Tasks Summary commands |
 | `manifest.json` | Obsidian plugin metadata |
 
 ## Dependency Graph
@@ -193,6 +207,7 @@ graph TD
    DDM[due-date-modal.ts]
    TS[task-state-store.ts]
    TU[task-utils.ts]
+   SUM[tasks-summary.ts]
    CMD[register-task-commands.ts]
 
    D --> M
@@ -201,6 +216,7 @@ graph TD
    SUI --> M
    RT --> M
    TP --> M
+   SUM --> M
    CMD --> M
 
    DTD --> D
@@ -232,4 +248,6 @@ graph TD
    DS --> DDM
 
    TU --> TS
+   RT --> SUM
+   SU --> SUM
 ```

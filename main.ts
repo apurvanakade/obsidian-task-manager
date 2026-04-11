@@ -20,6 +20,7 @@ import { registerTaskCommands } from "./src/commands/register-task-commands";
 import { DateDashboardController } from "./src/dashboard/date-dashboard";
 import { CreatedDateEditorSuggest, DueDateEditorSuggest } from "./src/editor/due-date-suggest";
 import { normalizeSettings, TaskManagerSettings } from "./src/settings/settings-utils";
+import { writeTasksSummary } from "./src/summary/tasks-summary";
 import { TaskManagerSettingTabRenderer } from "./src/settings/settings-ui";
 import { getTaskFolderRoots } from "./src/routing/task-routing";
 import { TaskProcessor } from "./src/tasks/task-processor";
@@ -59,6 +60,9 @@ export default class TaskManagerPlugin extends Plugin {
       },
       resetCurrentFileTasks: () => {
         void this.runResetCurrentFileTasks();
+      },
+      createTasksSummary: () => {
+        this.runCreateTasksSummary();
       },
     });
     this.registerEvent(this.app.vault.on("create", (file) => {
@@ -134,6 +138,25 @@ export default class TaskManagerPlugin extends Plugin {
       new Notice(result);
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Failed to reset tasks.");
+    }
+  }
+
+  private async runCreateTasksSummary(): Promise<void> {
+    const settings = this.getSettings();
+    if (!settings.tasksSummaryFile) {
+      new Notice("Set Tasks Summary File in plugin settings before running Tasks Summary.");
+      return;
+    }
+
+    try {
+      const writtenPath = await writeTasksSummary(this.app, settings, settings.tasksSummaryFile);
+      const summaryFile = this.app.vault.getAbstractFileByPath(writtenPath);
+      if (summaryFile instanceof TFile) {
+        await this.app.workspace.getLeaf(true).openFile(summaryFile);
+      }
+      new Notice(`Tasks Summary written to ${writtenPath}.`);
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : "Failed to create Tasks Summary.");
     }
   }
 

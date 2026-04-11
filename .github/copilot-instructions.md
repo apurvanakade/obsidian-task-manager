@@ -1,6 +1,6 @@
 # Copilot Instructions
 
-This is an **Obsidian plugin** called Task Manager that automates task lifecycle management: state transitions, completion metadata stamping, recurring task creation, file routing by status, editor autocomplete for date fields, and a right-sidebar date dashboard.
+This is an **Obsidian plugin** called Task Manager that automates task lifecycle management: state transitions, completion metadata stamping, recurring task creation, file routing by status, editor autocomplete for date fields, a right-sidebar date dashboard, and generated task summary notes.
 
 ## Build Commands
 
@@ -27,6 +27,8 @@ src/
     task-utils.ts                ← Pure parsing/diffing utilities (no side effects)
     task-state-store.ts          ← In-memory snapshot cache (tasks + status per file)
     due-date-modal.ts            ← Modal for collecting due date + priority on next-action assignment
+  summary/
+    tasks-summary.ts             ← Builds and writes the Tasks Summary markdown note
   routing/
     status-routing.ts            ← Pure status extraction, validation, routable-status constants
     task-routing.ts              ← File movement: destination resolution, folder creation, merge handling
@@ -43,14 +45,14 @@ src/
     settings-field-definitions.ts← Declarative metadata for settings controls
     folder-picker.ts             ← FuzzySuggestModal wrappers for vault folder/file pickers
   commands/
-    register-task-commands.ts    ← Registers "Process Tasks", "Process File", "Reset Tasks"
+    register-task-commands.ts    ← Registers "Process Tasks", "Process File", "Reset Tasks", "Tasks Summary"
 ```
 
 ### Key Data Flow
 
 1. **vault `modify` event** → `TaskProcessor.handleFileModify()` reads file fresh (non-cached) via `vault.read`, diffs against state-store snapshot, calls `reconciler` to apply transition rules, calls `task-routing` if status changed → writes back → state-store updated/rekeyed
 2. **Pending-path guards** in `TaskStateStore` prevent re-triggering the modify handler on self-writes
-3. **Commands** bypass the event path and call `TaskProcessor.processTasks()` / `processCurrentFile()` / `resetCurrentFileTasks()` directly
+3. **Commands** bypass the event path and call `TaskProcessor.processTasks()` / `processCurrentFile()` / `resetCurrentFileTasks()` directly; **Tasks Summary** separately scans configured sources and writes a summary note
 4. **Dashboard** is refreshed on `file-open`, `layout-change`, vault `rename`/`delete` events, and after settings changes
 
 ### Commands
@@ -58,12 +60,13 @@ src/
 - **Process Tasks** — applies processing to all markdown files under all four configured task-folder roots
 - **Process File** — processes only the currently active file; silently does nothing if the file is not inside one of the four configured roots
 - **Reset Tasks** — in the active file, marks all tasks open (`[ ]`) and strips `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, `[created:: ...]`, and `[priority:: ...]` from task lines, then runs the same flow as Process File
+- **Tasks Summary** — creates or overwrites the configured Tasks Summary File with sections for Projects, Waiting, Someday-Maybe, and Inbox. Each section lists the first open `#next-action` task per file in a grouped table with Folder, Filename, Task, Priority, and Due columns
 
 ### Settings Persistence
 
 Settings live in `data.json` (loaded/saved via `plugin.loadData()` / `plugin.saveData()`). After a settings change, call `plugin.updateSetting()` — it persists, re-primes task state, and refreshes the dashboard. Settings are normalized on load/save via `normalizeSettings()`.
 
-Configurable paths: Projects Folder, Completed Projects Folder, Waiting Projects Folder, Someday-Maybe Projects Folder, Inbox File (file picker, not folder).
+Configurable paths: Projects Folder, Completed Projects Folder, Waiting Projects Folder, Someday-Maybe Projects Folder, Inbox File (file picker, not folder), Tasks Summary File (file picker).
 
 Other settings: Next Action Tag (default `#next-action`), Completed Status Field (default `status`), Dashboard Filename Hide Keywords (comma-separated keywords stripped from dashboard display names).
 
@@ -80,7 +83,7 @@ Tasks use standard markdown checkboxes. Inline fields use Dataview-style double-
 - `[due:: YYYY-MM-DD]` — due date
 - `[completion-date:: YYYY-MM-DD]` — stamped on completion
 - `[completion-time:: HH:MM:SS]` — stamped on completion
-- `[repeat:: every X]` / `[repeats:: every X]` — recurring interval; accepts singular/plural aliases, adjective aliases (`daily`, `weekly`, `monthly`, `yearly`), numeric intervals like `every 2 weeks`, weekday names like `every Monday`, and ordinal month-days like `every 5th`
+- `[repeat:: X]` / `[repeats:: X]` — recurring interval; accepts singular/plural aliases, adjective aliases (`daily`, `weekly`, `monthly`, `yearly`), numeric intervals like `2 weeks`, weekday names like `Monday`, and ordinal month-days like `5th`; `every` is optional for backward compatibility
 - `[priority:: N]` — 1–4, where 1 is highest; default 4
 - `[created:: YYYY-MM-DD]` — creation date (editor suggest only; not used by reconciler)
 
@@ -104,18 +107,18 @@ The next-action tag (default `#next-action`) marks the single active task in a f
 
 ### Recurring Tasks
 
-On completion of a task with `[repeat:: every X]` or `[repeats:: every X]`, a new open copy is inserted above the completed task with a computed due date:
+On completion of a task with `[repeat:: X]` or `[repeats:: X]`, a new open copy is inserted above the completed task with a computed due date:
 
-- `every day` → tomorrow
-- `every 2 days` → +2 days
-- `every week` → +7 days
-- `every 2 weeks` → +14 days
-- `every month` → +1 month (date clamped to last day of month)
-- `every 3 months` → +3 months (date clamped to last day of month)
-- `every year` → +1 year (date clamped)
-- `every 2 years` → +2 years (date clamped)
-- `every Monday` / `every Mon` → next matching weekday
-- `every 1st` / `every 5th` → next occurrence of that day-of-month (clamped to the last day when needed)
+- `day` → tomorrow
+- `2 days` → +2 days
+- `week` → +7 days
+- `2 weeks` → +14 days
+- `month` → +1 month (date clamped to last day of month)
+- `3 months` → +3 months (date clamped to last day of month)
+- `year` → +1 year (date clamped)
+- `2 years` → +2 years (date clamped)
+- `Monday` / `Mon` → next matching weekday
+- `1st` / `5th` → next occurrence of that day-of-month (clamped to the last day when needed)
 
 Accepted aliases are normalized automatically:
 
@@ -126,7 +129,7 @@ Accepted aliases are normalized automatically:
 - Weekdays: full or short names like `monday` / `mon`
 - Month days: ordinal forms `1st` through `31st`
 
-Weekday and ordinal repeats resolve to the **next future occurrence**. So `every Monday` completed on a Monday becomes next Monday, and `every 5th` completed on the 5th becomes next month's 5th.
+Weekday and ordinal repeats resolve to the **next future occurrence**. So `Monday` completed on a Monday becomes next Monday, and `5th` completed on the 5th becomes next month's 5th.
 
 ### Next-Action Assignment & DueDateModal
 
@@ -169,6 +172,35 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 - **Dashboard Filename Hide Keywords**: each comma-separated keyword is removed case-insensitively from both folder and filename display. No automatic date/number stripping is applied.
 - Task text strips all inline fields and hashtag tags (e.g. `#next-action`)
 - Styling relies on native Obsidian markdown/theme rendering — no plugin-specific dashboard CSS
+
+## Tasks Summary
+
+### Inputs
+
+- Uses the configured **Tasks Summary File** setting as the destination path
+- Scans:
+  - Projects Folder
+  - Waiting Projects Folder
+  - Someday-Maybe Projects Folder
+  - Inbox File
+
+### Selection Rules
+
+- Includes the **first open task tagged with the next-action tag** per file
+- If a file has multiple tagged tasks, only the first is summarized
+- Files without an open tagged task are omitted
+
+### Output Format
+
+- Writes a markdown note with sections: **Projects**, **Waiting**, **Someday-Maybe**, **Inbox**
+- Each non-empty section renders a grouped markdown table with columns:
+  - Folder
+  - Filename
+  - Task
+  - Priority
+  - Due (`MM-DD`)
+- Folder and filename display reuse the same hide-keyword cleanup behavior as the dashboard
+- Existing summary file content is overwritten
 
 ## Editor Autocomplete
 
@@ -256,3 +288,4 @@ Run after meaningful logic changes:
 16. Typing `due::` shows suggestions from today, matches ISO and weekday labels, inserts ` YYYY-MM-DD`
 17. Typing `created::` shows today suggestion and inserts ` YYYY-MM-DD`
 18. `Reset Tasks` reopens all tasks, removes due/completion/created/priority inline fields, then runs Process File flow
+19. `Tasks Summary` writes the configured Tasks Summary File with grouped sections for Projects/Waiting/Someday-Maybe/Inbox and includes the first open `#next-action` task per file with due date and priority

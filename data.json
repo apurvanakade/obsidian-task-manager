@@ -6,6 +6,7 @@
   "waitingProjectsFolder": "Waiting",
   "somedayMaybeProjectsFolder": "Someday-Maybe",
   "inboxFile": "Projects/Inbox.md",
+  "tasksSummaryFile": "Tasks Summary.md",
   "dashboardHideKeywords": "2026 Spring,",
   "journalFolder": "Journal"
 }

@@ -15,7 +15,7 @@
  * - mutates settings container DOM and persists setting values
  *
  * Notes:
- * - Uses file picker for Inbox File, folder picker for other folder settings.
+ * - Uses file picker for Inbox File and Tasks Summary File, folder picker for the rest.
  */
 import { PluginSettingTab, Setting, TextComponent, TextAreaComponent } from "obsidian";
 import { openFolderPicker, openFilePicker } from "./folder-picker";
@@ -52,10 +52,10 @@ export class TaskManagerSettingTabRenderer {
   }
 
   private addFolderSetting(containerEl: HTMLElement, config: FolderSettingConfig): void {
-    const isInboxFile = config.key === "inboxFile";
+    const isFilePathSetting = config.key === "inboxFile" || config.key === "tasksSummaryFile";
     new Setting(containerEl)
       .setName(config.name)
-      .setDesc(`${config.description} Use Browse to pick a vault ${isInboxFile ? "file" : "path"}.`)
+      .setDesc(`${config.description} Use Browse to pick a vault ${isFilePathSetting ? "file" : "path"}.`)
       .addText((text) => {
         this.configureFolderTextInput(text, config.key, config.value, config.placeholder);
       })
@@ -63,7 +63,7 @@ export class TaskManagerSettingTabRenderer {
         button
           .setButtonText("Browse")
           .onClick(() => {
-            if (isInboxFile) {
+            if (isFilePathSetting) {
               openFilePicker(this.baseSettingTab.app, async (selectedFilePath) => {
                 await this.plugin.updateSetting(config.key, selectedFilePath);
                 this.display();

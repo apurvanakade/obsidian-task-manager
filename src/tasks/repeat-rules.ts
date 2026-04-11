@@ -31,7 +31,7 @@ export type RepeatRule =
       dayOfMonth: number;
     };
 
-const REPEAT_FIELD_REGEX = /\[(?:repeat|repeats)::\s*every\s+([^\]]+?)\s*\]/i;
+const REPEAT_FIELD_REGEX = /\[(?:repeat|repeats)::\s*(?:every\s+)?([^\]]+?)\s*\]/i;
 const COUNT_AND_KEYWORD_REGEX = /^(\d+)\s+([a-z-]+)$/i;
 const KEYWORD_ONLY_REGEX = /^([a-z-]+)$/i;
 
