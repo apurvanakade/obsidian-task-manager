@@ -283,7 +283,7 @@ export class DateDashboardController {
             tableRow.appendChild(fileCell);
           }
 
-          tableRow.appendChild(this.createTextElement("td", row.task));
+          tableRow.appendChild(this.createTaskCell(row.task, row.priority));
           tableRow.appendChild(this.createTextElement("td", String(row.priority)));
           if (showDueDate) {
             tableRow.appendChild(this.createTextElement("td", this.formatMonthDay(row.dueDate)));
@@ -317,6 +317,13 @@ export class DateDashboardController {
     return element;
   }
 
+  private createTaskCell(task: string, priority: number): HTMLTableCellElement {
+    const taskCell = document.createElement("td");
+    taskCell.textContent = task;
+    this.applyPriorityTextStyle(taskCell, priority);
+    return taskCell;
+  }
+
   private formatMonthDay(dateString: string | null): string {
     if (!dateString) {
       return "";
@@ -324,6 +331,17 @@ export class DateDashboardController {
 
     const match = dateString.match(MONTH_DAY_REGEX);
     return match ? `${match[1]}-${match[2]}` : dateString;
+  }
+
+  private applyPriorityTextStyle(element: HTMLElement, priority: number): void {
+    if (priority === 1) {
+      element.style.fontWeight = "700";
+      return;
+    }
+
+    if (priority === 2) {
+      element.style.fontStyle = "italic";
+    }
   }
 
   private applyHideKeywords(name: string): string {

@@ -59,7 +59,7 @@ For each file, the summary includes the **first open task tagged `#next-action`*
 - Priority
 - Due (`MM-DD`)
 
-Folder and filename display use the same hide-keyword cleanup as the date dashboard.
+Folder and filename display use the same hide-keyword cleanup as the date dashboard. Task text is rendered as **bold** for priority 1, *italic* for priority 2, and default styling for priority 3.
 
 ## Automatic Behavior (live editing)
 
@@ -115,7 +115,7 @@ When a file's status field changes to a routable value, the file is automaticall
 When `#next-action` is newly assigned to a task (and the task is not recurring and doesn't already have a due date), a modal appears offering:
 
 - A preview of the task text.
-- A **priority** dropdown (1–4, default 4; 1 is highest).
+- A **priority** dropdown (1–3, default 3; 1 is highest).
 - Suggested dates from today through +30 days with Today / Tomorrow / weekday labels — clicking one immediately applies it.
 - A text input for a custom `YYYY-MM-DD` date or natural-language terms (`today`, `tomorrow`, weekday names); press Enter to submit.
 - A **Skip** button to dismiss without adding a due date.
@@ -132,7 +132,7 @@ Tasks use Dataview-style double-colon inline fields on the same line as the chec
 | `[completion-date:: YYYY-MM-DD]` | Stamped on task completion |
 | `[completion-time:: HH:MM:SS]` | Stamped on task completion |
 | `[repeat:: X]` / `[repeats:: X]` | Recurring interval; supports aliases, numeric intervals, weekday names like `Monday`, and ordinal month-days like `5th` |
-| `[priority:: N]` | Priority 1–4 (1 = highest, default 4) |
+| `[priority:: N]` | Priority 1–3 (1 = highest, default 3) |
 | `[created:: YYYY-MM-DD]` | Creation date (editor suggest only) |
 
 ## Editor Autocomplete
@@ -152,7 +152,7 @@ When the active note is named `YYYY-MM-DD`, a live dashboard opens in the right 
 
 Display notes:
 - Rows in Due and Completed tables are grouped by parent folder and filename using `rowspan`.
-- Task text strips all inline fields and hashtag tags.
+- Task text strips all inline fields and hashtag tags and is rendered as **bold** for priority 1, *italic* for priority 2, and default styling for priority 3.
 - **Dashboard Filename Hide Keywords**: each keyword is removed case-insensitively from folder and filename display names.
 - On non-date notes, the dashboard defaults to today's date.
 

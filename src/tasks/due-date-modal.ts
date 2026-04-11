@@ -79,12 +79,12 @@ const buttonStyles = {
 type DueDateModalOptions = {
   app: App;
   taskLine: string;
-  onSubmit: (taskLine: string, dueDate: string, priority: "1" | "2" | "3" | "4") => Promise<void>;
+  onSubmit: (taskLine: string, dueDate: string, priority: "1" | "2" | "3") => Promise<void>;
 };
 
 export class DueDateModal extends Modal {
   private readonly taskLine: string;
-  private readonly onSubmit: (taskLine: string, dueDate: string, priority: "1" | "2" | "3" | "4") => Promise<void>;
+  private readonly onSubmit: (taskLine: string, dueDate: string, priority: "1" | "2" | "3") => Promise<void>;
   private readonly dateSuggestions = buildDateSuggestions();
   private inputElement: HTMLInputElement | null = null;
   private prioritySelectElement: HTMLSelectElement | null = null;
@@ -183,12 +183,12 @@ export class DueDateModal extends Modal {
     const selectElement = priorityContainer.createEl("select");
     applyStyles(selectElement, inputStyles);
 
-    (["1", "2", "3", "4"] as const).forEach((priority) => {
+    (["1", "2", "3"] as const).forEach((priority) => {
       const option = selectElement.createEl("option", {
         text: priority,
         value: priority,
       });
-      if (priority === "4") {
+      if (priority === "3") {
         option.selected = true;
       }
     });
@@ -244,7 +244,7 @@ export class DueDateModal extends Modal {
 
   private async submitDate(dateOverride?: string): Promise<void> {
     const dateValue = dateOverride ?? this.inputElement?.value.trim() ?? "";
-    const priority = (this.prioritySelectElement?.value ?? "4") as "1" | "2" | "3" | "4";
+    const priority = (this.prioritySelectElement?.value ?? "3") as "1" | "2" | "3";
 
     if (!dateValue) {
       return;

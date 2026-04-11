@@ -84,7 +84,7 @@ Tasks use standard markdown checkboxes. Inline fields use Dataview-style double-
 - `[completion-date:: YYYY-MM-DD]` — stamped on completion
 - `[completion-time:: HH:MM:SS]` — stamped on completion
 - `[repeat:: X]` / `[repeats:: X]` — recurring interval; accepts singular/plural aliases, adjective aliases (`daily`, `weekly`, `monthly`, `yearly`), numeric intervals like `2 weeks`, weekday names like `Monday`, and ordinal month-days like `5th`; `every` is optional for backward compatibility
-- `[priority:: N]` — 1–4, where 1 is highest; default 4
+- `[priority:: N]` — 1–3, where 1 is highest; default 3
 - `[created:: YYYY-MM-DD]` — creation date (editor suggest only; not used by reconciler)
 
 The next-action tag (default `#next-action`) marks the single active task in a file. Only one task per file should have this tag.
@@ -136,7 +136,7 @@ Weekday and ordinal repeats resolve to the **next future occurrence**. So `Monda
 When `#next-action` is newly assigned to a task, a `DueDateModal` is shown offering:
 
 - A preview of the task text
-- A priority dropdown (values 1–4, default 4)
+- A priority dropdown (values 1–3, default 3)
 - Suggested dates from today through +30 days with Today/Tomorrow/weekday labels — clicking one immediately applies it
 - A text input for custom YYYY-MM-DD or natural-language terms (today, tomorrow, weekday names); Enter submits
 - Input autocomplete sourced from the shared `buildDateSuggestions()` list
@@ -158,7 +158,7 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 
 ### Sections
 
-**Due** — open tasks with `[due:: YYYY-MM-DD]` where due date ≤ active date, scanned from configured task-folder roots only. Sorted by: priority ascending (missing = 4), then due date, then file path.
+**Due** — open tasks with `[due:: YYYY-MM-DD]` where due date ≤ active date, scanned from configured task-folder roots only. Sorted by: priority ascending (missing = 3), then due date, then file path.
 
 **Inbox** — all incomplete tasks from the configured Inbox File (regardless of date). Rendered as a heading, a link to the file, and an unordered list (no table, no priority column). Shows "No tasks." when empty.
 
@@ -170,7 +170,7 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 - Rows are grouped first by parent folder (alphabetically), then by filename; `rowspan` is used for grouping cells
 - Folder display uses the immediate parent directory segment; Filename strips `.md`
 - **Dashboard Filename Hide Keywords**: each comma-separated keyword is removed case-insensitively from both folder and filename display. No automatic date/number stripping is applied.
-- Task text strips all inline fields and hashtag tags (e.g. `#next-action`)
+- Task text strips all inline fields and hashtag tags (e.g. `#next-action`) and is rendered as **bold** for priority 1, *italic* for priority 2, and default styling for priority 3
 - Styling relies on native Obsidian markdown/theme rendering — no plugin-specific dashboard CSS
 
 ## Tasks Summary
@@ -200,6 +200,7 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
   - Priority
   - Due (`MM-DD`)
 - Folder and filename display reuse the same hide-keyword cleanup behavior as the dashboard
+- Task text is rendered as **bold** for priority 1, *italic* for priority 2, and default styling for priority 3
 - Existing summary file content is overwritten
 
 ## Editor Autocomplete
@@ -274,7 +275,7 @@ Run after meaningful logic changes:
 2. `Process File` updates tags/status correctly for complete, uncomplete, and delete cases; when the last task is completed, `completion-date` and `completion-time` are stamped in both the task line and the file frontmatter
 3. Task completion triggers the DueDateModal for the newly assigned `#next-action` task
 4. Modal shows task text preview; clicking a suggested date immediately applies it; manual date input (YYYY-MM-DD or natural-language) works via Add Due Date / Enter
-5. Submitted due date written as `[due:: YYYY-MM-DD]`; priority written as `[priority:: N]` (default 4)
+5. Submitted due date written as `[due:: YYYY-MM-DD]`; priority written as `[priority:: N]` (default 3)
 6. Modal Skip dismisses without modifying the task
 7. Recurring completion inserts new open task above completed task with correct due date for legacy, alias, and numeric repeat forms
 8. Status change routes file to correct destination folder
@@ -282,7 +283,7 @@ Run after meaningful logic changes:
 10. Merge conflict prompt appears when destination file exists
 11. Empty source directories cleaned up after move/merge
 12. Date dashboard renders Due/Completed for active date-named notes; defaults to today on non-date notes
-13. Due and Completed tables show Priority column; missing priority treated as 4
+13. Due and Completed tables show Priority column; missing priority treated as 3
 14. Due table sorted by priority then due date; shows MM-DD Due column
 15. Dashboard task text strips inline fields and tags; filename/folder display applies hide-keywords
 16. Typing `due::` shows suggestions from today, matches ISO and weekday labels, inserts ` YYYY-MM-DD`

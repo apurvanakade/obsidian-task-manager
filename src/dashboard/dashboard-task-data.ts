@@ -27,7 +27,7 @@ const PRIORITY_FIELD_REGEX = /\[priority::\s*([^\]]+?)\s*\]/i;
 const INLINE_FIELD_REGEX = /\s*\[[^\]]+::\s*[^\]]*\]/g;
 const TAG_REGEX = /(^|\s)#[^\s#]+/g;
 const MULTISPACE_REGEX = /\s+/g;
-const DEFAULT_PRIORITY = 4;
+const DEFAULT_PRIORITY = 3;
 
 export type DashboardRow = {
   file: TFile;
@@ -149,7 +149,7 @@ function parsePriorityValue(value: string | null): number {
   }
 
   const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 4) {
+  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 3) {
     return DEFAULT_PRIORITY;
   }
 

@@ -26,7 +26,7 @@ const TAG_REGEX = /(^|\s)#[^\s#]+/g;
 const MULTISPACE_REGEX = /\s+/g;
 const MARKDOWN_EXTENSION_REGEX = /\.md$/i;
 const MONTH_DAY_REGEX = /^\d{4}-(\d{2})-(\d{2})$/;
-const DEFAULT_PRIORITY = 4;
+const DEFAULT_PRIORITY = 3;
 
 type SummarySection = {
   title: string;
@@ -168,7 +168,7 @@ function renderSummary(sections: SummarySection[], hideKeywords: string): string
       previousFolder = folderName;
 
       lines.push(
-        `| ${escapePipes(displayFolder)} | ${buildFileLink(row.file, hideKeywords)} | ${escapePipes(row.task)} | ${row.priority} | ${formatMonthDay(row.dueDate)} |`,
+        `| ${escapePipes(displayFolder)} | ${buildFileLink(row.file, hideKeywords)} | ${buildWeightedTaskText(row.task, row.priority)} | ${row.priority} | ${formatMonthDay(row.dueDate)} |`,
       );
     }
 
@@ -224,7 +224,7 @@ function parsePriorityValue(value: string | null): number {
   }
 
   const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 4) {
+  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 3) {
     return DEFAULT_PRIORITY;
   }
 
@@ -288,4 +288,17 @@ function escapePipes(value: string): string {
 
 function escapeLinkText(value: string): string {
   return value.replace(/([\\[\]])/g, "\\$1");
+}
+
+function buildWeightedTaskText(task: string, priority: number): string {
+  const escapedTask = escapePipes(task);
+  if (priority === 1) {
+    return `**${escapedTask}**`;
+  }
+
+  if (priority === 2) {
+    return `*${escapedTask}*`;
+  }
+
+  return escapedTask;
 }

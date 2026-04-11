@@ -64,7 +64,7 @@ var PRIORITY_FIELD_REGEX = /\[priority::\s*([^\]]+?)\s*\]/i;
 var INLINE_FIELD_REGEX = /\s*\[[^\]]+::\s*[^\]]*\]/g;
 var TAG_REGEX = /(^|\s)#[^\s#]+/g;
 var MULTISPACE_REGEX = /\s+/g;
-var DEFAULT_PRIORITY = 4;
+var DEFAULT_PRIORITY = 3;
 function getDateStringFromFileName(fileName) {
   const baseName = fileName.replace(MARKDOWN_EXTENSION_REGEX, "");
   return DATE_FILE_REGEX.test(baseName) ? baseName : null;
@@ -145,7 +145,7 @@ function parsePriorityValue(value) {
     return DEFAULT_PRIORITY;
   }
   const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 4) {
+  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 3) {
     return DEFAULT_PRIORITY;
   }
   return parsed;
@@ -386,7 +386,7 @@ var _DateDashboardController = class _DateDashboardController {
             }
             tableRow.appendChild(fileCell);
           }
-          tableRow.appendChild(this.createTextElement("td", row.task));
+          tableRow.appendChild(this.createTaskCell(row.task, row.priority));
           tableRow.appendChild(this.createTextElement("td", String(row.priority)));
           if (showDueDate) {
             tableRow.appendChild(this.createTextElement("td", this.formatMonthDay(row.dueDate)));
@@ -416,12 +416,27 @@ var _DateDashboardController = class _DateDashboardController {
     element.textContent = text;
     return element;
   }
+  createTaskCell(task, priority) {
+    const taskCell = document.createElement("td");
+    taskCell.textContent = task;
+    this.applyPriorityTextStyle(taskCell, priority);
+    return taskCell;
+  }
   formatMonthDay(dateString) {
     if (!dateString) {
       return "";
     }
     const match = dateString.match(MONTH_DAY_REGEX);
     return match ? `${match[1]}-${match[2]}` : dateString;
+  }
+  applyPriorityTextStyle(element, priority) {
+    if (priority === 1) {
+      element.style.fontWeight = "700";
+      return;
+    }
+    if (priority === 2) {
+      element.style.fontStyle = "italic";
+    }
   }
   applyHideKeywords(name) {
     const keywords = this.getHideKeywords().split(",").map((k) => k.trim()).filter((k) => k.length > 0);
@@ -854,7 +869,7 @@ var TAG_REGEX2 = /(^|\s)#[^\s#]+/g;
 var MULTISPACE_REGEX2 = /\s+/g;
 var MARKDOWN_EXTENSION_REGEX3 = /\.md$/i;
 var MONTH_DAY_REGEX2 = /^\d{4}-(\d{2})-(\d{2})$/;
-var DEFAULT_PRIORITY2 = 4;
+var DEFAULT_PRIORITY2 = 3;
 async function writeTasksSummary(app, settings, summaryFilePath) {
   const sections = await buildSummarySections(app, settings);
   const summaryContent = renderSummary(sections, settings.dashboardHideKeywords);
@@ -959,7 +974,7 @@ function renderSummary(sections, hideKeywords) {
       const displayFolder = folderName === previousFolder ? "" : folderName;
       previousFolder = folderName;
       lines.push(
-        `| ${escapePipes(displayFolder)} | ${buildFileLink(row.file, hideKeywords)} | ${escapePipes(row.task)} | ${row.priority} | ${formatMonthDay(row.dueDate)} |`
+        `| ${escapePipes(displayFolder)} | ${buildFileLink(row.file, hideKeywords)} | ${buildWeightedTaskText(row.task, row.priority)} | ${row.priority} | ${formatMonthDay(row.dueDate)} |`
       );
     }
     lines.push("");
@@ -1003,7 +1018,7 @@ function parsePriorityValue2(value) {
     return DEFAULT_PRIORITY2;
   }
   const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 4) {
+  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 3) {
     return DEFAULT_PRIORITY2;
   }
   return parsed;
@@ -1048,6 +1063,16 @@ function escapePipes(value) {
 }
 function escapeLinkText(value) {
   return value.replace(/([\\[\]])/g, "\\$1");
+}
+function buildWeightedTaskText(task, priority) {
+  const escapedTask = escapePipes(task);
+  if (priority === 1) {
+    return `**${escapedTask}**`;
+  }
+  if (priority === 2) {
+    return `*${escapedTask}*`;
+  }
+  return escapedTask;
 }
 
 // src/settings/settings-ui.ts
@@ -1584,12 +1609,12 @@ var DueDateModal = class extends import_obsidian8.Modal {
     this.createSectionLabel(priorityContainer, "Priority:");
     const selectElement = priorityContainer.createEl("select");
     applyStyles(selectElement, inputStyles);
-    ["1", "2", "3", "4"].forEach((priority) => {
+    ["1", "2", "3"].forEach((priority) => {
       const option = selectElement.createEl("option", {
         text: priority,
         value: priority
       });
-      if (priority === "4") {
+      if (priority === "3") {
         option.selected = true;
       }
     });
@@ -1637,7 +1662,7 @@ var DueDateModal = class extends import_obsidian8.Modal {
   async submitDate(dateOverride) {
     var _a, _b, _c, _d;
     const dateValue = (_b = dateOverride != null ? dateOverride : (_a = this.inputElement) == null ? void 0 : _a.value.trim()) != null ? _b : "";
-    const priority = (_d = (_c = this.prioritySelectElement) == null ? void 0 : _c.value) != null ? _d : "4";
+    const priority = (_d = (_c = this.prioritySelectElement) == null ? void 0 : _c.value) != null ? _d : "3";
     if (!dateValue) {
       return;
     }
