@@ -23,6 +23,7 @@ src/
   tasks/
     task-processor.ts            ← Primary orchestrator; vault.modify handler + command runner
     reconciler.ts                ← Task transition logic (completion, uncompletion, deletion, recurring)
+    repeat-rules.ts              ← Pure recurring-rule parser, alias normalizer, and due-date calculator
     task-utils.ts                ← Pure parsing/diffing utilities (no side effects)
     task-state-store.ts          ← In-memory snapshot cache (tasks + status per file)
     due-date-modal.ts            ← Modal for collecting due date + priority on next-action assignment
@@ -79,7 +80,7 @@ Tasks use standard markdown checkboxes. Inline fields use Dataview-style double-
 - `[due:: YYYY-MM-DD]` — due date
 - `[completion-date:: YYYY-MM-DD]` — stamped on completion
 - `[completion-time:: HH:MM:SS]` — stamped on completion
-- `[repeat:: every X]` / `[repeats:: every X]` — recurring interval (`day`, `week`, `month`, `year`)
+- `[repeat:: every X]` / `[repeats:: every X]` — recurring interval; accepts singular/plural aliases, adjective aliases (`daily`, `weekly`, `monthly`, `yearly`), numeric intervals like `every 2 weeks`, weekday names like `every Monday`, and ordinal month-days like `every 5th`
 - `[priority:: N]` — 1–4, where 1 is highest; default 4
 - `[created:: YYYY-MM-DD]` — creation date (editor suggest only; not used by reconciler)
 
@@ -106,9 +107,26 @@ The next-action tag (default `#next-action`) marks the single active task in a f
 On completion of a task with `[repeat:: every X]` or `[repeats:: every X]`, a new open copy is inserted above the completed task with a computed due date:
 
 - `every day` → tomorrow
+- `every 2 days` → +2 days
 - `every week` → +7 days
+- `every 2 weeks` → +14 days
 - `every month` → +1 month (date clamped to last day of month)
+- `every 3 months` → +3 months (date clamped to last day of month)
 - `every year` → +1 year (date clamped)
+- `every 2 years` → +2 years (date clamped)
+- `every Monday` / `every Mon` → next matching weekday
+- `every 1st` / `every 5th` → next occurrence of that day-of-month (clamped to the last day when needed)
+
+Accepted aliases are normalized automatically:
+
+- Day: `day`, `days`, `daily`
+- Week: `week`, `weeks`, `weekly`
+- Month: `month`, `months`, `monthly`
+- Year: `year`, `years`, `yearly`
+- Weekdays: full or short names like `monday` / `mon`
+- Month days: ordinal forms `1st` through `31st`
+
+Weekday and ordinal repeats resolve to the **next future occurrence**. So `every Monday` completed on a Monday becomes next Monday, and `every 5th` completed on the 5th becomes next month's 5th.
 
 ### Next-Action Assignment & DueDateModal
 
@@ -164,7 +182,7 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 
 ### Pure vs. Side-Effecting Code
 
-`task-utils.ts`, `status-routing.ts`, and `date-suggestions.ts` are intentionally pure (no Obsidian API calls, no I/O). Keep them that way. All I/O and Obsidian API usage belongs in `task-processor.ts`, `reconciler.ts`, `task-routing.ts`, or the dashboard layer.
+`task-utils.ts`, `repeat-rules.ts`, `status-routing.ts`, and `date-suggestions.ts` are intentionally pure (no Obsidian API calls, no I/O). Keep them that way. All I/O and Obsidian API usage belongs in `task-processor.ts`, `reconciler.ts`, `task-routing.ts`, or the dashboard layer.
 
 ### Obsidian API Usage
 
@@ -226,7 +244,7 @@ Run after meaningful logic changes:
 4. Modal shows task text preview; clicking a suggested date immediately applies it; manual date input (YYYY-MM-DD or natural-language) works via Add Due Date / Enter
 5. Submitted due date written as `[due:: YYYY-MM-DD]`; priority written as `[priority:: N]` (default 4)
 6. Modal Skip dismisses without modifying the task
-7. Recurring completion inserts new open task above completed task with correct due date
+7. Recurring completion inserts new open task above completed task with correct due date for legacy, alias, and numeric repeat forms
 8. Status change routes file to correct destination folder
 9. Move preserves sub-path; files do not flatten to destination root
 10. Merge conflict prompt appears when destination file exists

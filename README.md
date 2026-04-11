@@ -70,9 +70,27 @@ If a completed task has `[repeat:: every X]` or `[repeats:: every X]`, a new ope
 | Interval | New due date |
 |---|---|
 | `every day` | Tomorrow |
+| `every 2 days` | +2 days |
 | `every week` | +7 days |
+| `every 2 weeks` | +14 days |
 | `every month` | +1 month (clamped to last day of month) |
+| `every 3 months` | +3 months (clamped to last day of month) |
 | `every year` | +1 year (clamped to last day of month) |
+| `every 2 years` | +2 years (clamped to last day of month) |
+| `every Monday` | Next Monday |
+| `every Fri` | Next Friday |
+| `every 1st` | Next occurrence of the 1st day of a month |
+| `every 5th` | Next occurrence of the 5th day of a month |
+
+Accepted aliases are normalized automatically:
+- Day: `day`, `days`, `daily`
+- Week: `week`, `weeks`, `weekly`
+- Month: `month`, `months`, `monthly`
+- Year: `year`, `years`, `yearly`
+- Weekdays: full or short names like `monday` / `mon`
+- Month days: ordinal forms `1st` through `31st`
+
+Weekday and ordinal repeats always resolve to the **next future occurrence**. For example, `every Monday` completed on a Monday becomes next Monday, and `every 5th` completed on the 5th becomes next month's 5th.
 
 Recurring tasks skip the Due Date Modal on the new copy.
 
@@ -100,7 +118,7 @@ Tasks use Dataview-style double-colon inline fields on the same line as the chec
 | `[due:: YYYY-MM-DD]` | Due date |
 | `[completion-date:: YYYY-MM-DD]` | Stamped on task completion |
 | `[completion-time:: HH:MM:SS]` | Stamped on task completion |
-| `[repeat:: every X]` / `[repeats:: every X]` | Recurring interval |
+| `[repeat:: every X]` / `[repeats:: every X]` | Recurring interval; supports aliases, numeric intervals, weekday names like `every Monday`, and ordinal month-days like `every 5th` |
 | `[priority:: N]` | Priority 1–4 (1 = highest, default 4) |
 | `[created:: YYYY-MM-DD]` | Creation date (editor suggest only) |
 
@@ -133,6 +151,7 @@ Display notes:
 | `main.js` | Bundled runtime output loaded by Obsidian (`npm run build` regenerates this) |
 | `src/tasks/task-processor.ts` | Central orchestrator: vault modify/create events, commands, routing |
 | `src/tasks/reconciler.ts` | Task transition logic: completion, uncompletion, deletion, recurring |
+| `src/tasks/repeat-rules.ts` | Pure recurring-rule parser, alias normalizer, and next-due-date calculator |
 | `src/tasks/task-utils.ts` | Pure parsing/diffing utilities (no side effects) |
 | `src/tasks/task-state-store.ts` | In-memory per-file task/status snapshot cache and pending-write guards |
 | `src/tasks/due-date-modal.ts` | Modal for collecting due date and priority on next-action assignment |
@@ -170,6 +189,7 @@ graph TD
 
    TP[task-processor.ts]
    RC[reconciler.ts]
+   RR[repeat-rules.ts]
    DDM[due-date-modal.ts]
    TS[task-state-store.ts]
    TU[task-utils.ts]
@@ -205,6 +225,7 @@ graph TD
    CMD --> TP
 
    TU --> RC
+   RR --> RC
    SU --> RC
    RS --> RC
    DDM --> RC

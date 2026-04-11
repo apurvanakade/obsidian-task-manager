@@ -1436,6 +1436,145 @@ function applyStyles(element, styles) {
   Object.assign(element.style, styles);
 }
 
+// src/tasks/repeat-rules.ts
+var REPEAT_FIELD_REGEX = /\[(?:repeat|repeats)::\s*every\s+([^\]]+?)\s*\]/i;
+var COUNT_AND_KEYWORD_REGEX = /^(\d+)\s+([a-z-]+)$/i;
+var KEYWORD_ONLY_REGEX = /^([a-z-]+)$/i;
+var REPEAT_KEYWORD_TO_UNIT = {
+  day: "day",
+  days: "day",
+  daily: "day",
+  week: "week",
+  weeks: "week",
+  weekly: "week",
+  month: "month",
+  months: "month",
+  monthly: "month",
+  year: "year",
+  years: "year",
+  yearly: "year"
+};
+var WEEKDAY_KEYWORD_TO_INDEX = {
+  sunday: 0,
+  sun: 0,
+  monday: 1,
+  mon: 1,
+  tuesday: 2,
+  tue: 2,
+  tues: 2,
+  wednesday: 3,
+  wed: 3,
+  thursday: 4,
+  thu: 4,
+  thur: 4,
+  thurs: 4,
+  friday: 5,
+  fri: 5,
+  saturday: 6,
+  sat: 6
+};
+function parseRepeatRule(line) {
+  const fieldMatch = line.match(REPEAT_FIELD_REGEX);
+  if (!fieldMatch) {
+    return null;
+  }
+  return parseRepeatExpression(fieldMatch[1]);
+}
+function getRepeatDueDate(rule, baseDate = /* @__PURE__ */ new Date()) {
+  switch (rule.kind) {
+    case "interval":
+      switch (rule.unit) {
+        case "day":
+          return formatDate2(addDays2(baseDate, rule.interval));
+        case "week":
+          return formatDate2(addDays2(baseDate, rule.interval * 7));
+        case "month":
+          return formatDate2(addMonthsClamped(baseDate, rule.interval));
+        case "year":
+          return formatDate2(addMonthsClamped(baseDate, rule.interval * 12));
+      }
+    case "weekday":
+      return formatDate2(getNextWeekday(baseDate, rule.weekday));
+    case "month-day":
+      return formatDate2(getNextMonthDay(baseDate, rule.dayOfMonth));
+  }
+}
+function parseRepeatExpression(expression) {
+  const normalized = expression.trim().toLowerCase();
+  const countedMatch = normalized.match(COUNT_AND_KEYWORD_REGEX);
+  if (countedMatch) {
+    const interval = Number.parseInt(countedMatch[1], 10);
+    const unit = REPEAT_KEYWORD_TO_UNIT[countedMatch[2]];
+    if (!Number.isFinite(interval) || interval < 1 || !unit) {
+      return null;
+    }
+    return { kind: "interval", interval, unit };
+  }
+  const keywordMatch = normalized.match(KEYWORD_ONLY_REGEX);
+  if (keywordMatch) {
+    const intervalUnit = REPEAT_KEYWORD_TO_UNIT[keywordMatch[1]];
+    if (intervalUnit) {
+      return { kind: "interval", interval: 1, unit: intervalUnit };
+    }
+    const weekday = WEEKDAY_KEYWORD_TO_INDEX[keywordMatch[1]];
+    if (weekday !== void 0) {
+      return { kind: "weekday", weekday };
+    }
+    const ordinalDay = parseOrdinalDay(keywordMatch[1]);
+    if (ordinalDay !== null) {
+      return { kind: "month-day", dayOfMonth: ordinalDay };
+    }
+  }
+  return null;
+}
+function addDays2(baseDate, days) {
+  const nextDate = new Date(baseDate);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+}
+function addMonthsClamped(baseDate, monthsToAdd) {
+  const startYear = baseDate.getFullYear();
+  const startMonth = baseDate.getMonth();
+  const targetMonthIndex = startMonth + monthsToAdd;
+  const targetYear = startYear + Math.floor(targetMonthIndex / 12);
+  const targetMonth = (targetMonthIndex % 12 + 12) % 12;
+  const day = baseDate.getDate();
+  const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const clampedDay = Math.min(day, lastDayOfTargetMonth);
+  return new Date(targetYear, targetMonth, clampedDay);
+}
+function getNextWeekday(baseDate, weekday) {
+  const currentWeekday = baseDate.getDay();
+  const delta = (weekday - currentWeekday + 7) % 7 || 7;
+  return addDays2(baseDate, delta);
+}
+function getNextMonthDay(baseDate, dayOfMonth) {
+  const currentDay = baseDate.getDate();
+  if (currentDay < dayOfMonth) {
+    return buildMonthDayDate(baseDate.getFullYear(), baseDate.getMonth(), dayOfMonth);
+  }
+  const nextMonth = addMonthsClamped(new Date(baseDate.getFullYear(), baseDate.getMonth(), 1), 1);
+  return buildMonthDayDate(nextMonth.getFullYear(), nextMonth.getMonth(), dayOfMonth);
+}
+function buildMonthDayDate(year, month, dayOfMonth) {
+  const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+  return new Date(year, month, Math.min(dayOfMonth, lastDayOfMonth));
+}
+function parseOrdinalDay(value) {
+  const match = value.match(/^([1-9]|[12][0-9]|3[01])(st|nd|rd|th)$/);
+  if (!match) {
+    return null;
+  }
+  const day = Number.parseInt(match[1], 10);
+  return Number.isFinite(day) ? day : null;
+}
+function formatDate2(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 // src/tasks/reconciler.ts
 function isInProjectsFolder(filePath, projectsFolder) {
   return filePath === projectsFolder || filePath.startsWith(`${projectsFolder}/`);
@@ -1454,7 +1593,7 @@ async function showDueDateModalForNextAction(file, taskLineIndex, previousConten
   if (previousLines.includes(taskLine)) {
     return;
   }
-  const isRepeating = getRepeatRule(taskLine) !== null;
+  const isRepeating = parseRepeatRule(taskLine) !== null;
   if (isRepeating) {
     return;
   }
@@ -1501,7 +1640,7 @@ async function applyCompletionRules(context) {
   const nextLines = [...lines];
   const sourceTaskLine = lines[completedLine];
   let completedLineIndex = completedLine;
-  const repeatRule = getRepeatRule(sourceTaskLine);
+  const repeatRule = parseRepeatRule(sourceTaskLine);
   if (repeatRule !== null) {
     const repeatedTaskLine = buildRepeatedTaskLine(sourceTaskLine, repeatRule);
     if (repeatedTaskLine !== null) {
@@ -1626,7 +1765,11 @@ async function processProjectsFolder(context) {
   return files.length;
 }
 function getCompletionDateString() {
-  return formatDate2(/* @__PURE__ */ new Date());
+  const now = /* @__PURE__ */ new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 function getCompletionTimeString() {
   const now = /* @__PURE__ */ new Date();
@@ -1642,10 +1785,6 @@ function addCompletionFields(line) {
 function stripCompletionFields(line) {
   return line.replace(/\s*\[completion-date::[^\]]*\]/g, "").replace(/\s*\[completion-time::[^\]]*\]/g, "");
 }
-function getRepeatRule(line) {
-  const match = line.match(/\[(?:repeat|repeats)::\s*every\s+(day|week|month|year)\s*\]/i);
-  return match ? match[1].toLowerCase() : null;
-}
 function buildRepeatedTaskLine(completedLine, repeatRule) {
   const cleaned = stripCompletionFields(completedLine);
   if (!cleaned.match(/^(\s*[-*+]\s+\[)[^\]](\]\s*)/)) {
@@ -1655,43 +1794,6 @@ function buildRepeatedTaskLine(completedLine, repeatRule) {
   const taskBodyWithoutDue = openTask.replace(/\s*\[due::\s*[^\]]*\]/g, "").trimEnd();
   const dueDate = getRepeatDueDate(repeatRule);
   return `${taskBodyWithoutDue} [due:: ${dueDate}]`;
-}
-function getRepeatDueDate(repeatRule) {
-  const now = /* @__PURE__ */ new Date();
-  switch (repeatRule) {
-    case "day":
-      return formatDate2(addDays2(now, 1));
-    case "week":
-      return formatDate2(addDays2(now, 7));
-    case "month":
-      return formatDate2(addMonthsClamped(now, 1));
-    case "year":
-      return formatDate2(addMonthsClamped(now, 12));
-    default:
-      return formatDate2(now);
-  }
-}
-function addDays2(baseDate, days) {
-  const nextDate = new Date(baseDate);
-  nextDate.setDate(nextDate.getDate() + days);
-  return nextDate;
-}
-function addMonthsClamped(baseDate, monthsToAdd) {
-  const startYear = baseDate.getFullYear();
-  const startMonth = baseDate.getMonth();
-  const targetMonthIndex = startMonth + monthsToAdd;
-  const targetYear = startYear + Math.floor(targetMonthIndex / 12);
-  const targetMonth = (targetMonthIndex % 12 + 12) % 12;
-  const day = baseDate.getDate();
-  const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
-  const clampedDay = Math.min(day, lastDayOfTargetMonth);
-  return new Date(targetYear, targetMonth, clampedDay);
-}
-function formatDate2(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
 function isValidDateFormat(dateStr) {
   const trimmed = dateStr.trim();

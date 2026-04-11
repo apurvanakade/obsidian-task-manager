@@ -27,6 +27,7 @@ import {
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { readStatusValue } from "../routing/status-routing";
 import { DueDateModal } from "./due-date-modal";
+import { getRepeatDueDate, parseRepeatRule, RepeatRule } from "./repeat-rules";
 
 type ReconcilerContext = {
   file: TFile;
@@ -59,8 +60,6 @@ type ProcessTasksContext = {
   reconcileOneFile: (file: TFile) => Promise<void>;
 };
 
-type RepeatRule = "day" | "week" | "month" | "year";
-
 function isInProjectsFolder(filePath: string, projectsFolder: string): boolean {
   return filePath === projectsFolder || filePath.startsWith(`${projectsFolder}/`);
 }
@@ -91,7 +90,7 @@ async function showDueDateModalForNextAction(
   }
   
   // Skip if task is repeating (it already has a due date assigned)
-  const isRepeating = getRepeatRule(taskLine) !== null;
+  const isRepeating = parseRepeatRule(taskLine) !== null;
   if (isRepeating) {
     return;
   }
@@ -150,7 +149,7 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
   const sourceTaskLine = lines[completedLine];
   let completedLineIndex = completedLine;
 
-  const repeatRule = getRepeatRule(sourceTaskLine);
+  const repeatRule = parseRepeatRule(sourceTaskLine);
   if (repeatRule !== null) {
     const repeatedTaskLine = buildRepeatedTaskLine(sourceTaskLine, repeatRule);
     if (repeatedTaskLine !== null) {
@@ -322,7 +321,11 @@ export async function processProjectsFolder(context: ProcessTasksContext): Promi
 }
 
 export function getCompletionDateString(): string {
-  return formatDate(new Date());
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export function getCompletionTimeString(): string {
@@ -344,11 +347,6 @@ function stripCompletionFields(line: string): string {
     .replace(/\s*\[completion-time::[^\]]*\]/g, "");
 }
 
-function getRepeatRule(line: string): RepeatRule | null {
-  const match = line.match(/\[(?:repeat|repeats)::\s*every\s+(day|week|month|year)\s*\]/i);
-  return match ? (match[1].toLowerCase() as RepeatRule) : null;
-}
-
 function buildRepeatedTaskLine(completedLine: string, repeatRule: RepeatRule): string | null {
   const cleaned = stripCompletionFields(completedLine);
   if (!cleaned.match(/^(\s*[-*+]\s+\[)[^\]](\]\s*)/)) {
@@ -359,49 +357,6 @@ function buildRepeatedTaskLine(completedLine: string, repeatRule: RepeatRule): s
   const taskBodyWithoutDue = openTask.replace(/\s*\[due::\s*[^\]]*\]/g, "").trimEnd();
   const dueDate = getRepeatDueDate(repeatRule);
   return `${taskBodyWithoutDue} [due:: ${dueDate}]`;
-}
-
-function getRepeatDueDate(repeatRule: RepeatRule): string {
-  const now = new Date();
-
-  switch (repeatRule) {
-    case "day":
-      return formatDate(addDays(now, 1));
-    case "week":
-      return formatDate(addDays(now, 7));
-    case "month":
-      return formatDate(addMonthsClamped(now, 1));
-    case "year":
-      return formatDate(addMonthsClamped(now, 12));
-    default:
-      return formatDate(now);
-  }
-}
-
-function addDays(baseDate: Date, days: number): Date {
-  const nextDate = new Date(baseDate);
-  nextDate.setDate(nextDate.getDate() + days);
-  return nextDate;
-}
-
-function addMonthsClamped(baseDate: Date, monthsToAdd: number): Date {
-  const startYear = baseDate.getFullYear();
-  const startMonth = baseDate.getMonth();
-  const targetMonthIndex = startMonth + monthsToAdd;
-  const targetYear = startYear + Math.floor(targetMonthIndex / 12);
-  const targetMonth = ((targetMonthIndex % 12) + 12) % 12;
-  const day = baseDate.getDate();
-  const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
-  const clampedDay = Math.min(day, lastDayOfTargetMonth);
-
-  return new Date(targetYear, targetMonth, clampedDay);
-}
-
-function formatDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
 
 function isValidDateFormat(dateStr: string): boolean {
