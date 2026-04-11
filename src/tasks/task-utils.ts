@@ -239,8 +239,7 @@ function escapeRegExp(value: string): string {
 
 function stripResetTaskFields(taskBody: string): string {
   return taskBody
-    .replace(/\s*\[(?:due|completion-date|completion-time|created)::\s*[^\]]*\]/gi, "")
+    .replace(/\s*\[(?:due|completion-date|completion-time|created|priority)::\s*[^\]]*\]/gi, "")
     .replace(/\s{2,}/g, " ")
     .trimEnd();
 }
-

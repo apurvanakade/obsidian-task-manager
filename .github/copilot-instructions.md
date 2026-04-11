@@ -56,7 +56,7 @@ src/
 
 - **Process Tasks** — applies processing to all markdown files under all four configured task-folder roots
 - **Process File** — processes only the currently active file; silently does nothing if the file is not inside one of the four configured roots
-- **Reset Tasks** — in the active file, marks all tasks open (`[ ]`) and strips `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, and `[created:: ...]` from task lines, then runs the same flow as Process File
+- **Reset Tasks** — in the active file, marks all tasks open (`[ ]`) and strips `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, `[created:: ...]`, and `[priority:: ...]` from task lines, then runs the same flow as Process File
 
 ### Settings Persistence
 
@@ -237,4 +237,4 @@ Run after meaningful logic changes:
 15. Dashboard task text strips inline fields and tags; filename/folder display applies hide-keywords
 16. Typing `due::` shows suggestions from today, matches ISO and weekday labels, inserts ` YYYY-MM-DD`
 17. Typing `created::` shows today suggestion and inserts ` YYYY-MM-DD`
-18. `Reset Tasks` reopens all tasks, removes due/completion/created inline fields, then runs Process File flow
+18. `Reset Tasks` reopens all tasks, removes due/completion/created/priority inline fields, then runs Process File flow

@@ -1183,7 +1183,7 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function stripResetTaskFields(taskBody) {
-  return taskBody.replace(/\s*\[(?:due|completion-date|completion-time|created)::\s*[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trimEnd();
+  return taskBody.replace(/\s*\[(?:due|completion-date|completion-time|created|priority)::\s*[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trimEnd();
 }
 
 // src/routing/status-routing.ts

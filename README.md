@@ -45,7 +45,7 @@ Processes the currently active file:
 ### Reset Tasks
 In the active file:
 - Marks all tasks open (`[ ]`).
-- Removes `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, and `[created:: ...]` from every task line.
+- Removes `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, `[created:: ...]`, and `[priority:: ...]` from every task line.
 - Then runs the same flow as **Process File**.
 
 ## Automatic Behavior (live editing)
