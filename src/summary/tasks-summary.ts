@@ -21,6 +21,7 @@ import { TaskManagerSettings } from "../settings/settings-utils";
 const TASK_LINE_REGEX = /^\s*[-*+]\s+\[( |x|X)\]\s+(.*)$/;
 const DUE_FIELD_REGEX = /\[due::\s*([^\]]+?)\s*\]/i;
 const PRIORITY_FIELD_REGEX = /\[priority::\s*([^\]]+?)\s*\]/i;
+const REPEAT_FIELD_REGEX = /\[(?:repeat|repeats)::\s*[^\]]+?\]/i;
 const INLINE_FIELD_REGEX = /\s*\[[^\]]+::\s*[^\]]*\]/g;
 const TAG_REGEX = /(^|\s)#[^\s#]+/g;
 const MULTISPACE_REGEX = /\s+/g;
@@ -38,6 +39,14 @@ type SummaryRow = {
   task: string;
   dueDate: string | null;
   priority: number;
+  isRecurring: boolean;
+};
+
+type ProjectSummaryBuckets = {
+  recurring: SummaryRow[];
+  dueThisWeek: SummaryRow[];
+  scheduledLater: SummaryRow[];
+  unscheduled: SummaryRow[];
 };
 
 export async function writeTasksSummary(
@@ -119,6 +128,7 @@ async function findNextActionRow(app: App, file: TFile, nextActionTag: string): 
       task: parsed.task,
       dueDate: parsed.dueDate,
       priority: parsed.priority,
+      isRecurring: parsed.isRecurring,
     };
   }
 
@@ -145,6 +155,7 @@ function parseNextActionTaskLine(line: string, nextActionTag: string): Omit<Summ
     task: cleanTaskText(taskBody),
     dueDate: readInlineFieldValue(taskBody, DUE_FIELD_REGEX),
     priority: parsePriorityValue(readInlineFieldValue(taskBody, PRIORITY_FIELD_REGEX)),
+    isRecurring: REPEAT_FIELD_REGEX.test(taskBody),
   };
 }
 
@@ -153,25 +164,11 @@ function renderSummary(sections: SummarySection[], hideKeywords: string): string
 
   for (const section of sections) {
     lines.push(`## ${section.title}`, "");
-    if (section.rows.length === 0) {
-      lines.push("No tasks.", "");
-      continue;
+    if (section.title === "Projects") {
+      appendProjectSubsections(lines, section.rows, hideKeywords);
+    } else {
+      appendSectionTable(lines, section.rows, hideKeywords);
     }
-
-    lines.push("| Folder | Filename | Task | Priority | Due |");
-    lines.push("| --- | --- | --- | --- | --- |");
-
-    let previousFolder = "";
-    for (const row of section.rows) {
-      const folderName = getDisplayFolderName(row.file.parent?.path ?? "", hideKeywords);
-      const displayFolder = folderName === previousFolder ? "" : folderName;
-      previousFolder = folderName;
-
-      lines.push(
-        `| ${escapePipes(displayFolder)} | ${buildFileLink(row.file, hideKeywords)} | ${buildWeightedTaskText(row.task, row.priority)} | ${row.priority} | ${formatMonthDay(row.dueDate)} |`,
-      );
-    }
-
     lines.push("");
   }
 
@@ -183,12 +180,14 @@ async function writeSummaryFile(app: App, summaryFilePath: string, summaryConten
 
   const existing = app.vault.getAbstractFileByPath(summaryFilePath);
   if (!existing) {
-    await app.vault.create(summaryFilePath, summaryContent);
+    const createdFile = await app.vault.create(summaryFilePath, summaryContent);
+    await stampSummaryMetadata(app, createdFile);
     return;
   }
 
   if (existing instanceof TFile) {
     await app.vault.modify(existing, summaryContent);
+    await stampSummaryMetadata(app, existing);
     return;
   }
 
@@ -202,6 +201,73 @@ function compareSummaryRows(left: SummaryRow, right: SummaryRow): number {
   }
 
   return left.file.path.localeCompare(right.file.path);
+}
+
+function appendProjectSubsections(lines: string[], rows: SummaryRow[], hideKeywords: string): void {
+  const buckets = splitProjectRows(rows);
+  appendNamedSubsection(lines, "Recurring Tasks", buckets.recurring, hideKeywords);
+  appendNamedSubsection(lines, "Tasks Due This Week", buckets.dueThisWeek, hideKeywords);
+  appendNamedSubsection(lines, "Tasks Scheduled But Not Due This Week", buckets.scheduledLater, hideKeywords);
+  appendNamedSubsection(lines, "Unscheduled Tasks", buckets.unscheduled, hideKeywords);
+}
+
+function appendNamedSubsection(lines: string[], title: string, rows: SummaryRow[], hideKeywords: string): void {
+  lines.push(`### ${title}`, "");
+  appendSectionTable(lines, rows, hideKeywords);
+}
+
+function appendSectionTable(lines: string[], rows: SummaryRow[], hideKeywords: string): void {
+  if (rows.length === 0) {
+    lines.push("No tasks.", "");
+    return;
+  }
+
+  lines.push("| Folder | Filename | Task | Priority | Due |");
+  lines.push("| --- | --- | --- | --- | --- |");
+
+  let previousFolder = "";
+  for (const row of rows) {
+    const folderName = getDisplayFolderName(row.file.parent?.path ?? "", hideKeywords);
+    const displayFolder = folderName === previousFolder ? "" : folderName;
+    previousFolder = folderName;
+
+    lines.push(
+      `| ${escapePipes(displayFolder)} | ${buildFileLink(row.file, hideKeywords)} | ${buildWeightedTaskText(row.task, row.priority)} | ${row.priority} | ${formatMonthDay(row.dueDate)} |`,
+    );
+  }
+
+  lines.push("");
+}
+
+function splitProjectRows(rows: SummaryRow[]): ProjectSummaryBuckets {
+  const endOfWeek = getEndOfWeek(new Date());
+  const buckets: ProjectSummaryBuckets = {
+    recurring: [],
+    dueThisWeek: [],
+    scheduledLater: [],
+    unscheduled: [],
+  };
+
+  for (const row of rows) {
+    if (row.isRecurring) {
+      buckets.recurring.push(row);
+      continue;
+    }
+
+    if (!row.dueDate) {
+      buckets.unscheduled.push(row);
+      continue;
+    }
+
+    const dueDate = parseIsoDate(row.dueDate);
+    if (dueDate !== null && dueDate <= endOfWeek) {
+      buckets.dueThisWeek.push(row);
+    } else {
+      buckets.scheduledLater.push(row);
+    }
+  }
+
+  return buckets;
 }
 
 function isInFolder(filePath: string, folderPath: string): boolean {
@@ -301,4 +367,44 @@ function buildWeightedTaskText(task: string, priority: number): string {
   }
 
   return escapedTask;
+}
+
+async function stampSummaryMetadata(app: App, file: TFile): Promise<void> {
+  await app.fileManager.processFrontMatter(file, (frontmatter: Record<string, string>) => {
+    frontmatter["creation-date"] = getCurrentDateString();
+    frontmatter["creation-time"] = getCurrentTimeString();
+  });
+}
+
+function getEndOfWeek(baseDate: Date): Date {
+  const endOfWeek = new Date(baseDate);
+  const daysUntilSunday = (7 - endOfWeek.getDay()) % 7;
+  endOfWeek.setHours(23, 59, 59, 999);
+  endOfWeek.setDate(endOfWeek.getDate() + daysUntilSunday);
+  return endOfWeek;
+}
+
+function parseIsoDate(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
+  const parsed = new Date(`${value}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getCurrentDateString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getCurrentTimeString(): string {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  const seconds = String(now.getSeconds()).padStart(2, "0");
+  return `${hours}:${minutes}:${seconds}`;
 }

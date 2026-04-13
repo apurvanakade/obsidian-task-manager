@@ -864,6 +864,7 @@ function getParentPath(path) {
 var TASK_LINE_REGEX2 = /^\s*[-*+]\s+\[( |x|X)\]\s+(.*)$/;
 var DUE_FIELD_REGEX2 = /\[due::\s*([^\]]+?)\s*\]/i;
 var PRIORITY_FIELD_REGEX2 = /\[priority::\s*([^\]]+?)\s*\]/i;
+var REPEAT_FIELD_REGEX = /\[(?:repeat|repeats)::\s*[^\]]+?\]/i;
 var INLINE_FIELD_REGEX2 = /\s*\[[^\]]+::\s*[^\]]*\]/g;
 var TAG_REGEX2 = /(^|\s)#[^\s#]+/g;
 var MULTISPACE_REGEX2 = /\s+/g;
@@ -933,7 +934,8 @@ async function findNextActionRow(app, file, nextActionTag) {
       file,
       task: parsed.task,
       dueDate: parsed.dueDate,
-      priority: parsed.priority
+      priority: parsed.priority,
+      isRecurring: parsed.isRecurring
     };
   }
   return null;
@@ -954,28 +956,18 @@ function parseNextActionTaskLine(line, nextActionTag) {
   return {
     task: cleanTaskText(taskBody),
     dueDate: readInlineFieldValue2(taskBody, DUE_FIELD_REGEX2),
-    priority: parsePriorityValue2(readInlineFieldValue2(taskBody, PRIORITY_FIELD_REGEX2))
+    priority: parsePriorityValue2(readInlineFieldValue2(taskBody, PRIORITY_FIELD_REGEX2)),
+    isRecurring: REPEAT_FIELD_REGEX.test(taskBody)
   };
 }
 function renderSummary(sections, hideKeywords) {
-  var _a, _b;
   const lines = ["# Tasks Summary", ""];
   for (const section of sections) {
     lines.push(`## ${section.title}`, "");
-    if (section.rows.length === 0) {
-      lines.push("No tasks.", "");
-      continue;
-    }
-    lines.push("| Folder | Filename | Task | Priority | Due |");
-    lines.push("| --- | --- | --- | --- | --- |");
-    let previousFolder = "";
-    for (const row of section.rows) {
-      const folderName = getDisplayFolderName((_b = (_a = row.file.parent) == null ? void 0 : _a.path) != null ? _b : "", hideKeywords);
-      const displayFolder = folderName === previousFolder ? "" : folderName;
-      previousFolder = folderName;
-      lines.push(
-        `| ${escapePipes(displayFolder)} | ${buildFileLink(row.file, hideKeywords)} | ${buildWeightedTaskText(row.task, row.priority)} | ${row.priority} | ${formatMonthDay(row.dueDate)} |`
-      );
+    if (section.title === "Projects") {
+      appendProjectSubsections(lines, section.rows, hideKeywords);
+    } else {
+      appendSectionTable(lines, section.rows, hideKeywords);
     }
     lines.push("");
   }
@@ -985,11 +977,13 @@ async function writeSummaryFile(app, summaryFilePath, summaryContent) {
   await ensureParentFoldersExist(app, summaryFilePath);
   const existing = app.vault.getAbstractFileByPath(summaryFilePath);
   if (!existing) {
-    await app.vault.create(summaryFilePath, summaryContent);
+    const createdFile = await app.vault.create(summaryFilePath, summaryContent);
+    await stampSummaryMetadata(app, createdFile);
     return;
   }
   if (existing instanceof import_obsidian5.TFile) {
     await app.vault.modify(existing, summaryContent);
+    await stampSummaryMetadata(app, existing);
     return;
   }
   throw new Error(`Cannot write summary to '${summaryFilePath}' because a folder already exists at that path.`);
@@ -1001,6 +995,62 @@ function compareSummaryRows(left, right) {
     return folderCompare;
   }
   return left.file.path.localeCompare(right.file.path);
+}
+function appendProjectSubsections(lines, rows, hideKeywords) {
+  const buckets = splitProjectRows(rows);
+  appendNamedSubsection(lines, "Recurring Tasks", buckets.recurring, hideKeywords);
+  appendNamedSubsection(lines, "Tasks Due This Week", buckets.dueThisWeek, hideKeywords);
+  appendNamedSubsection(lines, "Tasks Scheduled But Not Due This Week", buckets.scheduledLater, hideKeywords);
+  appendNamedSubsection(lines, "Unscheduled Tasks", buckets.unscheduled, hideKeywords);
+}
+function appendNamedSubsection(lines, title, rows, hideKeywords) {
+  lines.push(`### ${title}`, "");
+  appendSectionTable(lines, rows, hideKeywords);
+}
+function appendSectionTable(lines, rows, hideKeywords) {
+  var _a, _b;
+  if (rows.length === 0) {
+    lines.push("No tasks.", "");
+    return;
+  }
+  lines.push("| Folder | Filename | Task | Priority | Due |");
+  lines.push("| --- | --- | --- | --- | --- |");
+  let previousFolder = "";
+  for (const row of rows) {
+    const folderName = getDisplayFolderName((_b = (_a = row.file.parent) == null ? void 0 : _a.path) != null ? _b : "", hideKeywords);
+    const displayFolder = folderName === previousFolder ? "" : folderName;
+    previousFolder = folderName;
+    lines.push(
+      `| ${escapePipes(displayFolder)} | ${buildFileLink(row.file, hideKeywords)} | ${buildWeightedTaskText(row.task, row.priority)} | ${row.priority} | ${formatMonthDay(row.dueDate)} |`
+    );
+  }
+  lines.push("");
+}
+function splitProjectRows(rows) {
+  const endOfWeek = getEndOfWeek(/* @__PURE__ */ new Date());
+  const buckets = {
+    recurring: [],
+    dueThisWeek: [],
+    scheduledLater: [],
+    unscheduled: []
+  };
+  for (const row of rows) {
+    if (row.isRecurring) {
+      buckets.recurring.push(row);
+      continue;
+    }
+    if (!row.dueDate) {
+      buckets.unscheduled.push(row);
+      continue;
+    }
+    const dueDate = parseIsoDate(row.dueDate);
+    if (dueDate !== null && dueDate <= endOfWeek) {
+      buckets.dueThisWeek.push(row);
+    } else {
+      buckets.scheduledLater.push(row);
+    }
+  }
+  return buckets;
 }
 function isInFolder(filePath, folderPath) {
   return filePath.startsWith(`${folderPath}/`);
@@ -1073,6 +1123,40 @@ function buildWeightedTaskText(task, priority) {
     return `*${escapedTask}*`;
   }
   return escapedTask;
+}
+async function stampSummaryMetadata(app, file) {
+  await app.fileManager.processFrontMatter(file, (frontmatter) => {
+    frontmatter["creation-date"] = getCurrentDateString();
+    frontmatter["creation-time"] = getCurrentTimeString();
+  });
+}
+function getEndOfWeek(baseDate) {
+  const endOfWeek = new Date(baseDate);
+  const daysUntilSunday = (7 - endOfWeek.getDay()) % 7;
+  endOfWeek.setHours(23, 59, 59, 999);
+  endOfWeek.setDate(endOfWeek.getDate() + daysUntilSunday);
+  return endOfWeek;
+}
+function parseIsoDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+  const parsed = /* @__PURE__ */ new Date(`${value}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+function getCurrentDateString() {
+  const now = /* @__PURE__ */ new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+function getCurrentTimeString() {
+  const now = /* @__PURE__ */ new Date();
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  const seconds = String(now.getSeconds()).padStart(2, "0");
+  return `${hours}:${minutes}:${seconds}`;
 }
 
 // src/settings/settings-ui.ts
@@ -1684,7 +1768,7 @@ function applyStyles(element, styles) {
 }
 
 // src/tasks/repeat-rules.ts
-var REPEAT_FIELD_REGEX = /\[(?:repeat|repeats)::\s*(?:every\s+)?([^\]]+?)\s*\]/i;
+var REPEAT_FIELD_REGEX2 = /\[(?:repeat|repeats)::\s*(?:every\s+)?([^\]]+?)\s*\]/i;
 var COUNT_AND_KEYWORD_REGEX = /^(\d+)\s+([a-z-]+)$/i;
 var KEYWORD_ONLY_REGEX = /^([a-z-]+)$/i;
 var REPEAT_KEYWORD_TO_UNIT = {
@@ -1721,7 +1805,7 @@ var WEEKDAY_KEYWORD_TO_INDEX = {
   sat: 6
 };
 function parseRepeatRule(line) {
-  const fieldMatch = line.match(REPEAT_FIELD_REGEX);
+  const fieldMatch = line.match(REPEAT_FIELD_REGEX2);
   if (!fieldMatch) {
     return null;
   }

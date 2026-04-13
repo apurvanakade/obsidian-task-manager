@@ -3,7 +3,7 @@
  * - provide pure parsing and date-calculation helpers for recurring task rules.
  *
  * Responsibilities:
- * - parses `[repeat:: every ...]` and `[repeats:: every ...]` task fields
+ * - parses `[repeat::  ...]` and `[repeats::  ...]` task fields
  * - normalizes supported aliases to canonical repeat units or calendar targets
  * - computes the next due date for a recurring task rule
  *

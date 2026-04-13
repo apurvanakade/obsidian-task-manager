@@ -193,6 +193,13 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 ### Output Format
 
 - Writes a markdown note with sections: **Projects**, **Waiting**, **Someday-Maybe**, **Inbox**
+- Stamps `creation-date` and `creation-time` into the summary file frontmatter
+- Splits the **Projects** section into:
+  - **Recurring Tasks** — tasks with `[repeat:: ...]` or `[repeats:: ...]`
+  - **Tasks Due This Week** — tasks with a due date on or before the end of the current week
+  - **Tasks Scheduled But Not Due This Week** — tasks with a due date after the end of the current week
+  - **Unscheduled Tasks** — tasks without a due date
+- Recurring tasks appear **only** in the Recurring Tasks subsection, even if they also have a due date
 - Each non-empty section renders a grouped markdown table with columns:
   - Folder
   - Filename
@@ -289,4 +296,4 @@ Run after meaningful logic changes:
 16. Typing `due::` shows suggestions from today, matches ISO and weekday labels, inserts ` YYYY-MM-DD`
 17. Typing `created::` shows today suggestion and inserts ` YYYY-MM-DD`
 18. `Reset Tasks` reopens all tasks, removes due/completion/created/priority inline fields, then runs Process File flow
-19. `Tasks Summary` writes the configured Tasks Summary File with grouped sections for Projects/Waiting/Someday-Maybe/Inbox and includes the first open `#next-action` task per file with due date and priority
+19. `Tasks Summary` writes the configured Tasks Summary File, stamps `creation-date`/`creation-time` frontmatter, splits Projects into recurring/due-this-week/scheduled-later/unscheduled subsections, and includes the first open `#next-action` task per file with due date and priority

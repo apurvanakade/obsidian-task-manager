@@ -52,6 +52,18 @@ In the active file:
 ### Tasks Summary
 Creates or overwrites the configured **Tasks Summary File** with sections for **Projects**, **Waiting**, **Someday-Maybe**, and **Inbox**.
 
+The summary note also stamps frontmatter metadata:
+- `creation-date: YYYY-MM-DD`
+- `creation-time: HH:MM:SS`
+
+The **Projects** section is further split into:
+- **Recurring Tasks** — tasks with `[repeat:: ...]` or `[repeats:: ...]`
+- **Tasks Due This Week** — tasks with a due date on or before the end of the current week
+- **Tasks Scheduled But Not Due This Week** — tasks with a due date after the end of the current week
+- **Unscheduled Tasks** — tasks without a due date
+
+Recurring tasks are shown **only** in the Recurring Tasks subsection, even if they also have a due date.
+
 For each file, the summary includes the **first open task tagged `#next-action`** and renders a grouped table with:
 - Folder
 - Filename
