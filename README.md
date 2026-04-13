@@ -235,11 +235,11 @@ graph TD
    CMD --> M
 
    DTD --> D
-   SU --> D
 
    DS --> E
 
    SFD --> SUI
+   SU --> SFD
    FP --> SUI
    SU --> SUI
 
@@ -253,7 +253,6 @@ graph TD
    RT --> TP
    RS --> TP
    TS --> TP
-   CMD --> TP
 
    TU --> RC
    RR --> RC
