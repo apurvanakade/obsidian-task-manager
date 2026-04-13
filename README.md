@@ -17,6 +17,7 @@ Automates task lifecycle management in Obsidian: state transitions, completion m
    | Someday-Maybe Projects Folder | Destination for someday-maybe projects | — |
    | Inbox File | File whose tasks appear in the dashboard Inbox section | — |
    | Tasks Summary File | File written by the Tasks Summary command | `Tasks Summary.md` |
+   | Open Tasks Summary After Generation | Whether to open the summary note automatically after generation | Off |
    | Next Action Tag | Tag marking the current actionable task | `#next-action` |
    | Completed Status Field | Frontmatter field name written on completion | `status` |
    | Dashboard Filename Hide Keywords | Comma-separated keywords stripped from dashboard display names | — |
@@ -51,6 +52,8 @@ In the active file:
 
 ### Tasks Summary
 Creates or overwrites the configured **Tasks Summary File** with sections for **Projects**, **Waiting**, **Someday-Maybe**, and **Inbox**.
+
+By default, generating the summary does **not** open the summary note. Enable **Open Tasks Summary After Generation** in plugin settings if you want it opened automatically.
 
 The summary note also stamps frontmatter metadata:
 - `creation-date: YYYY-MM-DD`

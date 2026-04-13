@@ -68,7 +68,7 @@ Settings live in `data.json` (loaded/saved via `plugin.loadData()` / `plugin.sav
 
 Configurable paths: Projects Folder, Completed Projects Folder, Waiting Projects Folder, Someday-Maybe Projects Folder, Inbox File (file picker, not folder), Tasks Summary File (file picker).
 
-Other settings: Next Action Tag (default `#next-action`), Completed Status Field (default `status`), Dashboard Filename Hide Keywords (comma-separated keywords stripped from dashboard display names).
+Other settings: Next Action Tag (default `#next-action`), Completed Status Field (default `status`), Open Tasks Summary After Generation (default off), Dashboard Filename Hide Keywords (comma-separated keywords stripped from dashboard display names).
 
 ### Status Routing
 
@@ -178,6 +178,7 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 ### Inputs
 
 - Uses the configured **Tasks Summary File** setting as the destination path
+- Opens the summary note after generation only when **Open Tasks Summary After Generation** is enabled
 - Scans:
   - Projects Folder
   - Waiting Projects Folder

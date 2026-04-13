@@ -19,7 +19,7 @@
  */
 import { PluginSettingTab, Setting, TextComponent, TextAreaComponent } from "obsidian";
 import { openFolderPicker, openFilePicker } from "./folder-picker";
-import { getFolderSettingConfigs, getTextSettingConfigs, FolderSettingConfig, TextSettingConfig } from "./settings-field-definitions";
+import { getFolderSettingConfigs, getTextSettingConfigs, getToggleSettingConfigs, FolderSettingConfig, TextSettingConfig, ToggleSettingConfig } from "./settings-field-definitions";
 import { FolderSettingKey, TaskManagerSettings } from "./settings-utils";
 
 type SettingsHost = {
@@ -48,6 +48,10 @@ export class TaskManagerSettingTabRenderer {
 
     for (const textSetting of getTextSettingConfigs(settings)) {
       this.addTextSetting(containerEl, textSetting);
+    }
+
+    for (const toggleSetting of getToggleSettingConfigs(settings)) {
+      this.addToggleSetting(containerEl, toggleSetting);
     }
   }
 
@@ -102,6 +106,19 @@ export class TaskManagerSettingTabRenderer {
           });
       });
     }
+  }
+
+  private addToggleSetting(containerEl: HTMLElement, config: ToggleSettingConfig): void {
+    new Setting(containerEl)
+      .setName(config.name)
+      .setDesc(config.description)
+      .addToggle((toggle) => {
+        toggle
+          .setValue(config.value)
+          .onChange(async (value) => {
+            await this.plugin.updateSetting(config.key, value);
+          });
+      });
   }
 
   private configureFolderTextInput(

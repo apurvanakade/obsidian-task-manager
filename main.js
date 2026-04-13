@@ -686,6 +686,7 @@ var DEFAULT_SETTINGS = {
   somedayMaybeProjectsFolder: "",
   inboxFile: "",
   tasksSummaryFile: "Tasks Summary.md",
+  openSummaryAfterGeneration: false,
   dashboardHideKeywords: ""
 };
 function normalizeTag(tag) {
@@ -702,6 +703,9 @@ function normalizeStatusField(field) {
 function normalizeFolder(folder) {
   return String(folder || "").trim().replace(/^\/+|\/+$/g, "");
 }
+function normalizeBoolean(value, fallback) {
+  return typeof value === "boolean" ? value : fallback;
+}
 function normalizeSettings(rawSettings) {
   var _a;
   return {
@@ -715,6 +719,7 @@ function normalizeSettings(rawSettings) {
     somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder),
     inboxFile: normalizeFolder(rawSettings.inboxFile),
     tasksSummaryFile: normalizeFolder(rawSettings.tasksSummaryFile) || DEFAULT_SETTINGS.tasksSummaryFile,
+    openSummaryAfterGeneration: normalizeBoolean(rawSettings.openSummaryAfterGeneration, DEFAULT_SETTINGS.openSummaryAfterGeneration),
     dashboardHideKeywords: String((_a = rawSettings.dashboardHideKeywords) != null ? _a : "")
   };
 }
@@ -1285,6 +1290,16 @@ function getTextSettingConfigs(settings) {
     }
   ];
 }
+function getToggleSettingConfigs(settings) {
+  return [
+    {
+      name: "Open Tasks Summary After Generation",
+      description: "Open the Tasks Summary file automatically after the Tasks Summary command finishes.",
+      key: "openSummaryAfterGeneration",
+      value: settings.openSummaryAfterGeneration
+    }
+  ];
+}
 
 // src/settings/settings-ui.ts
 var TaskManagerSettingTabRenderer = class {
@@ -1301,6 +1316,9 @@ var TaskManagerSettingTabRenderer = class {
     }
     for (const textSetting of getTextSettingConfigs(settings)) {
       this.addTextSetting(containerEl, textSetting);
+    }
+    for (const toggleSetting of getToggleSettingConfigs(settings)) {
+      this.addToggleSetting(containerEl, toggleSetting);
     }
   }
   addFolderSetting(containerEl, config) {
@@ -1338,6 +1356,13 @@ var TaskManagerSettingTabRenderer = class {
         });
       });
     }
+  }
+  addToggleSetting(containerEl, config) {
+    new import_obsidian7.Setting(containerEl).setName(config.name).setDesc(config.description).addToggle((toggle) => {
+      toggle.setValue(config.value).onChange(async (value) => {
+        await this.plugin.updateSetting(config.key, value);
+      });
+    });
   }
   configureFolderTextInput(text, settingKey, folderPath, placeholder) {
     text.setPlaceholder(placeholder).setValue(folderPath).onChange(async (value) => {
@@ -2592,9 +2617,11 @@ var TaskManagerPlugin = class extends import_obsidian10.Plugin {
     }
     try {
       const writtenPath = await writeTasksSummary(this.app, settings, settings.tasksSummaryFile);
-      const summaryFile = this.app.vault.getAbstractFileByPath(writtenPath);
-      if (summaryFile instanceof import_obsidian10.TFile) {
-        await this.app.workspace.getLeaf(true).openFile(summaryFile);
+      if (settings.openSummaryAfterGeneration) {
+        const summaryFile = this.app.vault.getAbstractFileByPath(writtenPath);
+        if (summaryFile instanceof import_obsidian10.TFile) {
+          await this.app.workspace.getLeaf(true).openFile(summaryFile);
+        }
       }
       new import_obsidian10.Notice(`Tasks Summary written to ${writtenPath}.`);
     } catch (error) {

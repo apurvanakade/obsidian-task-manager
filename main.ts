@@ -150,9 +150,11 @@ export default class TaskManagerPlugin extends Plugin {
 
     try {
       const writtenPath = await writeTasksSummary(this.app, settings, settings.tasksSummaryFile);
-      const summaryFile = this.app.vault.getAbstractFileByPath(writtenPath);
-      if (summaryFile instanceof TFile) {
-        await this.app.workspace.getLeaf(true).openFile(summaryFile);
+      if (settings.openSummaryAfterGeneration) {
+        const summaryFile = this.app.vault.getAbstractFileByPath(writtenPath);
+        if (summaryFile instanceof TFile) {
+          await this.app.workspace.getLeaf(true).openFile(summaryFile);
+        }
       }
       new Notice(`Tasks Summary written to ${writtenPath}.`);
     } catch (error) {

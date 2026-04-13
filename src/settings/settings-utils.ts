@@ -25,6 +25,7 @@ export type TaskManagerSettings = {
   somedayMaybeProjectsFolder: string;
   inboxFile: string;
   tasksSummaryFile: string;
+  openSummaryAfterGeneration: boolean;
   dashboardHideKeywords: string;
 };
 
@@ -42,6 +43,7 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   somedayMaybeProjectsFolder: "",
   inboxFile: "",
   tasksSummaryFile: "Tasks Summary.md",
+  openSummaryAfterGeneration: false,
   dashboardHideKeywords: "",
 };
 
@@ -63,6 +65,10 @@ function normalizeFolder(folder: string | null | undefined): string {
   return String(folder || "").trim().replace(/^\/+|\/+$/g, "");
 }
 
+function normalizeBoolean(value: boolean | null | undefined, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
 export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): TaskManagerSettings {
   return {
     ...DEFAULT_SETTINGS,
@@ -75,6 +81,7 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
     somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder),
     inboxFile: normalizeFolder(rawSettings.inboxFile),
     tasksSummaryFile: normalizeFolder(rawSettings.tasksSummaryFile) || DEFAULT_SETTINGS.tasksSummaryFile,
+    openSummaryAfterGeneration: normalizeBoolean(rawSettings.openSummaryAfterGeneration, DEFAULT_SETTINGS.openSummaryAfterGeneration),
     dashboardHideKeywords: String(rawSettings.dashboardHideKeywords ?? ""),
   };
 }

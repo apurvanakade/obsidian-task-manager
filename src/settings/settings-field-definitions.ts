@@ -36,6 +36,13 @@ export type TextSettingConfig = {
   multiLine?: boolean;
 };
 
+export type ToggleSettingConfig = {
+  name: string;
+  description: string;
+  key: keyof Pick<TaskManagerSettings, "openSummaryAfterGeneration">;
+  value: boolean;
+};
+
 export function getFolderSettingConfigs(settings: TaskManagerSettings): FolderSettingConfig[] {
   return [
     {
@@ -106,6 +113,17 @@ export function getTextSettingConfigs(settings: TaskManagerSettings): TextSettin
       key: "dashboardHideKeywords",
       value: settings.dashboardHideKeywords,
       multiLine: false,
+    },
+  ];
+}
+
+export function getToggleSettingConfigs(settings: TaskManagerSettings): ToggleSettingConfig[] {
+  return [
+    {
+      name: "Open Tasks Summary After Generation",
+      description: "Open the Tasks Summary file automatically after the Tasks Summary command finishes.",
+      key: "openSummaryAfterGeneration",
+      value: settings.openSummaryAfterGeneration,
     },
   ];
 }
