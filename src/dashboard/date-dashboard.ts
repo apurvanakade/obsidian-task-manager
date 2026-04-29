@@ -100,7 +100,7 @@ export class DateDashboardController {
 
     // Due tasks
     const tasks = await collectTasksForDate(this.app, this.getTaskFolderRoots(), dateString);
-    this.appendTaskTable(dashboard, "Due", tasks.dueTasks, sourcePath, true);
+    this.appendDueSection(dashboard, tasks.dueTasks, sourcePath);
 
     // Inbox section (from inbox file)
     const inboxFile = this.getInboxFile();
@@ -146,6 +146,25 @@ export class DateDashboardController {
       ul.appendChild(li);
     }
     container.appendChild(ul);
+  }
+
+  private appendDueSection(container: HTMLElement, rows: DashboardRow[], sourcePath: string): void {
+    const heading = document.createElement("h3");
+    heading.textContent = "Due";
+    container.appendChild(heading);
+
+    if (rows.length === 0) {
+      const emptyState = document.createElement("p");
+      emptyState.textContent = "No tasks.";
+      container.appendChild(emptyState);
+      return;
+    }
+
+    const nonRecurringRows = rows.filter((row) => !row.isRecurring);
+    const recurringRows = rows.filter((row) => row.isRecurring);
+
+    this.appendTaskTableGroup(container, "Non-recurring Tasks", nonRecurringRows, sourcePath, true);
+    this.appendTaskTableGroup(container, "Recurring Tasks", recurringRows, sourcePath, true);
   }
 
   private isRelevantFile(file: unknown): boolean {
@@ -212,6 +231,25 @@ export class DateDashboardController {
     const heading = document.createElement("h3");
     heading.textContent = title;
     container.appendChild(heading);
+
+    this.appendTaskTableContent(container, rows, sourcePath, showDueDate);
+  }
+
+  private appendTaskTableGroup(
+    container: HTMLElement,
+    title: string,
+    rows: DashboardRow[],
+    sourcePath: string,
+    showDueDate: boolean,
+  ): void {
+    const heading = document.createElement("h4");
+    heading.textContent = title;
+    container.appendChild(heading);
+
+    this.appendTaskTableContent(container, rows, sourcePath, showDueDate);
+  }
+
+  private appendTaskTableContent(container: HTMLElement, rows: DashboardRow[], sourcePath: string, showDueDate: boolean): void {
 
     if (rows.length === 0) {
       const emptyState = document.createElement("p");

@@ -24,6 +24,7 @@ const TASK_LINE_REGEX = /^\s*[-*+]\s+\[( |x|X)\]\s+(.*)$/;
 const DUE_FIELD_REGEX = /\[due::\s*([^\]]+?)\s*\]/i;
 const COMPLETION_DATE_FIELD_REGEX = /\[completion-date::\s*([^\]]+?)\s*\]/i;
 const PRIORITY_FIELD_REGEX = /\[priority::\s*([^\]]+?)\s*\]/i;
+const REPEAT_FIELD_REGEX = /\[(?:repeat|repeats)::\s*[^\]]+?\]/i;
 const INLINE_FIELD_REGEX = /\s*\[[^\]]+::\s*[^\]]*\]/g;
 const TAG_REGEX = /(^|\s)#[^\s#]+/g;
 const MULTISPACE_REGEX = /\s+/g;
@@ -34,6 +35,7 @@ export type DashboardRow = {
   task: string;
   dueDate: string | null;
   priority: number;
+  isRecurring: boolean;
 };
 
 type ParsedDashboardTask = {
@@ -42,6 +44,7 @@ type ParsedDashboardTask = {
   dueDate: string | null;
   completedDate: string | null;
   priority: number;
+  isRecurring: boolean;
 };
 
 export function getDateStringFromFileName(fileName: string): string | null {
@@ -71,11 +74,23 @@ export async function collectTasksForDate(
       }
 
       if (parsedTask.status === "open" && parsedTask.dueDate !== null && parsedTask.dueDate <= dateString) {
-        dueTasks.push({ file, task: parsedTask.text, dueDate: parsedTask.dueDate, priority: parsedTask.priority });
+        dueTasks.push({
+          file,
+          task: parsedTask.text,
+          dueDate: parsedTask.dueDate,
+          priority: parsedTask.priority,
+          isRecurring: parsedTask.isRecurring,
+        });
       }
 
       if (parsedTask.completedDate === dateString) {
-        completedTasks.push({ file, task: parsedTask.text, dueDate: null, priority: parsedTask.priority });
+        completedTasks.push({
+          file,
+          task: parsedTask.text,
+          dueDate: null,
+          priority: parsedTask.priority,
+          isRecurring: parsedTask.isRecurring,
+        });
       }
     }
   }
@@ -112,6 +127,7 @@ export async function collectInboxTasks(
       task: cleanDashboardTaskText(taskBody),
       dueDate: null,
       priority,
+      isRecurring: false,
     });
   }
   inboxTasks.sort(compareRows);
@@ -140,6 +156,7 @@ function parseDashboardTaskLine(line: string): ParsedDashboardTask | null {
     dueDate,
     completedDate,
     priority,
+    isRecurring: REPEAT_FIELD_REGEX.test(taskBody),
   };
 }
 

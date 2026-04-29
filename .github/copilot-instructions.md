@@ -158,7 +158,7 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 
 ### Sections
 
-**Due** — open tasks with `[due:: YYYY-MM-DD]` where due date ≤ active date, scanned from configured task-folder roots only. Sorted by: priority ascending (missing = 3), then due date, then file path.
+**Due** — open tasks with `[due:: YYYY-MM-DD]` where due date ≤ active date, scanned from configured task-folder roots only. Rendered as two stacked tables: **Non-recurring Tasks** first and **Recurring Tasks** below. Both are sorted by: priority ascending (missing = 3), then due date, then file path.
 
 **Inbox** — all incomplete tasks from the configured Inbox File (regardless of date). Rendered as a heading, a link to the file, and an unordered list (no table, no priority column). Shows "No tasks." when empty.
 
@@ -166,7 +166,7 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 
 ### Display Formatting
 
-- Due and Completed tables have columns: **Folder** | **Filename** | **Task** | **Priority** | (Due only) **Due** in `MM-DD` format
+- Due subtables and the Completed table have columns: **Folder** | **Filename** | **Task** | **Priority** | (Due only) **Due** in `MM-DD` format
 - Rows are grouped first by parent folder (alphabetically), then by filename; `rowspan` is used for grouping cells
 - Folder display uses the immediate parent directory segment; Filename strips `.md`
 - **Dashboard Filename Hide Keywords**: each comma-separated keyword is removed case-insensitively from both folder and filename display. No automatic date/number stripping is applied.

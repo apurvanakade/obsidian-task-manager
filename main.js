@@ -61,6 +61,7 @@ var TASK_LINE_REGEX = /^\s*[-*+]\s+\[( |x|X)\]\s+(.*)$/;
 var DUE_FIELD_REGEX = /\[due::\s*([^\]]+?)\s*\]/i;
 var COMPLETION_DATE_FIELD_REGEX = /\[completion-date::\s*([^\]]+?)\s*\]/i;
 var PRIORITY_FIELD_REGEX = /\[priority::\s*([^\]]+?)\s*\]/i;
+var REPEAT_FIELD_REGEX = /\[(?:repeat|repeats)::\s*[^\]]+?\]/i;
 var INLINE_FIELD_REGEX = /\s*\[[^\]]+::\s*[^\]]*\]/g;
 var TAG_REGEX = /(^|\s)#[^\s#]+/g;
 var MULTISPACE_REGEX = /\s+/g;
@@ -84,10 +85,22 @@ async function collectTasksForDate(app, taskFolderRoots, dateString) {
         continue;
       }
       if (parsedTask.status === "open" && parsedTask.dueDate !== null && parsedTask.dueDate <= dateString) {
-        dueTasks.push({ file, task: parsedTask.text, dueDate: parsedTask.dueDate, priority: parsedTask.priority });
+        dueTasks.push({
+          file,
+          task: parsedTask.text,
+          dueDate: parsedTask.dueDate,
+          priority: parsedTask.priority,
+          isRecurring: parsedTask.isRecurring
+        });
       }
       if (parsedTask.completedDate === dateString) {
-        completedTasks.push({ file, task: parsedTask.text, dueDate: null, priority: parsedTask.priority });
+        completedTasks.push({
+          file,
+          task: parsedTask.text,
+          dueDate: null,
+          priority: parsedTask.priority,
+          isRecurring: parsedTask.isRecurring
+        });
       }
     }
   }
@@ -113,7 +126,8 @@ async function collectInboxTasks(app, inboxFile) {
       file,
       task: cleanDashboardTaskText(taskBody),
       dueDate: null,
-      priority
+      priority,
+      isRecurring: false
     });
   }
   inboxTasks.sort(compareRows);
@@ -137,7 +151,8 @@ function parseDashboardTaskLine(line) {
     status,
     dueDate,
     completedDate,
-    priority
+    priority,
+    isRecurring: REPEAT_FIELD_REGEX.test(taskBody)
   };
 }
 function parsePriorityValue(value) {
@@ -237,7 +252,7 @@ var _DateDashboardController = class _DateDashboardController {
     title.textContent = `Tasks for ${dateString}`;
     dashboard.appendChild(title);
     const tasks = await collectTasksForDate(this.app, this.getTaskFolderRoots(), dateString);
-    this.appendTaskTable(dashboard, "Due", tasks.dueTasks, sourcePath, true);
+    this.appendDueSection(dashboard, tasks.dueTasks, sourcePath);
     const inboxFile = this.getInboxFile();
     const inboxTasks = await collectInboxTasks(this.app, inboxFile);
     this.appendInboxSection(dashboard, inboxFile, inboxTasks);
@@ -275,6 +290,21 @@ var _DateDashboardController = class _DateDashboardController {
       ul.appendChild(li);
     }
     container.appendChild(ul);
+  }
+  appendDueSection(container, rows, sourcePath) {
+    const heading = document.createElement("h3");
+    heading.textContent = "Due";
+    container.appendChild(heading);
+    if (rows.length === 0) {
+      const emptyState = document.createElement("p");
+      emptyState.textContent = "No tasks.";
+      container.appendChild(emptyState);
+      return;
+    }
+    const nonRecurringRows = rows.filter((row) => !row.isRecurring);
+    const recurringRows = rows.filter((row) => row.isRecurring);
+    this.appendTaskTableGroup(container, "Non-recurring Tasks", nonRecurringRows, sourcePath, true);
+    this.appendTaskTableGroup(container, "Recurring Tasks", recurringRows, sourcePath, true);
   }
   isRelevantFile(file) {
     if (!(file instanceof import_obsidian2.TFile)) return false;
@@ -329,10 +359,19 @@ var _DateDashboardController = class _DateDashboardController {
     return `${year}-${month}-${day}`;
   }
   appendTaskTable(container, title, rows, sourcePath, showDueDate) {
-    var _a, _b;
     const heading = document.createElement("h3");
     heading.textContent = title;
     container.appendChild(heading);
+    this.appendTaskTableContent(container, rows, sourcePath, showDueDate);
+  }
+  appendTaskTableGroup(container, title, rows, sourcePath, showDueDate) {
+    const heading = document.createElement("h4");
+    heading.textContent = title;
+    container.appendChild(heading);
+    this.appendTaskTableContent(container, rows, sourcePath, showDueDate);
+  }
+  appendTaskTableContent(container, rows, sourcePath, showDueDate) {
+    var _a, _b;
     if (rows.length === 0) {
       const emptyState = document.createElement("p");
       emptyState.textContent = "No tasks.";
@@ -869,7 +908,7 @@ function getParentPath(path) {
 var TASK_LINE_REGEX2 = /^\s*[-*+]\s+\[( |x|X)\]\s+(.*)$/;
 var DUE_FIELD_REGEX2 = /\[due::\s*([^\]]+?)\s*\]/i;
 var PRIORITY_FIELD_REGEX2 = /\[priority::\s*([^\]]+?)\s*\]/i;
-var REPEAT_FIELD_REGEX = /\[(?:repeat|repeats)::\s*[^\]]+?\]/i;
+var REPEAT_FIELD_REGEX2 = /\[(?:repeat|repeats)::\s*[^\]]+?\]/i;
 var INLINE_FIELD_REGEX2 = /\s*\[[^\]]+::\s*[^\]]*\]/g;
 var TAG_REGEX2 = /(^|\s)#[^\s#]+/g;
 var MULTISPACE_REGEX2 = /\s+/g;
@@ -962,7 +1001,7 @@ function parseNextActionTaskLine(line, nextActionTag) {
     task: cleanTaskText(taskBody),
     dueDate: readInlineFieldValue2(taskBody, DUE_FIELD_REGEX2),
     priority: parsePriorityValue2(readInlineFieldValue2(taskBody, PRIORITY_FIELD_REGEX2)),
-    isRecurring: REPEAT_FIELD_REGEX.test(taskBody)
+    isRecurring: REPEAT_FIELD_REGEX2.test(taskBody)
   };
 }
 function renderSummary(sections, hideKeywords) {
@@ -1793,7 +1832,7 @@ function applyStyles(element, styles) {
 }
 
 // src/tasks/repeat-rules.ts
-var REPEAT_FIELD_REGEX2 = /\[(?:repeat|repeats)::\s*(?:every\s+)?([^\]]+?)\s*\]/i;
+var REPEAT_FIELD_REGEX3 = /\[(?:repeat|repeats)::\s*(?:every\s+)?([^\]]+?)\s*\]/i;
 var COUNT_AND_KEYWORD_REGEX = /^(\d+)\s+([a-z-]+)$/i;
 var KEYWORD_ONLY_REGEX = /^([a-z-]+)$/i;
 var REPEAT_KEYWORD_TO_UNIT = {
@@ -1830,7 +1869,7 @@ var WEEKDAY_KEYWORD_TO_INDEX = {
   sat: 6
 };
 function parseRepeatRule(line) {
-  const fieldMatch = line.match(REPEAT_FIELD_REGEX2);
+  const fieldMatch = line.match(REPEAT_FIELD_REGEX3);
   if (!fieldMatch) {
     return null;
   }

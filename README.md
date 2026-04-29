@@ -159,14 +159,14 @@ Tasks use Dataview-style double-colon inline fields on the same line as the chec
 
 When the active note is named `YYYY-MM-DD`, a live dashboard opens in the right sidebar with three sections:
 
-**Due** — open tasks with `[due:: YYYY-MM-DD]` where the due date is on or before the note date. Scanned from configured task-folder roots only. Columns: Folder | Filename | Task | Priority | Due (`MM-DD`). Sorted by priority, then due date.
+**Due** — open tasks with `[due:: YYYY-MM-DD]` where the due date is on or before the note date. Scanned from configured task-folder roots only. Rendered as two stacked tables: **Non-recurring Tasks** first, then **Recurring Tasks** below. Both use columns Folder | Filename | Task | Priority | Due (`MM-DD`) and are sorted by priority, then due date.
 
 **Inbox** — all open tasks from the configured Inbox File, regardless of date. Rendered as a heading, a file link, and an unordered list.
 
 **Completed** — tasks with `[completion-date:: YYYY-MM-DD]` matching the note date. Columns: Folder | Filename | Task | Priority. Sorted by priority, then file path.
 
 Display notes:
-- Rows in Due and Completed tables are grouped by parent folder and filename using `rowspan`.
+- Due subtables and the Completed table are grouped by parent folder and filename using `rowspan`.
 - Task text strips all inline fields and hashtag tags and is rendered as **bold** for priority 1, *italic* for priority 2, and default styling for priority 3.
 - **Dashboard Filename Hide Keywords**: each keyword is removed case-insensitively from folder and filename display names.
 - On non-date notes, the dashboard defaults to today's date.
