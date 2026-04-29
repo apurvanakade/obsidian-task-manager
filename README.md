@@ -60,10 +60,10 @@ The summary note also stamps frontmatter metadata:
 - `creation-time: HH:MM:SS`
 
 The **Projects** section is further split into:
-- **Recurring Tasks** — tasks with `[repeat:: ...]` or `[repeats:: ...]`
 - **Tasks Due This Week** — tasks with a due date on or before the end of the current week
 - **Tasks Scheduled But Not Due This Week** — tasks with a due date after the end of the current week
 - **Unscheduled Tasks** — tasks without a due date
+- **Recurring Tasks** — tasks with `[repeat:: ...]` or `[repeats:: ...]`
 
 Recurring tasks are shown **only** in the Recurring Tasks subsection, even if they also have a due date.
 

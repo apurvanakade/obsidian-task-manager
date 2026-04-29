@@ -1042,10 +1042,10 @@ function compareSummaryRows(left, right) {
 }
 function appendProjectSubsections(lines, rows, hideKeywords) {
   const buckets = splitProjectRows(rows);
-  appendNamedSubsection(lines, "Recurring Tasks", buckets.recurring, hideKeywords);
   appendNamedSubsection(lines, "Tasks Due This Week", buckets.dueThisWeek, hideKeywords);
   appendNamedSubsection(lines, "Tasks Scheduled But Not Due This Week", buckets.scheduledLater, hideKeywords);
   appendNamedSubsection(lines, "Unscheduled Tasks", buckets.unscheduled, hideKeywords);
+  appendNamedSubsection(lines, "Recurring Tasks", buckets.recurring, hideKeywords);
 }
 function appendNamedSubsection(lines, title, rows, hideKeywords) {
   lines.push(`### ${title}`, "");
@@ -1073,10 +1073,10 @@ function appendSectionTable(lines, rows, hideKeywords) {
 function splitProjectRows(rows) {
   const endOfWeek = getEndOfWeek(/* @__PURE__ */ new Date());
   const buckets = {
-    recurring: [],
     dueThisWeek: [],
     scheduledLater: [],
-    unscheduled: []
+    unscheduled: [],
+    recurring: []
   };
   for (const row of rows) {
     if (row.isRecurring) {

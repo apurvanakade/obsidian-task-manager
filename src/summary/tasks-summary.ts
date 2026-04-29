@@ -43,10 +43,10 @@ type SummaryRow = {
 };
 
 type ProjectSummaryBuckets = {
-  recurring: SummaryRow[];
   dueThisWeek: SummaryRow[];
   scheduledLater: SummaryRow[];
   unscheduled: SummaryRow[];
+  recurring: SummaryRow[];
 };
 
 export async function writeTasksSummary(
@@ -205,10 +205,10 @@ function compareSummaryRows(left: SummaryRow, right: SummaryRow): number {
 
 function appendProjectSubsections(lines: string[], rows: SummaryRow[], hideKeywords: string): void {
   const buckets = splitProjectRows(rows);
-  appendNamedSubsection(lines, "Recurring Tasks", buckets.recurring, hideKeywords);
   appendNamedSubsection(lines, "Tasks Due This Week", buckets.dueThisWeek, hideKeywords);
   appendNamedSubsection(lines, "Tasks Scheduled But Not Due This Week", buckets.scheduledLater, hideKeywords);
   appendNamedSubsection(lines, "Unscheduled Tasks", buckets.unscheduled, hideKeywords);
+  appendNamedSubsection(lines, "Recurring Tasks", buckets.recurring, hideKeywords);
 }
 
 function appendNamedSubsection(lines: string[], title: string, rows: SummaryRow[], hideKeywords: string): void {
@@ -242,10 +242,10 @@ function appendSectionTable(lines: string[], rows: SummaryRow[], hideKeywords: s
 function splitProjectRows(rows: SummaryRow[]): ProjectSummaryBuckets {
   const endOfWeek = getEndOfWeek(new Date());
   const buckets: ProjectSummaryBuckets = {
-    recurring: [],
     dueThisWeek: [],
     scheduledLater: [],
     unscheduled: [],
+    recurring: [],
   };
 
   for (const row of rows) {
