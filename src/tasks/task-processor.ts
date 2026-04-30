@@ -50,16 +50,19 @@ import { TaskStateStore } from "./task-state-store";
 type TaskProcessorOptions = {
   app: App;
   getSettings: () => TaskManagerSettings;
+  onFileStatusChanged?: () => Promise<void>;
 };
 
 export class TaskProcessor {
   private readonly app: App;
   private readonly getSettings: () => TaskManagerSettings;
+  private readonly onFileStatusChanged?: () => Promise<void>;
   private readonly stateStore = new TaskStateStore();
 
   constructor(options: TaskProcessorOptions) {
     this.app = options.app;
     this.getSettings = options.getSettings;
+    this.onFileStatusChanged = options.onFileStatusChanged;
   }
 
   onunload(): void {
@@ -186,6 +189,12 @@ export class TaskProcessor {
       await this.routeFileByStatus(file, settings, latestStatus);
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Failed to route file after status change.");
+    }
+
+    try {
+      await this.onFileStatusChanged?.();
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : "Failed to update Tasks Summary after status change.");
     }
   }
 

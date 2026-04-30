@@ -34,6 +34,7 @@ Creates or overwrites the configured **Tasks Summary File** with sections for **
 
 If the summary file already exists, the command overwrites it directly in place. It does not prompt to merge, append, or confirm replacement.
 The summary note itself is excluded from automatic task routing and reconciliation.
+The summary is also regenerated automatically whenever a project's file status changes.
 
 By default, generating the summary does **not** open the summary note. Enable **Open Tasks Summary After Generation** in plugin settings if you want it opened automatically.
 
@@ -42,10 +43,10 @@ The summary note also stamps frontmatter metadata:
 - `creation-time: HH:MM:SS`
 
 The **Projects** section is further split into:
-- **Recurring Tasks** — tasks with `[repeat:: ...]` or `[repeats:: ...]`
 - **Tasks Due This Week** — tasks with a due date on or before the end of the current week
 - **Tasks Scheduled But Not Due This Week** — tasks with a due date after the end of the current week
 - **Unscheduled Tasks** — tasks without a due date
+- **Recurring Tasks** — tasks with `[repeat:: ...]` or `[repeats:: ...]`
 
 Recurring tasks are shown **only** in the Recurring Tasks subsection, even if they also have a due date.
 
@@ -116,6 +117,7 @@ Recurring tasks skip the Due Date Modal on the new copy.
 
 ### Status Routing
 When a file's status field changes to a routable value, the file is automatically moved to the matching destination folder.
+That same status change also regenerates the Tasks Summary file silently in the background.
 
 ## Due Date Modal
 

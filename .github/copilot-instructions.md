@@ -60,12 +60,13 @@ src/
 1. **vault `modify` event** → `TaskProcessor.handleFileModify()` reads file fresh (non-cached) via `vault.read`, diffs against state-store snapshot, calls `reconciler` to apply transition rules, calls `task-routing` if status changed → writes back → state-store updated/rekeyed
 2. **Pending-path guards** in `TaskStateStore` prevent re-triggering the modify handler on self-writes
 3. **Commands** call `TaskProcessor.resetCurrentFileTasks()` directly; **Tasks Summary** separately scans configured sources and writes a summary note
-4. **Dashboard** is refreshed on `file-open`, `layout-change`, vault `rename`/`delete` events, and after settings changes
+4. **Status changes** trigger a silent Tasks Summary regeneration after routing
+5. **Dashboard** is refreshed on `file-open`, `layout-change`, vault `rename`/`delete` events, and after settings changes
 
 ### Commands
 
 - **Reset Tasks** — in the active file, marks all tasks open (`[ ]`), strips `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, and `[created:: ...]` from task lines, then re-runs the normal task reconciliation and routing flow for that file
-- **Tasks Summary** — creates or overwrites the configured Tasks Summary File with sections for Projects, Waiting, Someday-Maybe, and Inbox. Existing summary files are overwritten in place with no merge/replace prompt, and the summary note itself is excluded from automatic task routing/reconciliation. Each section lists the first incomplete task per file in a grouped table with Folder, Filename, Task, Priority, and Due columns
+- **Tasks Summary** — creates or overwrites the configured Tasks Summary File with sections for Projects, Waiting, Someday-Maybe, and Inbox. Existing summary files are overwritten in place with no merge/replace prompt, the summary note itself is excluded from automatic task routing/reconciliation, and project status changes regenerate it silently. Each section lists the first incomplete task per file in a grouped table with Folder, Filename, Task, Priority, and Due columns
 - **Add New Project** — opens a modal asking for Name, Folder, Priority, Status (`todo`, `waiting`, or `someday-maybe`), and optional starter tasks; the Folder field shows matching vault folders as you type; the command creates the project file, writes status/priority to frontmatter, creates missing parent folders, and opens the new file
 
 ### Settings Persistence
@@ -198,10 +199,10 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 - Writes a markdown note with sections: **Projects**, **Waiting**, **Someday-Maybe**, **Inbox**
 - Stamps `creation-date` and `creation-time` into the summary file frontmatter
 - Splits the **Projects** section into:
-  - **Recurring Tasks** — tasks with `[repeat:: ...]` or `[repeats:: ...]`
   - **Tasks Due This Week** — tasks with a due date on or before the end of the current week
   - **Tasks Scheduled But Not Due This Week** — tasks with a due date after the end of the current week
   - **Unscheduled Tasks** — tasks without a due date
+  - **Recurring Tasks** — tasks with `[repeat:: ...]` or `[repeats:: ...]`
 - Recurring tasks appear **only** in the Recurring Tasks subsection, even if they also have a due date
 - Each non-empty section renders a grouped markdown table with columns:
   - Folder

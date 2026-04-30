@@ -40,6 +40,12 @@ export default class TaskManagerPlugin extends Plugin {
     this.taskProcessor = new TaskProcessor({
       app: this.app,
       getSettings: () => this.getSettings(),
+      onFileStatusChanged: async () => {
+        await this.writeTasksSummary({
+          openAfterGeneration: false,
+          showNotice: false,
+        });
+      },
     });
     this.dateDashboard = new DateDashboardController({
       app: this.app,
@@ -122,24 +128,38 @@ export default class TaskManagerPlugin extends Plugin {
   }
 
   private async runCreateTasksSummary(): Promise<void> {
-    const settings = this.getSettings();
-    if (!settings.tasksSummaryFile) {
-      new Notice("Set Tasks Summary File in plugin settings before running Tasks Summary.");
-      return;
-    }
-
     try {
-      const writtenPath = await writeTasksSummary(this.app, settings, settings.tasksSummaryFile);
-      if (settings.openSummaryAfterGeneration) {
-        const summaryFile = this.app.vault.getAbstractFileByPath(writtenPath);
-        if (summaryFile instanceof TFile) {
-          await this.app.workspace.getLeaf(true).openFile(summaryFile);
-        }
-      }
-      new Notice(`Tasks Summary written to ${writtenPath}.`);
+      await this.writeTasksSummary({
+        openAfterGeneration: true,
+        showNotice: true,
+      });
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Failed to create Tasks Summary.");
     }
+  }
+
+  private async writeTasksSummary(options: { openAfterGeneration: boolean; showNotice: boolean }): Promise<string | null> {
+    const settings = this.getSettings();
+    if (!settings.tasksSummaryFile) {
+      if (options.showNotice) {
+        new Notice("Set Tasks Summary File in plugin settings before running Tasks Summary.");
+      }
+      return null;
+    }
+
+    const writtenPath = await writeTasksSummary(this.app, settings, settings.tasksSummaryFile);
+    if (options.openAfterGeneration && settings.openSummaryAfterGeneration) {
+      const summaryFile = this.app.vault.getAbstractFileByPath(writtenPath);
+      if (summaryFile instanceof TFile) {
+        await this.app.workspace.getLeaf(true).openFile(summaryFile);
+      }
+    }
+
+    if (options.showNotice) {
+      new Notice(`Tasks Summary written to ${writtenPath}.`);
+    }
+
+    return writtenPath;
   }
 
   private runAddNewProject(): void {
