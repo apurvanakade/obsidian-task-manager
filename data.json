@@ -7,6 +7,6 @@
   "inboxFile": "Projects/Inbox.md",
   "tasksSummaryFile": "Tasks Summary.md",
   "openSummaryAfterGeneration": false,
-  "dashboardHideKeywords": "2026 Spring, 2026 Summer, 2026 Fall",
+  "dashboardHideKeywords": "2026, 2026 Spring, 2026 Summer, 2026 Fall",
   "journalFolder": "Journal"
 }

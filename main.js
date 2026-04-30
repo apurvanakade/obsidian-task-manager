@@ -2556,10 +2556,7 @@ ${sourceContent}`;
     if (settings.tasksSummaryFile && file.path === settings.tasksSummaryFile) {
       return false;
     }
-    if (settings.inboxFile && file.path === settings.inboxFile) {
-      return true;
-    }
-    return getTaskFolderRoots(settings).some((root) => file.path.startsWith(`${root}/`));
+    return true;
   }
   async runWithPendingPaths(filePaths, action) {
     filePaths.forEach((filePath) => this.stateStore.markPending(filePath));

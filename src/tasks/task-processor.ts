@@ -297,12 +297,7 @@ export class TaskProcessor {
     if (settings.tasksSummaryFile && file.path === settings.tasksSummaryFile) {
       return false;
     }
-
-    if (settings.inboxFile && file.path === settings.inboxFile) {
-      return true;
-    }
-
-    return getTaskFolderRoots(settings).some((root) => file.path.startsWith(`${root}/`));
+    return true;
   }
 
   private async runWithPendingPaths(filePaths: string[], action: () => Promise<void>): Promise<void> {
