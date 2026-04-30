@@ -35,6 +35,7 @@ Creates or overwrites the configured **Tasks Summary File** with sections for **
 If the summary file already exists, the command overwrites it directly in place. It does not prompt to merge, append, or confirm replacement.
 The summary note itself is excluded from automatic task routing and reconciliation.
 The summary is also regenerated automatically whenever a project's file status changes.
+It is also regenerated after the Due Date modal updates the newly exposed task's due date or file priority.
 
 By default, generating the summary does **not** open the summary note. Enable **Open Tasks Summary After Generation** in plugin settings if you want it opened automatically.
 
@@ -121,15 +122,17 @@ That same status change also regenerates the Tasks Summary file silently in the 
 
 ## Due Date Modal
 
-When a different task becomes the file's first incomplete task after completion or uncompletion (and that task is not recurring and doesn't already have a due date), a modal appears offering:
+When a different task becomes the file's first incomplete task after completion or uncompletion (and that task is not recurring), a modal appears offering:
 
 - A preview of the task text.
 - A **project priority** dropdown (1–3, default 3; 1 is highest).
 - Suggested dates from today through +30 days with Today / Tomorrow / weekday labels — clicking one immediately applies it.
-- A text input for a custom `YYYY-MM-DD` date or natural-language terms (`today`, `tomorrow`, weekday names); press Enter to submit.
+- A text input for a custom `YYYY-MM-DD` date or natural-language terms (`today`, `tomorrow`, weekday names); press Enter to submit. If the task already has a due date, it is prefilled here.
+- A **Repeat** text field with no default value for rules like `daily`, `2 weeks`, `Monday`, or `5th`.
 - A **Skip** button to dismiss without adding a due date.
 
-On submit, `[due:: YYYY-MM-DD]` is written to the task line and `priority: N` is written to the file frontmatter.
+On submit, `[due:: YYYY-MM-DD]` is written to the task line, an optional `[repeat:: X]` is added when provided, and `priority: N` is written to the file frontmatter.
+That update also regenerates the Tasks Summary file silently in the background.
 
 ## Inline Field Format
 

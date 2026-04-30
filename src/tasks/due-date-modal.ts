@@ -16,6 +16,7 @@
  */
 import { App, Modal, Notice } from "obsidian";
 import { buildDateSuggestions, resolveDateInput } from "../date/date-suggestions";
+import { parseRepeatRule } from "./repeat-rules";
 
 const spacingStyles = {
   description: { marginBottom: "20px" },
@@ -80,21 +81,25 @@ type DueDateModalOptions = {
   app: App;
   taskLine: string;
   initialPriority: "1" | "2" | "3";
-  onSubmit: (taskLine: string, dueDate: string, priority: "1" | "2" | "3") => Promise<void>;
+  initialDueDate?: string | null;
+  onSubmit: (taskLine: string, dueDate: string, priority: "1" | "2" | "3", repeat: string | null) => Promise<void>;
 };
 
 export class DueDateModal extends Modal {
   private readonly taskLine: string;
   private readonly initialPriority: "1" | "2" | "3";
-  private readonly onSubmit: (taskLine: string, dueDate: string, priority: "1" | "2" | "3") => Promise<void>;
+  private readonly initialDueDate: string;
+  private readonly onSubmit: (taskLine: string, dueDate: string, priority: "1" | "2" | "3", repeat: string | null) => Promise<void>;
   private readonly dateSuggestions = buildDateSuggestions();
   private inputElement: HTMLInputElement | null = null;
   private prioritySelectElement: HTMLSelectElement | null = null;
+  private repeatInputElement: HTMLInputElement | null = null;
 
   constructor(options: DueDateModalOptions) {
     super(options.app);
     this.taskLine = options.taskLine;
     this.initialPriority = options.initialPriority;
+    this.initialDueDate = options.initialDueDate?.trim() ?? "";
     this.onSubmit = options.onSubmit;
   }
 
@@ -108,6 +113,7 @@ export class DueDateModal extends Modal {
     this.createTaskPreview(contentEl);
     this.createPrioritySection(contentEl);
     this.createInputSection(contentEl);
+    this.createRepeatSection(contentEl);
     this.createSuggestionsSection(contentEl);
     this.createActionButtons(contentEl);
 
@@ -164,6 +170,7 @@ export class DueDateModal extends Modal {
     this.inputElement = inputContainer.createEl("input", {
       type: "text",
       placeholder: "e.g., 2026-03-20, today, tomorrow, monday",
+      value: this.initialDueDate,
     });
     this.inputElement.setAttribute("list", listId);
     this.inputElement.addEventListener("keydown", (event) => {
@@ -197,6 +204,20 @@ export class DueDateModal extends Modal {
     });
 
     this.prioritySelectElement = selectElement;
+  }
+
+  private createRepeatSection(container: HTMLElement): void {
+    const repeatContainer = container.createEl("div");
+    applyStyles(repeatContainer, spacingStyles.section);
+
+    this.createSectionLabel(repeatContainer, "Repeat (optional):");
+
+    this.repeatInputElement = repeatContainer.createEl("input", {
+      type: "text",
+      placeholder: "e.g., daily, 2 weeks, Monday, 5th",
+      value: "",
+    });
+    applyStyles(this.repeatInputElement, inputStyles);
   }
 
   private createSuggestionsSection(container: HTMLElement): void {
@@ -248,6 +269,7 @@ export class DueDateModal extends Modal {
   private async submitDate(dateOverride?: string): Promise<void> {
     const dateValue = dateOverride ?? this.inputElement?.value.trim() ?? "";
     const priority = (this.prioritySelectElement?.value ?? "3") as "1" | "2" | "3";
+    const repeatValue = this.repeatInputElement?.value.trim() ?? "";
 
     if (!dateValue) {
       return;
@@ -259,8 +281,14 @@ export class DueDateModal extends Modal {
       return;
     }
 
+    const repeat = repeatValue.length > 0 ? repeatValue : null;
+    if (repeat !== null && parseRepeatRule(`${this.taskLine} [repeat:: ${repeat}]`) === null) {
+      new Notice("Enter a valid repeat rule like daily, 2 weeks, Monday, or 5th.");
+      return;
+    }
+
     try {
-      await this.onSubmit(this.taskLine, resolvedDate, priority);
+      await this.onSubmit(this.taskLine, resolvedDate, priority, repeat);
       this.close();
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Failed to add due date.");

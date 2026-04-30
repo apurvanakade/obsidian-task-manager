@@ -61,12 +61,13 @@ src/
 2. **Pending-path guards** in `TaskStateStore` prevent re-triggering the modify handler on self-writes
 3. **Commands** call `TaskProcessor.resetCurrentFileTasks()` directly; **Tasks Summary** separately scans configured sources and writes a summary note
 4. **Status changes** trigger a silent Tasks Summary regeneration after routing
-5. **Dashboard** is refreshed on `file-open`, `layout-change`, vault `rename`/`delete` events, and after settings changes
+5. **DueDateModal submit** triggers a silent Tasks Summary regeneration after due date/priority updates
+6. **Dashboard** is refreshed on `file-open`, `layout-change`, vault `rename`/`delete` events, and after settings changes
 
 ### Commands
 
 - **Reset Tasks** — in the active file, marks all tasks open (`[ ]`), strips `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, and `[created:: ...]` from task lines, then re-runs the normal task reconciliation and routing flow for that file
-- **Tasks Summary** — creates or overwrites the configured Tasks Summary File with sections for Projects, Waiting, Someday-Maybe, and Inbox. Existing summary files are overwritten in place with no merge/replace prompt, the summary note itself is excluded from automatic task routing/reconciliation, and project status changes regenerate it silently. Each section lists the first incomplete task per file in a grouped table with Folder, Filename, Task, Priority, and Due columns
+- **Tasks Summary** — creates or overwrites the configured Tasks Summary File with sections for Projects, Waiting, Someday-Maybe, and Inbox. Existing summary files are overwritten in place with no merge/replace prompt, the summary note itself is excluded from automatic task routing/reconciliation, project status changes regenerate it silently, and DueDateModal submits regenerate it silently after due date/priority updates. Each section lists the first incomplete task per file in a grouped table with Folder, Filename, Task, Priority, and Due columns
 - **Add New Project** — opens a modal asking for Name, Folder, Priority, Status (`todo`, `waiting`, or `someday-maybe`), and optional starter tasks; the Folder field shows matching vault folders as you type; the command creates the project file, writes status/priority to frontmatter, creates missing parent folders, and opens the new file
 
 ### Settings Persistence
@@ -142,13 +143,15 @@ When a different task becomes the file's first incomplete task after completion 
 - A preview of the task text
 - A project priority dropdown (values 1–3, default 3)
 - Suggested dates from today through +30 days with Today/Tomorrow/weekday labels — clicking one immediately applies it
-- A text input for custom YYYY-MM-DD or natural-language terms (today, tomorrow, weekday names); Enter submits
+- A text input for custom YYYY-MM-DD or natural-language terms (today, tomorrow, weekday names); Enter submits. If the task already has a due date, it is prefilled there.
+- A Repeat text field with no default value for rules like `daily`, `2 weeks`, `Monday`, or `5th`
 - Input autocomplete sourced from the shared `buildDateSuggestions()` list
 - A Skip option to dismiss without adding a due date
 
-Modal submit writes `[due:: YYYY-MM-DD]` to the task line and `priority: N` to the file frontmatter.
+Modal submit writes `[due:: YYYY-MM-DD]` to the task line, adds `[repeat:: X]` when provided, and writes `priority: N` to the file frontmatter.
+That submit also triggers a silent Tasks Summary regeneration.
 
-**Modal is skipped when**: the first incomplete task was unchanged, the task is recurring, or the task already has a `[due:: ...]` field.
+**Modal is skipped when**: the first incomplete task was unchanged or the task is recurring.
 
 ## Date Dashboard
 

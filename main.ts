@@ -46,6 +46,12 @@ export default class TaskManagerPlugin extends Plugin {
           showNotice: false,
         });
       },
+      onTaskPropertiesChanged: async () => {
+        await this.writeTasksSummary({
+          openAfterGeneration: false,
+          showNotice: false,
+        });
+      },
     });
     this.dateDashboard = new DateDashboardController({
       app: this.app,

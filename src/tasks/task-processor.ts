@@ -19,6 +19,7 @@ import { TaskManagerSettings } from "../settings/settings-utils";
 import { FilePriority, PRIORITY_FRONTMATTER_FIELD } from "./file-priority";
 import {
   extractTaskState,
+  findFirstIncompleteTaskStateLine,
   findNewlyCompletedTask,
   findNewlyUncompletedTask,
   resetTaskContent,
@@ -51,18 +52,21 @@ type TaskProcessorOptions = {
   app: App;
   getSettings: () => TaskManagerSettings;
   onFileStatusChanged?: () => Promise<void>;
+  onTaskPropertiesChanged?: () => Promise<void>;
 };
 
 export class TaskProcessor {
   private readonly app: App;
   private readonly getSettings: () => TaskManagerSettings;
   private readonly onFileStatusChanged?: () => Promise<void>;
+  private readonly onTaskPropertiesChanged?: () => Promise<void>;
   private readonly stateStore = new TaskStateStore();
 
   constructor(options: TaskProcessorOptions) {
     this.app = options.app;
     this.getSettings = options.getSettings;
     this.onFileStatusChanged = options.onFileStatusChanged;
+    this.onTaskPropertiesChanged = options.onTaskPropertiesChanged;
   }
 
   onunload(): void {
@@ -120,7 +124,13 @@ export class TaskProcessor {
     this.stateStore.setStatus(file.path, currentStatus);
 
     if (completion !== null) {
-      await this.applyCompletionRules(file, content, completion, settings);
+      await this.applyCompletionRules(
+        file,
+        content,
+        completion,
+        findFirstIncompleteTaskStateLine(previousState),
+        settings,
+      );
       await this.routeAfterStatusChange(file, previousStatus, settings);
       return;
     }
@@ -256,11 +266,18 @@ export class TaskProcessor {
     });
   }
 
-  private async applyCompletionRules(file: TFile, content: string, completedLine: number, settings: TaskManagerSettings): Promise<void> {
+  private async applyCompletionRules(
+    file: TFile,
+    content: string,
+    completedLine: number,
+    previousFirstIncompleteLine: number | null,
+    settings: TaskManagerSettings,
+  ): Promise<void> {
     await applyCompletionRules({
       file,
       content,
       completedLine,
+      previousFirstIncompleteLine,
       ...this.createReconcilerServices(settings),
     });
   }
@@ -284,7 +301,10 @@ export class TaskProcessor {
       setFilePriority: (target: TFile, priority: FilePriority) => this.setFilePriority(target, priority),
       setTaskState: (filePath: string, nextState: TaskState[]) => {
         this.stateStore.setTaskState(filePath, nextState);
-      }
+      },
+      onTaskPropertiesChanged: async () => {
+        await this.onTaskPropertiesChanged?.();
+      },
     };
   }
 

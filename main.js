@@ -1657,6 +1657,10 @@ function findNewlyUncompletedTask(previousState, nextState) {
   }
   return null;
 }
+function findFirstIncompleteTaskStateLine(taskState) {
+  const firstOpenTask = taskState.find((task) => task.status === "open");
+  return firstOpenTask ? firstOpenTask.line : null;
+}
 function findFirstIncompleteTaskLine(lines) {
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(TASK_LINE_REGEX2);
@@ -1775,211 +1779,6 @@ function escapeRegExp2(value) {
 
 // src/tasks/due-date-modal.ts
 var import_obsidian10 = require("obsidian");
-var spacingStyles = {
-  description: { marginBottom: "20px" },
-  taskPreview: {
-    marginBottom: "16px",
-    padding: "10px",
-    border: "1px solid var(--background-modifier-border)",
-    borderRadius: "6px",
-    backgroundColor: "var(--background-secondary)"
-  },
-  section: { marginBottom: "15px" },
-  label: {
-    display: "block",
-    marginBottom: "8px",
-    fontWeight: "bold"
-  }
-};
-var inputStyles = {
-  width: "100%",
-  padding: "8px",
-  boxSizing: "border-box",
-  marginBottom: "10px"
-};
-var suggestionsGridStyles = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: "8px",
-  marginBottom: "15px"
-};
-var actionRowStyles = {
-  display: "flex",
-  gap: "10px",
-  justifyContent: "flex-end"
-};
-var buttonStyles = {
-  base: {
-    padding: "8px 16px",
-    cursor: "pointer"
-  },
-  primary: {
-    backgroundColor: "#4CAF50",
-    color: "white",
-    border: "none",
-    borderRadius: "4px"
-  },
-  secondary: {
-    backgroundColor: "#f0f0f0",
-    border: "1px solid #000",
-    borderRadius: "4px"
-  },
-  suggestion: {
-    padding: "8px",
-    cursor: "pointer"
-  }
-};
-var DueDateModal = class extends import_obsidian10.Modal {
-  constructor(options) {
-    super(options.app);
-    this.dateSuggestions = buildDateSuggestions();
-    this.inputElement = null;
-    this.prioritySelectElement = null;
-    this.taskLine = options.taskLine;
-    this.initialPriority = options.initialPriority;
-    this.onSubmit = options.onSubmit;
-  }
-  onOpen() {
-    var _a;
-    const { contentEl } = this;
-    contentEl.empty();
-    contentEl.createEl("h2", { text: "Add Due Date" });
-    this.createDescription(contentEl);
-    this.createTaskPreview(contentEl);
-    this.createPrioritySection(contentEl);
-    this.createInputSection(contentEl);
-    this.createSuggestionsSection(contentEl);
-    this.createActionButtons(contentEl);
-    (_a = this.prioritySelectElement) == null ? void 0 : _a.focus();
-  }
-  createDescription(container) {
-    const description = container.createEl("p", {
-      text: "Would you like to add a due date for this task and set the project priority?"
-    });
-    applyStyles2(description, spacingStyles.description);
-  }
-  createTaskPreview(container) {
-    const taskPreview = container.createEl("div");
-    applyStyles2(taskPreview, spacingStyles.taskPreview);
-    const taskLabel = taskPreview.createEl("strong", { text: "Task:" });
-    taskLabel.style.display = "block";
-    taskLabel.style.marginBottom = "4px";
-    taskPreview.createEl("span", {
-      text: this.getTaskDisplayText()
-    });
-  }
-  getTaskDisplayText() {
-    const withoutTaskPrefix = this.taskLine.replace(/^\s*[-*+]\s+\[[^\]]\]\s*/, "").trim();
-    return withoutTaskPrefix.length > 0 ? withoutTaskPrefix : this.taskLine.trim();
-  }
-  createInputSection(container) {
-    const inputContainer = container.createEl("div");
-    applyStyles2(inputContainer, spacingStyles.section);
-    this.createSectionLabel(inputContainer, "Due Date (YYYY-MM-DD or natural language):");
-    const listId = `task-manager-due-date-options-${Date.now()}`;
-    const dateList = inputContainer.createEl("datalist");
-    dateList.id = listId;
-    for (const suggestion of this.dateSuggestions) {
-      dateList.createEl("option", {
-        value: suggestion.value
-      });
-      dateList.createEl("option", {
-        value: suggestion.label.toLowerCase()
-      });
-    }
-    this.inputElement = inputContainer.createEl("input", {
-      type: "text",
-      placeholder: "e.g., 2026-03-20, today, tomorrow, monday"
-    });
-    this.inputElement.setAttribute("list", listId);
-    this.inputElement.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter") {
-        return;
-      }
-      event.preventDefault();
-      void this.submitDate();
-    });
-    applyStyles2(this.inputElement, inputStyles);
-  }
-  createPrioritySection(container) {
-    const priorityContainer = container.createEl("div");
-    applyStyles2(priorityContainer, spacingStyles.section);
-    this.createSectionLabel(priorityContainer, "Project Priority:");
-    const selectElement = priorityContainer.createEl("select");
-    applyStyles2(selectElement, inputStyles);
-    ["1", "2", "3"].forEach((priority) => {
-      const option = selectElement.createEl("option", {
-        text: priority,
-        value: priority
-      });
-      if (priority === this.initialPriority) {
-        option.selected = true;
-      }
-    });
-    this.prioritySelectElement = selectElement;
-  }
-  createSuggestionsSection(container) {
-    this.createSectionLabel(container, "Suggested Dates:");
-    const suggestionsContainer = container.createEl("div");
-    applyStyles2(suggestionsContainer, suggestionsGridStyles);
-    for (const suggestion of this.dateSuggestions.slice(0, 10)) {
-      const button = suggestionsContainer.createEl("button", {
-        text: `${suggestion.value} (${suggestion.label})`
-      });
-      applyStyles2(button, buttonStyles.suggestion);
-      button.onclick = () => {
-        if (this.inputElement) {
-          this.inputElement.value = suggestion.value;
-        }
-        void this.submitDate(suggestion.value);
-      };
-    }
-  }
-  createActionButtons(container) {
-    const buttonContainer = container.createEl("div");
-    applyStyles2(buttonContainer, actionRowStyles);
-    const addButton = buttonContainer.createEl("button", { text: "Add Due Date" });
-    applyStyles2(addButton, buttonStyles.base);
-    applyStyles2(addButton, buttonStyles.primary);
-    addButton.onclick = () => {
-      void this.submitDate();
-    };
-    const skipButton = buttonContainer.createEl("button", { text: "Skip" });
-    applyStyles2(skipButton, buttonStyles.base);
-    applyStyles2(skipButton, buttonStyles.secondary);
-    skipButton.onclick = () => {
-      this.close();
-    };
-  }
-  createSectionLabel(container, text) {
-    const label = container.createEl("label");
-    label.textContent = text;
-    applyStyles2(label, spacingStyles.label);
-    return label;
-  }
-  async submitDate(dateOverride) {
-    var _a, _b, _c, _d;
-    const dateValue = (_b = dateOverride != null ? dateOverride : (_a = this.inputElement) == null ? void 0 : _a.value.trim()) != null ? _b : "";
-    const priority = (_d = (_c = this.prioritySelectElement) == null ? void 0 : _c.value) != null ? _d : "3";
-    if (!dateValue) {
-      return;
-    }
-    const resolvedDate = resolveDateInput(dateValue);
-    if (!resolvedDate) {
-      new import_obsidian10.Notice("Enter YYYY-MM-DD or a natural date like today, tomorrow, or a weekday.");
-      return;
-    }
-    try {
-      await this.onSubmit(this.taskLine, resolvedDate, priority);
-      this.close();
-    } catch (error) {
-      new import_obsidian10.Notice(error instanceof Error ? error.message : "Failed to add due date.");
-    }
-  }
-};
-function applyStyles2(element, styles) {
-  Object.assign(element.style, styles);
-}
 
 // src/tasks/repeat-rules.ts
 var REPEAT_FIELD_REGEX2 = /\[(?:repeat|repeats)::\s*(?:every\s+)?([^\]]+?)\s*\]/i;
@@ -2120,8 +1919,237 @@ function formatDate2(date) {
   return `${year}-${month}-${day}`;
 }
 
+// src/tasks/due-date-modal.ts
+var spacingStyles = {
+  description: { marginBottom: "20px" },
+  taskPreview: {
+    marginBottom: "16px",
+    padding: "10px",
+    border: "1px solid var(--background-modifier-border)",
+    borderRadius: "6px",
+    backgroundColor: "var(--background-secondary)"
+  },
+  section: { marginBottom: "15px" },
+  label: {
+    display: "block",
+    marginBottom: "8px",
+    fontWeight: "bold"
+  }
+};
+var inputStyles = {
+  width: "100%",
+  padding: "8px",
+  boxSizing: "border-box",
+  marginBottom: "10px"
+};
+var suggestionsGridStyles = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: "8px",
+  marginBottom: "15px"
+};
+var actionRowStyles = {
+  display: "flex",
+  gap: "10px",
+  justifyContent: "flex-end"
+};
+var buttonStyles = {
+  base: {
+    padding: "8px 16px",
+    cursor: "pointer"
+  },
+  primary: {
+    backgroundColor: "#4CAF50",
+    color: "white",
+    border: "none",
+    borderRadius: "4px"
+  },
+  secondary: {
+    backgroundColor: "#f0f0f0",
+    border: "1px solid #000",
+    borderRadius: "4px"
+  },
+  suggestion: {
+    padding: "8px",
+    cursor: "pointer"
+  }
+};
+var DueDateModal = class extends import_obsidian10.Modal {
+  constructor(options) {
+    var _a, _b;
+    super(options.app);
+    this.dateSuggestions = buildDateSuggestions();
+    this.inputElement = null;
+    this.prioritySelectElement = null;
+    this.repeatInputElement = null;
+    this.taskLine = options.taskLine;
+    this.initialPriority = options.initialPriority;
+    this.initialDueDate = (_b = (_a = options.initialDueDate) == null ? void 0 : _a.trim()) != null ? _b : "";
+    this.onSubmit = options.onSubmit;
+  }
+  onOpen() {
+    var _a;
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h2", { text: "Add Due Date" });
+    this.createDescription(contentEl);
+    this.createTaskPreview(contentEl);
+    this.createPrioritySection(contentEl);
+    this.createInputSection(contentEl);
+    this.createRepeatSection(contentEl);
+    this.createSuggestionsSection(contentEl);
+    this.createActionButtons(contentEl);
+    (_a = this.prioritySelectElement) == null ? void 0 : _a.focus();
+  }
+  createDescription(container) {
+    const description = container.createEl("p", {
+      text: "Would you like to add a due date for this task and set the project priority?"
+    });
+    applyStyles2(description, spacingStyles.description);
+  }
+  createTaskPreview(container) {
+    const taskPreview = container.createEl("div");
+    applyStyles2(taskPreview, spacingStyles.taskPreview);
+    const taskLabel = taskPreview.createEl("strong", { text: "Task:" });
+    taskLabel.style.display = "block";
+    taskLabel.style.marginBottom = "4px";
+    taskPreview.createEl("span", {
+      text: this.getTaskDisplayText()
+    });
+  }
+  getTaskDisplayText() {
+    const withoutTaskPrefix = this.taskLine.replace(/^\s*[-*+]\s+\[[^\]]\]\s*/, "").trim();
+    return withoutTaskPrefix.length > 0 ? withoutTaskPrefix : this.taskLine.trim();
+  }
+  createInputSection(container) {
+    const inputContainer = container.createEl("div");
+    applyStyles2(inputContainer, spacingStyles.section);
+    this.createSectionLabel(inputContainer, "Due Date (YYYY-MM-DD or natural language):");
+    const listId = `task-manager-due-date-options-${Date.now()}`;
+    const dateList = inputContainer.createEl("datalist");
+    dateList.id = listId;
+    for (const suggestion of this.dateSuggestions) {
+      dateList.createEl("option", {
+        value: suggestion.value
+      });
+      dateList.createEl("option", {
+        value: suggestion.label.toLowerCase()
+      });
+    }
+    this.inputElement = inputContainer.createEl("input", {
+      type: "text",
+      placeholder: "e.g., 2026-03-20, today, tomorrow, monday",
+      value: this.initialDueDate
+    });
+    this.inputElement.setAttribute("list", listId);
+    this.inputElement.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") {
+        return;
+      }
+      event.preventDefault();
+      void this.submitDate();
+    });
+    applyStyles2(this.inputElement, inputStyles);
+  }
+  createPrioritySection(container) {
+    const priorityContainer = container.createEl("div");
+    applyStyles2(priorityContainer, spacingStyles.section);
+    this.createSectionLabel(priorityContainer, "Project Priority:");
+    const selectElement = priorityContainer.createEl("select");
+    applyStyles2(selectElement, inputStyles);
+    ["1", "2", "3"].forEach((priority) => {
+      const option = selectElement.createEl("option", {
+        text: priority,
+        value: priority
+      });
+      if (priority === this.initialPriority) {
+        option.selected = true;
+      }
+    });
+    this.prioritySelectElement = selectElement;
+  }
+  createRepeatSection(container) {
+    const repeatContainer = container.createEl("div");
+    applyStyles2(repeatContainer, spacingStyles.section);
+    this.createSectionLabel(repeatContainer, "Repeat (optional):");
+    this.repeatInputElement = repeatContainer.createEl("input", {
+      type: "text",
+      placeholder: "e.g., daily, 2 weeks, Monday, 5th",
+      value: ""
+    });
+    applyStyles2(this.repeatInputElement, inputStyles);
+  }
+  createSuggestionsSection(container) {
+    this.createSectionLabel(container, "Suggested Dates:");
+    const suggestionsContainer = container.createEl("div");
+    applyStyles2(suggestionsContainer, suggestionsGridStyles);
+    for (const suggestion of this.dateSuggestions.slice(0, 10)) {
+      const button = suggestionsContainer.createEl("button", {
+        text: `${suggestion.value} (${suggestion.label})`
+      });
+      applyStyles2(button, buttonStyles.suggestion);
+      button.onclick = () => {
+        if (this.inputElement) {
+          this.inputElement.value = suggestion.value;
+        }
+        void this.submitDate(suggestion.value);
+      };
+    }
+  }
+  createActionButtons(container) {
+    const buttonContainer = container.createEl("div");
+    applyStyles2(buttonContainer, actionRowStyles);
+    const addButton = buttonContainer.createEl("button", { text: "Add Due Date" });
+    applyStyles2(addButton, buttonStyles.base);
+    applyStyles2(addButton, buttonStyles.primary);
+    addButton.onclick = () => {
+      void this.submitDate();
+    };
+    const skipButton = buttonContainer.createEl("button", { text: "Skip" });
+    applyStyles2(skipButton, buttonStyles.base);
+    applyStyles2(skipButton, buttonStyles.secondary);
+    skipButton.onclick = () => {
+      this.close();
+    };
+  }
+  createSectionLabel(container, text) {
+    const label = container.createEl("label");
+    label.textContent = text;
+    applyStyles2(label, spacingStyles.label);
+    return label;
+  }
+  async submitDate(dateOverride) {
+    var _a, _b, _c, _d, _e, _f;
+    const dateValue = (_b = dateOverride != null ? dateOverride : (_a = this.inputElement) == null ? void 0 : _a.value.trim()) != null ? _b : "";
+    const priority = (_d = (_c = this.prioritySelectElement) == null ? void 0 : _c.value) != null ? _d : "3";
+    const repeatValue = (_f = (_e = this.repeatInputElement) == null ? void 0 : _e.value.trim()) != null ? _f : "";
+    if (!dateValue) {
+      return;
+    }
+    const resolvedDate = resolveDateInput(dateValue);
+    if (!resolvedDate) {
+      new import_obsidian10.Notice("Enter YYYY-MM-DD or a natural date like today, tomorrow, or a weekday.");
+      return;
+    }
+    const repeat = repeatValue.length > 0 ? repeatValue : null;
+    if (repeat !== null && parseRepeatRule(`${this.taskLine} [repeat:: ${repeat}]`) === null) {
+      new import_obsidian10.Notice("Enter a valid repeat rule like daily, 2 weeks, Monday, or 5th.");
+      return;
+    }
+    try {
+      await this.onSubmit(this.taskLine, resolvedDate, priority, repeat);
+      this.close();
+    } catch (error) {
+      new import_obsidian10.Notice(error instanceof Error ? error.message : "Failed to add due date.");
+    }
+  }
+};
+function applyStyles2(element, styles) {
+  Object.assign(element.style, styles);
+}
+
 // src/tasks/reconciler.ts
-async function showDueDateModalForFirstIncompleteTask(file, taskLineIndex, previousContent, updatedContent, context) {
+async function showDueDateModalForFirstIncompleteTask(file, taskLineIndex, updatedContent, context) {
   const { app, readFile, writeFileContent, setTaskState } = context;
   if (!app) {
     return;
@@ -2131,25 +2159,21 @@ async function showDueDateModalForFirstIncompleteTask(file, taskLineIndex, previ
   if (!taskLine) {
     return;
   }
-  const previousLines = previousContent.split(/\r?\n/);
-  const previousFirstIncompleteLine = findFirstIncompleteTaskLine(previousLines);
-  if (previousFirstIncompleteLine !== null && previousLines[previousFirstIncompleteLine] === taskLine) {
-    return;
-  }
   const isRepeating = parseRepeatRule(taskLine) !== null;
   if (isRepeating) {
     return;
   }
-  if (taskLine.includes("[due::")) {
-    return;
-  }
   const modalContent = await readFile(file);
   const initialPriority = String(readFilePriority(modalContent));
+  const initialDueDateMatch = taskLine.match(/\[due::\s*([^\]]*?)\s*\]/i);
+  const initialDueDate = initialDueDateMatch ? initialDueDateMatch[1].trim() : null;
   const modal = new DueDateModal({
     app,
     taskLine,
     initialPriority,
-    onSubmit: async (taskLine2, dueDate, priority) => {
+    initialDueDate,
+    onSubmit: async (taskLine2, dueDate, priority, repeat) => {
+      var _a;
       if (!isValidDateFormat(dueDate)) {
         return;
       }
@@ -2163,6 +2187,13 @@ async function showDueDateModalForFirstIncompleteTask(file, taskLineIndex, previ
           } else {
             updatedLines[i] = `${updatedLines[i].trimEnd()} [due:: ${dueDate}]`;
           }
+          if (repeat !== null) {
+            if (updatedLines[i].match(/\[(?:repeat|repeats)::\s*[^\]]*\]/i)) {
+              updatedLines[i] = updatedLines[i].replace(/\[(?:repeat|repeats)::\s*[^\]]*\]/gi, `[repeat:: ${repeat}]`);
+            } else {
+              updatedLines[i] = `${updatedLines[i].trimEnd()} [repeat:: ${repeat}]`;
+            }
+          }
           taskFound = true;
           break;
         }
@@ -2172,13 +2203,14 @@ async function showDueDateModalForFirstIncompleteTask(file, taskLineIndex, previ
         await writeFileContent(file, nextContent);
         await context.setFilePriority(file, Number.parseInt(priority, 10));
         setTaskState(file.path, extractTaskState(nextContent));
+        await ((_a = context.onTaskPropertiesChanged) == null ? void 0 : _a.call(context));
       }
     }
   });
   modal.open();
 }
 async function applyCompletionRules(context) {
-  const { file, content, completedLine, writeFileContent, setFileStatus, setTaskState } = context;
+  const { file, content, completedLine, previousFirstIncompleteLine, writeFileContent, setFileStatus, setTaskState } = context;
   const lines = content.split(/\r?\n/);
   const nextLines = [...lines];
   const sourceTaskLine = lines[completedLine];
@@ -2206,10 +2238,10 @@ async function applyCompletionRules(context) {
   }
   await setFileStatus(file, newStatus);
   setTaskState(file.path, extractTaskState(updatedContent));
-  if (nextTaskLine !== null) {
+  if (previousFirstIncompleteLine === completedLine && nextTaskLine !== null) {
     const nextTaskLineInFinal = findFirstIncompleteTaskLine(workingLines);
     if (nextTaskLineInFinal !== null) {
-      await showDueDateModalForFirstIncompleteTask(file, nextTaskLineInFinal, content, updatedContent, context);
+      await showDueDateModalForFirstIncompleteTask(file, nextTaskLineInFinal, updatedContent, context);
     }
   }
 }
@@ -2234,7 +2266,7 @@ async function applyUncompletionRules(context) {
   }
   await setFileStatus(file, "todo");
   setTaskState(file.path, extractTaskState(updatedContent));
-  await showDueDateModalForFirstIncompleteTask(file, uncompletedLine, content, updatedContent, context);
+  await showDueDateModalForFirstIncompleteTask(file, uncompletedLine, updatedContent, context);
 }
 async function reconcileFile(context) {
   const { file, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
@@ -2361,6 +2393,7 @@ var TaskProcessor = class {
     this.app = options.app;
     this.getSettings = options.getSettings;
     this.onFileStatusChanged = options.onFileStatusChanged;
+    this.onTaskPropertiesChanged = options.onTaskPropertiesChanged;
   }
   onunload() {
     this.stateStore.clear();
@@ -2406,7 +2439,13 @@ var TaskProcessor = class {
     this.stateStore.setTaskState(file.path, nextState);
     this.stateStore.setStatus(file.path, currentStatus);
     if (completion !== null) {
-      await this.applyCompletionRules(file, content, completion, settings);
+      await this.applyCompletionRules(
+        file,
+        content,
+        completion,
+        findFirstIncompleteTaskStateLine(previousState),
+        settings
+      );
       await this.routeAfterStatusChange(file, previousStatus, settings);
       return;
     }
@@ -2519,11 +2558,12 @@ ${sourceContent}`;
       await deleteEmptyParentFolders(this.app, getTaskFolderRoots(settings), sourcePath);
     });
   }
-  async applyCompletionRules(file, content, completedLine, settings) {
+  async applyCompletionRules(file, content, completedLine, previousFirstIncompleteLine, settings) {
     await applyCompletionRules({
       file,
       content,
       completedLine,
+      previousFirstIncompleteLine,
       ...this.createReconcilerServices(settings)
     });
   }
@@ -2545,6 +2585,10 @@ ${sourceContent}`;
       setFilePriority: (target, priority) => this.setFilePriority(target, priority),
       setTaskState: (filePath, nextState) => {
         this.stateStore.setTaskState(filePath, nextState);
+      },
+      onTaskPropertiesChanged: async () => {
+        var _a;
+        await ((_a = this.onTaskPropertiesChanged) == null ? void 0 : _a.call(this));
       }
     };
   }
@@ -2615,6 +2659,12 @@ var TaskManagerPlugin = class extends import_obsidian12.Plugin {
       app: this.app,
       getSettings: () => this.getSettings(),
       onFileStatusChanged: async () => {
+        await this.writeTasksSummary({
+          openAfterGeneration: false,
+          showNotice: false
+        });
+      },
+      onTaskPropertiesChanged: async () => {
         await this.writeTasksSummary({
           openAfterGeneration: false,
           showNotice: false

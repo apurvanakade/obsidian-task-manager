@@ -36,12 +36,14 @@ type ReconcilerContext = {
   setFileStatus: (file: TFile, status: string) => Promise<void>;
   setFilePriority: (file: TFile, priority: FilePriority) => Promise<void>;
   setTaskState: (filePath: string, state: TaskState[]) => void;
+  onTaskPropertiesChanged?: () => Promise<void>;
   app?: App;
 };
 
 type CompletionContext = ReconcilerContext & {
   content: string;
   completedLine: number;
+  previousFirstIncompleteLine: number | null;
 };
 
 type UncompletionContext = ReconcilerContext & {
@@ -52,7 +54,6 @@ type UncompletionContext = ReconcilerContext & {
 async function showDueDateModalForFirstIncompleteTask(
   file: TFile,
   taskLineIndex: number,
-  previousContent: string,
   updatedContent: string,
   context: ReconcilerContext
 ): Promise<void> {
@@ -68,31 +69,23 @@ async function showDueDateModalForFirstIncompleteTask(
     return;
   }
 
-  const previousLines = previousContent.split(/\r?\n/);
-  const previousFirstIncompleteLine = findFirstIncompleteTaskLine(previousLines);
-  if (previousFirstIncompleteLine !== null && previousLines[previousFirstIncompleteLine] === taskLine) {
-    return;
-  }
-  
   // Skip if task is repeating (it already has a due date assigned)
   const isRepeating = parseRepeatRule(taskLine) !== null;
   if (isRepeating) {
     return;
   }
 
-  // Skip if task already has a due date
-  if (taskLine.includes("[due::")) {
-    return;
-  }
-
   const modalContent = await readFile(file);
   const initialPriority = String(readFilePriority(modalContent)) as "1" | "2" | "3";
+  const initialDueDateMatch = taskLine.match(/\[due::\s*([^\]]*?)\s*\]/i);
+  const initialDueDate = initialDueDateMatch ? initialDueDateMatch[1].trim() : null;
 
   const modal = new DueDateModal({
     app,
     taskLine,
     initialPriority,
-    onSubmit: async (taskLine, dueDate, priority) => {
+    initialDueDate,
+    onSubmit: async (taskLine, dueDate, priority, repeat) => {
       // Validate date format
       if (!isValidDateFormat(dueDate)) {
         return;
@@ -111,6 +104,14 @@ async function showDueDateModalForFirstIncompleteTask(
             updatedLines[i] = `${updatedLines[i].trimEnd()} [due:: ${dueDate}]`;
           }
 
+          if (repeat !== null) {
+            if (updatedLines[i].match(/\[(?:repeat|repeats)::\s*[^\]]*\]/i)) {
+              updatedLines[i] = updatedLines[i].replace(/\[(?:repeat|repeats)::\s*[^\]]*\]/gi, `[repeat:: ${repeat}]`);
+            } else {
+              updatedLines[i] = `${updatedLines[i].trimEnd()} [repeat:: ${repeat}]`;
+            }
+          }
+
           taskFound = true;
           break;
         }
@@ -121,6 +122,7 @@ async function showDueDateModalForFirstIncompleteTask(
           await writeFileContent(file, nextContent);
           await context.setFilePriority(file, Number.parseInt(priority, 10) as FilePriority);
           setTaskState(file.path, extractTaskState(nextContent));
+          await context.onTaskPropertiesChanged?.();
         }
       }
     });
@@ -128,7 +130,7 @@ async function showDueDateModalForFirstIncompleteTask(
 }
 
 export async function applyCompletionRules(context: CompletionContext): Promise<void> {
-  const { file, content, completedLine, writeFileContent, setFileStatus, setTaskState } = context;
+  const { file, content, completedLine, previousFirstIncompleteLine, writeFileContent, setFileStatus, setTaskState } = context;
   const lines = content.split(/\r?\n/);
   const nextLines = [...lines];
   const sourceTaskLine = lines[completedLine];
@@ -168,10 +170,10 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
   await setFileStatus(file, newStatus);
   setTaskState(file.path, extractTaskState(updatedContent));
 
-  if (nextTaskLine !== null) {
+  if (previousFirstIncompleteLine === completedLine && nextTaskLine !== null) {
     const nextTaskLineInFinal = findFirstIncompleteTaskLine(workingLines);
     if (nextTaskLineInFinal !== null) {
-      await showDueDateModalForFirstIncompleteTask(file, nextTaskLineInFinal, content, updatedContent, context);
+      await showDueDateModalForFirstIncompleteTask(file, nextTaskLineInFinal, updatedContent, context);
     }
   }
 }
@@ -204,7 +206,7 @@ export async function applyUncompletionRules(context: UncompletionContext): Prom
   await setFileStatus(file, "todo");
   setTaskState(file.path, extractTaskState(updatedContent));
 
-  await showDueDateModalForFirstIncompleteTask(file, uncompletedLine, content, updatedContent, context);
+  await showDueDateModalForFirstIncompleteTask(file, uncompletedLine, updatedContent, context);
 }
 
 export async function reconcileFile(context: ReconcilerContext): Promise<void> {

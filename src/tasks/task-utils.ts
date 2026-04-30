@@ -78,6 +78,11 @@ export function findNewlyUncompletedTask(previousState: TaskState[], nextState: 
   return null;
 }
 
+export function findFirstIncompleteTaskStateLine(taskState: TaskState[]): number | null {
+  const firstOpenTask = taskState.find((task) => task.status === "open");
+  return firstOpenTask ? firstOpenTask.line : null;
+}
+
 export function findFirstIncompleteTaskLine(lines: string[]): number | null {
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(TASK_LINE_REGEX);
