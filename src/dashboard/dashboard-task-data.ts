@@ -4,6 +4,7 @@
  *
  * Responsibilities:
  * - parses task lines for due/completion metadata
+ * - reads file-level priority from frontmatter
  * - filters tasks into Due and Completed sets for a target date note
  * - collects open tasks from the inbox file for the Inbox section
  * - normalizes task display text and sorting behavior
@@ -16,19 +17,14 @@
  * - reads markdown file content from the vault
  */
 import { App, TFile } from "obsidian";
+import { readFilePriority } from "../tasks/file-priority";
+import { cleanTaskText, isRecurringTask, parseTaskLine, readInlineFieldValue } from "../tasks/task-line-metadata";
 
 const EMPTY_DUE_DATE_SORT_VALUE = "9999-99-99";
 const MARKDOWN_EXTENSION_REGEX = /\.md$/i;
 const DATE_FILE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
-const TASK_LINE_REGEX = /^\s*[-*+]\s+\[( |x|X)\]\s+(.*)$/;
 const DUE_FIELD_REGEX = /\[due::\s*([^\]]+?)\s*\]/i;
 const COMPLETION_DATE_FIELD_REGEX = /\[completion-date::\s*([^\]]+?)\s*\]/i;
-const PRIORITY_FIELD_REGEX = /\[priority::\s*([^\]]+?)\s*\]/i;
-const REPEAT_FIELD_REGEX = /\[(?:repeat|repeats)::\s*[^\]]+?\]/i;
-const INLINE_FIELD_REGEX = /\s*\[[^\]]+::\s*[^\]]*\]/g;
-const TAG_REGEX = /(^|\s)#[^\s#]+/g;
-const MULTISPACE_REGEX = /\s+/g;
-const DEFAULT_PRIORITY = 3;
 
 export type DashboardRow = {
   file: TFile;
@@ -43,7 +39,6 @@ type ParsedDashboardTask = {
   status: "open" | "completed";
   dueDate: string | null;
   completedDate: string | null;
-  priority: number;
   isRecurring: boolean;
 };
 
@@ -65,6 +60,7 @@ export async function collectTasksForDate(
 
   for (const file of files) {
     const content = await app.vault.read(file);
+    const priority = readFilePriority(content);
     const lines = content.split(/\r?\n/);
 
     for (const line of lines) {
@@ -78,7 +74,7 @@ export async function collectTasksForDate(
           file,
           task: parsedTask.text,
           dueDate: parsedTask.dueDate,
-          priority: parsedTask.priority,
+          priority,
           isRecurring: parsedTask.isRecurring,
         });
       }
@@ -88,7 +84,7 @@ export async function collectTasksForDate(
           file,
           task: parsedTask.text,
           dueDate: null,
-          priority: parsedTask.priority,
+          priority,
           isRecurring: parsedTask.isRecurring,
         });
       }
@@ -113,18 +109,18 @@ export async function collectInboxTasks(
   const file = app.vault.getAbstractFileByPath(inboxFile);
   if (!file || !(file instanceof TFile)) return [];
   const content = await app.vault.read(file);
+  const priority = readFilePriority(content);
   const lines = content.split(/\r?\n/);
   const inboxTasks: DashboardRow[] = [];
   for (const line of lines) {
-    const match = line.match(TASK_LINE_REGEX);
-    if (!match) continue;
-    const status = match[1].trim().toLowerCase() === "x" ? "completed" : "open";
-    if (status !== "open") continue;
-    const taskBody = match[2].trim();
-    const priority = parsePriorityValue(readInlineFieldValue(taskBody, PRIORITY_FIELD_REGEX));
+    const parsedTask = parseTaskLine(line);
+    if (!parsedTask || parsedTask.status !== "open") {
+      continue;
+    }
+
     inboxTasks.push({
-      file: file as TFile,
-      task: cleanDashboardTaskText(taskBody),
+      file,
+      task: cleanTaskText(parsedTask.taskBody),
       dueDate: null,
       priority,
       isRecurring: false,
@@ -135,55 +131,26 @@ export async function collectInboxTasks(
 }
 
 function parseDashboardTaskLine(line: string): ParsedDashboardTask | null {
-  const match = line.match(TASK_LINE_REGEX);
-  if (!match) {
+  const parsedTask = parseTaskLine(line);
+  if (!parsedTask) {
     return null;
   }
 
-  const status = match[1].trim().toLowerCase() === "x" ? "completed" : "open";
-  const taskBody = match[2].trim();
+  const { status, taskBody } = parsedTask;
   const dueDate = readInlineFieldValue(taskBody, DUE_FIELD_REGEX);
   const completedDate = readInlineFieldValue(taskBody, COMPLETION_DATE_FIELD_REGEX);
-  const priority = parsePriorityValue(readInlineFieldValue(taskBody, PRIORITY_FIELD_REGEX));
 
   if (!dueDate && !completedDate) {
     return null;
   }
 
   return {
-    text: cleanDashboardTaskText(taskBody),
+    text: cleanTaskText(taskBody),
     status,
     dueDate,
     completedDate,
-    priority,
-    isRecurring: REPEAT_FIELD_REGEX.test(taskBody),
+    isRecurring: isRecurringTask(taskBody),
   };
-}
-
-function parsePriorityValue(value: string | null): number {
-  if (!value) {
-    return DEFAULT_PRIORITY;
-  }
-
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 3) {
-    return DEFAULT_PRIORITY;
-  }
-
-  return parsed;
-}
-
-function readInlineFieldValue(taskBody: string, fieldRegex: RegExp): string | null {
-  const match = taskBody.match(fieldRegex);
-  return match ? match[1].trim() : null;
-}
-
-function cleanDashboardTaskText(taskBody: string): string {
-  return taskBody
-    .replace(INLINE_FIELD_REGEX, "")
-    .replace(TAG_REGEX, "$1")
-    .replace(MULTISPACE_REGEX, " ")
-    .trim();
 }
 
 function compareRows(left: DashboardRow, right: DashboardRow): number {

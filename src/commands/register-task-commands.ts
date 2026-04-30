@@ -18,25 +18,12 @@
 import { Plugin } from "obsidian";
 
 type TaskCommandHandlers = {
-  processTasks: () => void;
-  processCurrentFile: () => void;
   resetCurrentFileTasks: () => void;
   createTasksSummary: () => void;
+  addNewProject: () => void;
 };
 
 export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandlers): void {
-  plugin.addCommand({
-    id: "process-tasks",
-    name: "Process Tasks",
-    callback: handlers.processTasks,
-  });
-
-  plugin.addCommand({
-    id: "process-current-file",
-    name: "Process File",
-    callback: handlers.processCurrentFile,
-  });
-
   plugin.addCommand({
     id: "reset-current-file-tasks",
     name: "Reset Tasks",
@@ -47,5 +34,11 @@ export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandle
     id: "create-tasks-summary",
     name: "Tasks Summary",
     callback: handlers.createTasksSummary,
+  });
+
+  plugin.addCommand({
+    id: "add-new-project",
+    name: "Add New Project",
+    callback: handlers.addNewProject,
   });
 }

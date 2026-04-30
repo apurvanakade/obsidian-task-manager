@@ -17,12 +17,13 @@
  */
 import { App, Notice, Plugin, PluginSettingTab, TFile } from "obsidian";
 import { registerTaskCommands } from "./src/commands/register-task-commands";
+import { AddProjectModal, buildProjectFileContent, buildProjectFilePath } from "./src/projects/add-project-modal";
 import { DateDashboardController } from "./src/dashboard/date-dashboard";
 import { CreatedDateEditorSuggest, DueDateEditorSuggest } from "./src/editor/due-date-suggest";
 import { normalizeSettings, TaskManagerSettings } from "./src/settings/settings-utils";
 import { writeTasksSummary } from "./src/summary/tasks-summary";
 import { TaskManagerSettingTabRenderer } from "./src/settings/settings-ui";
-import { getTaskFolderRoots } from "./src/routing/task-routing";
+import { ensureParentFoldersExist, getTaskFolderRoots } from "./src/routing/task-routing";
 import { TaskProcessor } from "./src/tasks/task-processor";
 
 export default class TaskManagerPlugin extends Plugin {
@@ -52,17 +53,14 @@ export default class TaskManagerPlugin extends Plugin {
     this.registerEditorSuggest(this.createdDateSuggest);
     this.addSettingTab(new BaseTaskManagerSettingTab(this.app, this));
     registerTaskCommands(this, {
-      processTasks: () => {
-        void this.runProcessTasks();
-      },
-      processCurrentFile: () => {
-        void this.runProcessCurrentFile();
-      },
       resetCurrentFileTasks: () => {
         void this.runResetCurrentFileTasks();
       },
       createTasksSummary: () => {
         this.runCreateTasksSummary();
+      },
+      addNewProject: () => {
+        this.runAddNewProject();
       },
     });
     this.registerEvent(this.app.vault.on("create", (file) => {
@@ -114,24 +112,6 @@ export default class TaskManagerPlugin extends Plugin {
     await this.saveSettings();
   }
 
-  private async runProcessCurrentFile(): Promise<void> {
-    try {
-      const result = await this.taskProcessor!.processCurrentFile();
-      new Notice(result);
-    } catch (error) {
-      new Notice(error instanceof Error ? error.message : "Failed to Process File.");
-    }
-  }
-
-  private async runProcessTasks(): Promise<void> {
-    try {
-      const result = await this.taskProcessor!.processTasks();
-      new Notice(result);
-    } catch (error) {
-      new Notice(error instanceof Error ? error.message : "Failed to process tasks.");
-    }
-  }
-
   private async runResetCurrentFileTasks(): Promise<void> {
     try {
       const result = await this.taskProcessor!.resetCurrentFileTasks();
@@ -160,6 +140,30 @@ export default class TaskManagerPlugin extends Plugin {
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Failed to create Tasks Summary.");
     }
+  }
+
+  private runAddNewProject(): void {
+    const settings = this.getSettings();
+    const modal = new AddProjectModal({
+      app: this.app,
+      settings,
+      onSubmit: async (input) => {
+        const projectPath = buildProjectFilePath(input.folder, input.name);
+        const existingEntry = this.app.vault.getAbstractFileByPath(projectPath);
+        if (existingEntry) {
+          throw new Error(`A file or folder already exists at '${projectPath}'.`);
+        }
+
+        await ensureParentFoldersExist(this.app, projectPath);
+        const content = buildProjectFileContent(input, settings.nextActionTag, settings.statusField);
+        const file = await this.app.vault.create(projectPath, content);
+        await this.taskProcessor?.handleFileCreate(file);
+        await this.app.workspace.getLeaf(true).openFile(file);
+        new Notice(`Created ${projectPath}.`);
+      },
+    });
+
+    modal.open();
   }
 
   private getTaskFolderRoots(): string[] {

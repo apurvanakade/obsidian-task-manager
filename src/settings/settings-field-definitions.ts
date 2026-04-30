@@ -47,7 +47,7 @@ export function getFolderSettingConfigs(settings: TaskManagerSettings): FolderSe
   return [
     {
       name: "Projects Folder",
-      description: "Folder scanned recursively by the Process Tasks command.",
+      description: "Root folder for active project notes.",
       key: "projectsFolder",
       value: settings.projectsFolder,
       placeholder: "Projects",

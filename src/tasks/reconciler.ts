@@ -15,6 +15,8 @@
  * - returns updated content/state and can trigger modal-driven async due-date writes
  */
 import { App, TFile } from "obsidian";
+import { getCurrentDateString, getCurrentTimeString } from "../date/date-utils";
+import { FilePriority, readFilePriority } from "./file-priority";
 import {
   addNextActionTag,
   extractTaskState,
@@ -35,6 +37,7 @@ type ReconcilerContext = {
   readFile: (file: TFile) => Promise<string>;
   writeFileContent: (file: TFile, content: string) => Promise<void>;
   setFileStatus: (file: TFile, status: string) => Promise<void>;
+  setFilePriority: (file: TFile, priority: FilePriority) => Promise<void>;
   setTaskState: (filePath: string, state: TaskState[]) => void;
   app?: App;
 };
@@ -53,16 +56,6 @@ type UncompletionContext = ReconcilerContext & {
   content: string;
   uncompletedLine: number;
 };
-
-type ProcessTasksContext = {
-  settings: TaskManagerSettings;
-  getMarkdownFiles: () => TFile[];
-  reconcileOneFile: (file: TFile) => Promise<void>;
-};
-
-function isInProjectsFolder(filePath: string, projectsFolder: string): boolean {
-  return filePath === projectsFolder || filePath.startsWith(`${projectsFolder}/`);
-}
 
 async function showDueDateModalForNextAction(
   file: TFile,
@@ -100,9 +93,13 @@ async function showDueDateModalForNextAction(
     return;
   }
 
+  const modalContent = await readFile(file);
+  const initialPriority = String(readFilePriority(modalContent)) as "1" | "2" | "3";
+
   const modal = new DueDateModal({
     app,
     taskLine,
+    initialPriority,
     onSubmit: async (taskLine, dueDate, priority) => {
       // Validate date format
       if (!isValidDateFormat(dueDate)) {
@@ -122,19 +119,15 @@ async function showDueDateModalForNextAction(
             updatedLines[i] = `${updatedLines[i].trimEnd()} [due:: ${dueDate}]`;
           }
 
-          if (updatedLines[i].includes("[priority::")) {
-            updatedLines[i] = updatedLines[i].replace(/\[priority::\s*[^\]]*\]/g, `[priority:: ${priority}]`);
-          } else {
-            updatedLines[i] = `${updatedLines[i].trimEnd()} [priority:: ${priority}]`;
-          }
-
           taskFound = true;
           break;
         }
       }
 
       if (taskFound) {
-        await writeFileContent(file, updatedLines.join("\n"));
+        const nextContent = updatedLines.join("\n");
+        await writeFileContent(file, nextContent);
+        await context.setFilePriority(file, Number.parseInt(priority, 10) as FilePriority);
         setTaskState(file.path, extractTaskState(updatedLines.join("\n"), settings.nextActionTag));
       }
     }
@@ -239,8 +232,12 @@ export async function applyDeletedTagRules(context: DeletedTagContext): Promise<
   const previousTaskLine = findPreviousIncompleteTaskLine(cleanedLines, deletedTaggedTaskLine);
 
   if (previousTaskLine === null) {
+    const updatedContent = lines.join("\n");
+    if (updatedContent !== content) {
+      await writeFileContent(file, updatedContent);
+    }
     await setFileStatus(file, "completed");
-    setTaskState(file.path, extractTaskState(content, settings.nextActionTag));
+    setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
     return;
   }
 
@@ -268,7 +265,7 @@ export async function reconcileFile(context: ReconcilerContext): Promise<void> {
         return line;
       }
 
-      // Open tasks should never keep completion metadata, even during manual Process File runs.
+      // Open tasks should never keep completion metadata when reconciled.
       if (match[2].toLowerCase() === "x") {
         return line;
       }
@@ -300,40 +297,12 @@ export async function reconcileFile(context: ReconcilerContext): Promise<void> {
   }
 }
 
-export async function processProjectsFolder(context: ProcessTasksContext): Promise<number> {
-  const { settings } = context;
-  const activeFolders = [
-    settings.projectsFolder,
-    settings.completedProjectsFolder,
-    settings.waitingProjectsFolder,
-    settings.somedayMaybeProjectsFolder,
-  ].filter(Boolean);
-
-  const files = context.getMarkdownFiles().filter((file) =>
-    activeFolders.some((folder) => isInProjectsFolder(file.path, folder))
-  );
-
-  for (const file of files) {
-    await context.reconcileOneFile(file);
-  }
-
-  return files.length;
-}
-
 export function getCompletionDateString(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return getCurrentDateString();
 }
 
 export function getCompletionTimeString(): string {
-  const now = new Date();
-  const hours = String(now.getHours()).padStart(2, "0");
-  const mins = String(now.getMinutes()).padStart(2, "0");
-  const secs = String(now.getSeconds()).padStart(2, "0");
-  return `${hours}:${mins}:${secs}`;
+  return getCurrentTimeString();
 }
 
 function addCompletionFields(line: string): string {

@@ -1,9 +1,9 @@
 /**
  * Purpose:
- * - collect a due date for newly assigned next-action tasks.
+ * - collect a due date and file priority for newly assigned next-action tasks.
  *
  * Responsibilities:
- * - presents quick date suggestions and manual date input
+ * - presents quick date suggestions, file-priority selection, and manual date input
  * - immediately submits on suggested-date click
  * - forwards selected dates to reconciler-provided callbacks
  *
@@ -79,11 +79,13 @@ const buttonStyles = {
 type DueDateModalOptions = {
   app: App;
   taskLine: string;
+  initialPriority: "1" | "2" | "3";
   onSubmit: (taskLine: string, dueDate: string, priority: "1" | "2" | "3") => Promise<void>;
 };
 
 export class DueDateModal extends Modal {
   private readonly taskLine: string;
+  private readonly initialPriority: "1" | "2" | "3";
   private readonly onSubmit: (taskLine: string, dueDate: string, priority: "1" | "2" | "3") => Promise<void>;
   private readonly dateSuggestions = buildDateSuggestions();
   private inputElement: HTMLInputElement | null = null;
@@ -92,6 +94,7 @@ export class DueDateModal extends Modal {
   constructor(options: DueDateModalOptions) {
     super(options.app);
     this.taskLine = options.taskLine;
+    this.initialPriority = options.initialPriority;
     this.onSubmit = options.onSubmit;
   }
 
@@ -113,7 +116,7 @@ export class DueDateModal extends Modal {
 
   private createDescription(container: HTMLElement): void {
     const description = container.createEl("p", {
-      text: "Would you like to add a due date for this task?",
+      text: "Would you like to add a due date for this task and set the project priority?",
     });
     applyStyles(description, spacingStyles.description);
   }
@@ -178,7 +181,7 @@ export class DueDateModal extends Modal {
     const priorityContainer = container.createEl("div");
     applyStyles(priorityContainer, spacingStyles.section);
 
-    this.createSectionLabel(priorityContainer, "Priority:");
+    this.createSectionLabel(priorityContainer, "Project Priority:");
 
     const selectElement = priorityContainer.createEl("select");
     applyStyles(selectElement, inputStyles);
@@ -188,7 +191,7 @@ export class DueDateModal extends Modal {
         text: priority,
         value: priority,
       });
-      if (priority === "3") {
+      if (priority === this.initialPriority) {
         option.selected = true;
       }
     });
@@ -260,7 +263,7 @@ export class DueDateModal extends Modal {
       await this.onSubmit(this.taskLine, resolvedDate, priority);
       this.close();
     } catch (error) {
-      console.error("Failed to add due date:", error);
+      new Notice(error instanceof Error ? error.message : "Failed to add due date.");
     }
   }
 }

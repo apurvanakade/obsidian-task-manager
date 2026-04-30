@@ -19,10 +19,11 @@
  * - Inbox section now lists all open tasks from the configured inbox file (set in settings).
  */
 import { App, ItemView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { getTodayDateString } from "../date/date-utils";
 import { collectTasksForDate, collectInboxTasks, DashboardRow, getDateStringFromFileName } from "./dashboard-task-data";
+import { buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
 
 const MARKDOWN_EXTENSION_REGEX = /\.md$/i;
-const MONTH_DAY_REGEX = /^\d{4}-(\d{2})-(\d{2})$/;
 
 type DateDashboardControllerOptions = {
   app: App;
@@ -88,8 +89,8 @@ export class DateDashboardController {
 
     const activeFile = this.app.workspace.getActiveFile();
     const dateString = activeFile
-      ? getDateStringFromFileName(activeFile.name) ?? this.getTodayDateString()
-      : this.getTodayDateString();
+      ? getDateStringFromFileName(activeFile.name) ?? getTodayDateString()
+      : getTodayDateString();
     const sourcePath = activeFile?.path ?? "";
 
     const dashboard = document.createElement("section");
@@ -219,14 +220,6 @@ export class DateDashboardController {
     return emptyState;
   }
 
-  private getTodayDateString(): string {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, "0");
-    const day = String(now.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  }
-
   private appendTaskTable(container: HTMLElement, title: string, rows: DashboardRow[], sourcePath: string, showDueDate: boolean): void {
     const heading = document.createElement("h3");
     heading.textContent = title;
@@ -250,7 +243,6 @@ export class DateDashboardController {
   }
 
   private appendTaskTableContent(container: HTMLElement, rows: DashboardRow[], sourcePath: string, showDueDate: boolean): void {
-
     if (rows.length === 0) {
       const emptyState = document.createElement("p");
       emptyState.textContent = "No tasks.";
@@ -258,23 +250,7 @@ export class DateDashboardController {
       return;
     }
 
-    // Group by folder path, then by file path within each folder
-    const folderMap = new Map<string, Map<string, DashboardRow[]>>();
-    for (const row of rows) {
-      const folderPath = row.file.parent?.path ?? "";
-      const filePath = row.file.path;
-      if (!folderMap.has(folderPath)) {
-        folderMap.set(folderPath, new Map());
-      }
-      const fileMap = folderMap.get(folderPath)!;
-      if (!fileMap.has(filePath)) {
-        fileMap.set(filePath, []);
-      }
-      fileMap.get(filePath)!.push(row);
-    }
-
-    // Sort folder groups by folder path, files within each group by file path
-    const sortedFolderEntries = [...folderMap.entries()].sort(([a], [b]) => a.localeCompare(b));
+    const folderGroups = buildGroupedTaskTable(rows, this.getHideKeywords());
 
     const table = document.createElement("table");
 
@@ -291,32 +267,27 @@ export class DateDashboardController {
 
     const tbody = document.createElement("tbody");
 
-    for (const [folderPath, fileMap] of sortedFolderEntries) {
-      const sortedFileEntries = [...fileMap.entries()].sort(([a], [b]) => a.localeCompare(b));
-
-      // Count total task rows in this folder for the folder cell rowspan
-      const folderRowCount = sortedFileEntries.reduce((sum, [, fileRows]) => sum + fileRows.length, 0);
-
+    for (const folderGroup of folderGroups) {
       let folderCellEmitted = false;
 
-      for (const [, fileRows] of sortedFileEntries) {
-        for (let i = 0; i < fileRows.length; i++) {
-          const row = fileRows[i];
+      for (const fileGroup of folderGroup.files) {
+        for (let i = 0; i < fileGroup.rows.length; i++) {
+          const row = fileGroup.rows[i];
           const tableRow = document.createElement("tr");
 
           if (!folderCellEmitted) {
-            const folderCell = this.createTextElement("td", this.getDisplayFolderName(folderPath));
-            if (folderRowCount > 1) {
-              folderCell.rowSpan = folderRowCount;
+            const folderCell = this.createTextElement("td", folderGroup.displayFolderName);
+            if (folderGroup.rowCount > 1) {
+              folderCell.rowSpan = folderGroup.rowCount;
             }
             tableRow.appendChild(folderCell);
             folderCellEmitted = true;
           }
 
           if (i === 0) {
-            const fileCell = this.createFileCell(row, sourcePath);
-            if (fileRows.length > 1) {
-              fileCell.rowSpan = fileRows.length;
+            const fileCell = this.createFileCell(fileGroup.displayFileName, row.file.path, sourcePath);
+            if (fileGroup.rows.length > 1) {
+              fileCell.rowSpan = fileGroup.rows.length;
             }
             tableRow.appendChild(fileCell);
           }
@@ -324,7 +295,7 @@ export class DateDashboardController {
           tableRow.appendChild(this.createTaskCell(row.task, row.priority));
           tableRow.appendChild(this.createTextElement("td", String(row.priority)));
           if (showDueDate) {
-            tableRow.appendChild(this.createTextElement("td", this.formatMonthDay(row.dueDate)));
+            tableRow.appendChild(this.createTextElement("td", formatMonthDay(row.dueDate)));
           }
           tbody.appendChild(tableRow);
         }
@@ -335,15 +306,15 @@ export class DateDashboardController {
     container.appendChild(table);
   }
 
-  private createFileCell(row: DashboardRow, sourcePath: string): HTMLTableCellElement {
+  private createFileCell(displayFileName: string, filePath: string, sourcePath: string): HTMLTableCellElement {
     const fileCell = document.createElement("td");
     const link = document.createElement("a");
     link.href = "#";
-    link.textContent = this.getDisplayFileName(row.file.name);
+    link.textContent = displayFileName;
     link.classList.add("internal-link");
     link.addEventListener("click", (event) => {
       event.preventDefault();
-      void this.app.workspace.openLinkText(row.file.path, sourcePath);
+      void this.app.workspace.openLinkText(filePath, sourcePath);
     });
     fileCell.appendChild(link);
     return fileCell;
@@ -362,15 +333,6 @@ export class DateDashboardController {
     return taskCell;
   }
 
-  private formatMonthDay(dateString: string | null): string {
-    if (!dateString) {
-      return "";
-    }
-
-    const match = dateString.match(MONTH_DAY_REGEX);
-    return match ? `${match[1]}-${match[2]}` : dateString;
-  }
-
   private applyPriorityTextStyle(element: HTMLElement, priority: number): void {
     if (priority === 1) {
       element.style.fontWeight = "700";
@@ -380,36 +342,6 @@ export class DateDashboardController {
     if (priority === 2) {
       element.style.fontStyle = "italic";
     }
-  }
-
-  private applyHideKeywords(name: string): string {
-    const keywords = this.getHideKeywords()
-      .split(",")
-      .map((k) => k.trim())
-      .filter((k) => k.length > 0);
-
-    if (keywords.length === 0) {
-      return name;
-    }
-
-    let result = name;
-    for (const keyword of keywords) {
-      const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      result = result.replace(new RegExp(escaped, "gi"), "");
-    }
-    result = result.replace(/\s+/g, " ").trim();
-
-    return result || name;
-  }
-
-  private getDisplayFileName(fileName: string): string {
-    const withoutExtension = fileName.replace(MARKDOWN_EXTENSION_REGEX, "");
-    return this.applyHideKeywords(withoutExtension);
-  }
-
-  private getDisplayFolderName(folderPath: string): string {
-    const lastSegment = folderPath.split("/").pop() ?? folderPath;
-    return this.applyHideKeywords(lastSegment);
   }
 }
 

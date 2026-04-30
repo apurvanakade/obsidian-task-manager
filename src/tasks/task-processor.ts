@@ -5,7 +5,7 @@
  * Responsibilities:
  * - coordinates state lookup, reconciliation, status updates, and routing decisions
  * - enforces pending-write guards to prevent event feedback loops
- * - supports processing one file or all files under configured roots
+ * - supports file-level reset, reconciliation, and routing flows
  * - persists state-store updates after writes and path moves
  *
  * Dependencies:
@@ -16,12 +16,14 @@
  */
 import { App, Notice, TFile, TFolder } from "obsidian";
 import { TaskManagerSettings } from "../settings/settings-utils";
+import { FilePriority, PRIORITY_FRONTMATTER_FIELD } from "./file-priority";
 import {
   extractTaskState,
   findDeletedTaggedTask,
   findNewlyCompletedTask,
   findNewlyUncompletedTask,
   resetTaskContent,
+  TaskState,
 } from "./task-utils";
 import {
   applyCompletionRules,
@@ -29,7 +31,6 @@ import {
   applyUncompletionRules,
   getCompletionDateString,
   getCompletionTimeString,
-  processProjectsFolder,
   reconcileFile
 } from "./reconciler";
 import {
@@ -74,8 +75,7 @@ export class TaskProcessor {
 
     for (const file of markdownFiles) {
       const content = await this.app.vault.read(file);
-      this.stateStore.setTaskState(file.path, extractTaskState(content, settings.nextActionTag));
-      this.stateStore.setStatus(file.path, readStatusValue(content, settings.statusField));
+      this.updateFileSnapshot(file.path, content, settings);
     }
   }
 
@@ -86,8 +86,7 @@ export class TaskProcessor {
 
     const settings = this.getSettings();
     const content = await this.app.vault.read(file);
-    this.stateStore.setTaskState(file.path, extractTaskState(content, settings.nextActionTag));
-    this.stateStore.setStatus(file.path, readStatusValue(content, settings.statusField));
+    this.updateFileSnapshot(file.path, content, settings);
   }
 
   async handleFileModify(file: TFile): Promise<void> {
@@ -129,39 +128,6 @@ export class TaskProcessor {
     await this.routeAfterStatusChange(file, previousStatus, settings);
   }
 
-  async processCurrentFile(): Promise<string> {
-    const file = this.app.workspace.getActiveFile();
-    if (!file) {
-      return "No active file.";
-    }
-
-    const settings = this.getSettings();
-    const taskFolderRoots = getTaskFolderRoots(settings);
-    const inProjectsFolder = taskFolderRoots.some((root) => file.path.startsWith(`${root}/`) || file.path === root);
-    if (!inProjectsFolder) {
-      return "";
-    }
-
-    return await this.processAndRouteFile(file);
-  }
-
-  async processTasks(): Promise<string> {
-    const settings = this.getSettings();
-    if (getTaskFolderRoots(settings).length === 0) {
-      throw new Error("Set at least one task folder in Task Manager settings first.");
-    }
-
-    const count = await processProjectsFolder({
-      settings,
-      getMarkdownFiles: () => this.app.vault.getMarkdownFiles(),
-      reconcileOneFile: async (file) => {
-        await this.processAndRouteFile(file);
-      }
-    });
-
-    return `Processed ${count} project file${count === 1 ? "" : "s"}.`;
-  }
-
   async resetCurrentFileTasks(): Promise<string> {
     const file = this.app.workspace.getActiveFile();
     if (!file) {
@@ -198,14 +164,7 @@ export class TaskProcessor {
   private async reconcileSingleFile(file: TFile, settings: TaskManagerSettings): Promise<void> {
     await reconcileFile({
       file,
-      settings,
-      app: this.app,
-      readFile: (target) => this.app.vault.read(target),
-      writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
-      setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
-      setTaskState: (filePath, nextState) => {
-        this.stateStore.setTaskState(filePath, nextState);
-      }
+      ...this.createReconcilerServices(settings),
     });
   }
 
@@ -275,25 +234,13 @@ export class TaskProcessor {
       ? destinationContent
       : `${destinationContent.trimEnd()}\n\n---\n\n${sourceContent}`;
 
-    this.stateStore.markPending(destinationFile.path);
-    this.stateStore.markPending(sourceFile.path);
-
-    try {
+    await this.runWithPendingPaths([destinationFile.path, sourceFile.path], async () => {
       await this.app.vault.modify(destinationFile, mergedContent);
       await this.app.vault.delete(sourceFile);
       this.stateStore.delete(sourceFile.path);
-      this.stateStore.setTaskState(
-        destinationFile.path,
-        extractTaskState(mergedContent, settings.nextActionTag)
-      );
-      this.stateStore.setStatus(destinationFile.path, readStatusValue(mergedContent, settings.statusField));
+      this.updateFileSnapshot(destinationFile.path, mergedContent, settings);
       await deleteEmptyParentFolders(this.app, getTaskFolderRoots(settings), sourcePath);
-    } finally {
-      window.setTimeout(() => {
-        this.stateStore.unmarkPending(destinationFile.path);
-        this.stateStore.unmarkPending(sourceFile.path);
-      }, 0);
-    }
+    });
   }
 
   private async applyCompletionRules(file: TFile, content: string, completedLine: number, settings: TaskManagerSettings): Promise<void> {
@@ -301,14 +248,7 @@ export class TaskProcessor {
       file,
       content,
       completedLine,
-      settings,
-      app: this.app,
-      readFile: (target) => this.app.vault.read(target),
-      writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
-      setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
-      setTaskState: (filePath, nextState) => {
-        this.stateStore.setTaskState(filePath, nextState);
-      }
+      ...this.createReconcilerServices(settings),
     });
   }
 
@@ -317,14 +257,7 @@ export class TaskProcessor {
       file,
       content,
       uncompletedLine,
-      settings,
-      app: this.app,
-      readFile: (target) => this.app.vault.read(target),
-      writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
-      setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
-      setTaskState: (filePath, nextState) => {
-        this.stateStore.setTaskState(filePath, nextState);
-      }
+      ...this.createReconcilerServices(settings),
     });
   }
 
@@ -333,35 +266,50 @@ export class TaskProcessor {
       file,
       content,
       deletedTaggedTaskLine,
-      settings,
-      app: this.app,
-      readFile: (target) => this.app.vault.read(target),
-      writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
-      setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
-      setTaskState: (filePath, nextState) => {
-        this.stateStore.setTaskState(filePath, nextState);
-      }
+      ...this.createReconcilerServices(settings),
     });
   }
 
-  private async writeFileContent(file: TFile, content: string, settings: TaskManagerSettings): Promise<void> {
-    this.stateStore.markPending(file.path);
+  private createReconcilerServices(settings: TaskManagerSettings) {
+    return {
+      settings,
+      app: this.app,
+      readFile: (target: TFile) => this.app.vault.read(target),
+      writeFileContent: (target: TFile, nextContent: string) => this.writeFileContent(target, nextContent, settings),
+      setFileStatus: (target: TFile, status: string) => this.setFileStatus(target, status, settings),
+      setFilePriority: (target: TFile, priority: FilePriority) => this.setFilePriority(target, priority),
+      setTaskState: (filePath: string, nextState: TaskState[]) => {
+        this.stateStore.setTaskState(filePath, nextState);
+      }
+    };
+  }
+
+  private updateFileSnapshot(filePath: string, content: string, settings: TaskManagerSettings): void {
+    this.stateStore.setTaskState(filePath, extractTaskState(content, settings.nextActionTag));
+    this.stateStore.setStatus(filePath, readStatusValue(content, settings.statusField));
+  }
+
+  private async runWithPendingPaths(filePaths: string[], action: () => Promise<void>): Promise<void> {
+    filePaths.forEach((filePath) => this.stateStore.markPending(filePath));
 
     try {
-      await this.app.vault.modify(file, content);
-      this.stateStore.setTaskState(file.path, extractTaskState(content, settings.nextActionTag));
-      this.stateStore.setStatus(file.path, readStatusValue(content, settings.statusField));
+      await action();
     } finally {
       window.setTimeout(() => {
-        this.stateStore.unmarkPending(file.path);
+        filePaths.forEach((filePath) => this.stateStore.unmarkPending(filePath));
       }, 0);
     }
   }
 
-  private async setFileStatus(file: TFile, status: string, settings: TaskManagerSettings): Promise<void> {
-    this.stateStore.markPending(file.path);
+  private async writeFileContent(file: TFile, content: string, settings: TaskManagerSettings): Promise<void> {
+    await this.runWithPendingPaths([file.path], async () => {
+      await this.app.vault.modify(file, content);
+      this.updateFileSnapshot(file.path, content, settings);
+    });
+  }
 
-    try {
+  private async setFileStatus(file: TFile, status: string, settings: TaskManagerSettings): Promise<void> {
+    await this.runWithPendingPaths([file.path], async () => {
       await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, string>) => {
         frontmatter[settings.statusField] = status;
         if (status === "completed") {
@@ -373,10 +321,14 @@ export class TaskProcessor {
         }
       });
       this.stateStore.setStatus(file.path, status);
-    } finally {
-      window.setTimeout(() => {
-        this.stateStore.unmarkPending(file.path);
-      }, 0);
-    }
+    });
+  }
+
+  private async setFilePriority(file: TFile, priority: FilePriority): Promise<void> {
+    await this.runWithPendingPaths([file.path], async () => {
+      await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, string | number>) => {
+        frontmatter[PRIORITY_FRONTMATTER_FIELD] = priority;
+      });
+    });
   }
 }
