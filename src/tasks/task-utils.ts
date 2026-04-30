@@ -3,10 +3,10 @@
  * - provide pure helpers for parsing and transforming markdown task lines.
  *
  * Responsibilities:
- * - parses markdown task line status and next-action tag presence
+ * - parses markdown task line status and line positions
  * - computes state transitions between previous/current snapshots
- * - finds reassignment targets for next-action movement
- * - adds/removes next-action tags in an idempotent way
+ * - finds the first incomplete task in a file
+ * - resets task metadata fields for the Reset Tasks command
  *
  * Dependencies:
  * - none outside language/runtime primitives
@@ -19,7 +19,6 @@ const TASK_LINE_REGEX = /^(\s*[-*+]\s+\[( |x|X)\]\s+)(.*)$/;
 export type TaskState = {
   line: number;
   status: "open" | "completed";
-  hasNextAction: boolean;
 };
 
 type ResetTaskContentResult = {
@@ -28,7 +27,7 @@ type ResetTaskContentResult = {
   changed: boolean;
 };
 
-export function extractTaskState(content: string, nextActionTag: string): TaskState[] {
+export function extractTaskState(content: string): TaskState[] {
   const lines = content.split(/\r?\n/);
   const taskState: TaskState[] = [];
 
@@ -47,7 +46,6 @@ export function extractTaskState(content: string, nextActionTag: string): TaskSt
     taskState.push({
       line: index,
       status: getTaskStatus(match[2]),
-      hasNextAction: lineHasTag(lines[index], nextActionTag)
     });
   }
 
@@ -80,37 +78,6 @@ export function findNewlyUncompletedTask(previousState: TaskState[], nextState: 
   return null;
 }
 
-export function findDeletedTaggedTask(previousState: TaskState[], nextState: TaskState[]): number | null {
-  // This catches the case where the tagged task was removed and no replacement tag exists yet.
-  const previousTaggedTask = previousState.find((task) => task.hasNextAction);
-  if (!previousTaggedTask) {
-    return null;
-  }
-
-  const hasCurrentTaggedTask = nextState.some((task) => task.hasNextAction);
-  if (hasCurrentTaggedTask) {
-    return null;
-  }
-
-  const sameLineStillExists = nextState.some((task) => task.line === previousTaggedTask.line);
-  if (sameLineStillExists) {
-    return null;
-  }
-
-  return previousTaggedTask.line;
-}
-
-export function findPreviousIncompleteTaskLine(lines: string[], referenceLine: number): number | null {
-  for (let index = Math.min(referenceLine - 1, lines.length - 1); index >= 0; index -= 1) {
-    const match = lines[index].match(TASK_LINE_REGEX);
-    if (match && match[2].toLowerCase() !== "x") {
-      return index;
-    }
-  }
-
-  return findFirstIncompleteTaskLine(lines);
-}
-
 export function findFirstIncompleteTaskLine(lines: string[]): number | null {
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(TASK_LINE_REGEX);
@@ -120,27 +87,6 @@ export function findFirstIncompleteTaskLine(lines: string[]): number | null {
   }
 
   return null;
-}
-
-export function stripNextActionTags(lines: string[], nextActionTag: string): string[] {
-  return lines.map((line) => {
-    // Only strip from task lines so plain prose tags remain untouched.
-    if (!lineHasTag(line, nextActionTag) || !line.match(TASK_LINE_REGEX)) {
-      return line;
-    }
-
-    return line.replace(getTagReplaceRegex(nextActionTag), "");
-  });
-}
-
-export function addNextActionTag(lines: string[], targetLine: number, nextActionTag: string): string {
-  const nextLines = [...lines];
-  const targetLineContent = nextLines[targetLine];
-  if (!lineHasTag(targetLineContent, nextActionTag)) {
-    nextLines[targetLine] = `${targetLineContent} ${nextActionTag}`;
-  }
-
-  return nextLines.join("\n");
 }
 
 const COMPLETED_SECTION_HEADER = "## Completed Tasks";
@@ -219,22 +165,6 @@ export function resetTaskContent(content: string): ResetTaskContentResult {
     taskCount,
     changed,
   };
-}
-
-function lineHasTag(line: string, nextActionTag: string): boolean {
-  return getTagPresenceRegex(nextActionTag).test(line);
-}
-
-function getTagPresenceRegex(nextActionTag: string): RegExp {
-  return new RegExp(`(^|\\s)${escapeRegExp(nextActionTag)}(?=$|\\s)`);
-}
-
-function getTagReplaceRegex(nextActionTag: string): RegExp {
-  return new RegExp(`\\s+${escapeRegExp(nextActionTag)}(?=$|\\s)`, "g");
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function stripResetTaskFields(taskBody: string): string {

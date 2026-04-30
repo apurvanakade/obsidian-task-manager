@@ -155,7 +155,7 @@ export default class TaskManagerPlugin extends Plugin {
         }
 
         await ensureParentFoldersExist(this.app, projectPath);
-        const content = buildProjectFileContent(input, settings.nextActionTag, settings.statusField);
+        const content = buildProjectFileContent(input, settings.statusField);
         const file = await this.app.vault.create(projectPath, content);
         await this.taskProcessor?.handleFileCreate(file);
         await this.app.workspace.getLeaf(true).openFile(file);

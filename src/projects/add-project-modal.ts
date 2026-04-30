@@ -281,7 +281,6 @@ export function buildProjectFilePath(folderPath: string, name: string): string {
 
 export function buildProjectFileContent(
   input: AddProjectInput,
-  nextActionTag: string,
   statusField: string,
 ): string {
   const lines = [
@@ -295,9 +294,8 @@ export function buildProjectFileContent(
 
   if (input.tasks.length > 0) {
     lines.push("");
-    input.tasks.forEach((task, index) => {
-      const suffix = index === 0 ? ` ${nextActionTag}` : "";
-      lines.push(`- [ ] ${task}${suffix}`);
+    input.tasks.forEach((task) => {
+      lines.push(`- [ ] ${task}`);
     });
   }
 

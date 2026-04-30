@@ -18,7 +18,6 @@ Automates task lifecycle management in Obsidian: state transitions, completion m
    | Inbox File | File whose tasks appear in the dashboard Inbox section | — |
    | Tasks Summary File | File written by the Tasks Summary command | `Tasks Summary.md` |
    | Open Tasks Summary After Generation | Whether to open the summary note automatically after generation | Off |
-   | Next Action Tag | Tag marking the current actionable task | `#next-action` |
    | Completed Status Field | Frontmatter field name written on completion | `status` |
    | Dashboard Filename Hide Keywords | Comma-separated keywords stripped from dashboard display names | — |
 
@@ -47,7 +46,7 @@ The **Projects** section is further split into:
 
 Recurring tasks are shown **only** in the Recurring Tasks subsection, even if they also have a due date.
 
-For each file, the summary includes the **first open task tagged `#next-action`** and renders a grouped table with:
+For each file, the summary includes the **first incomplete task** and renders a grouped table with:
 - Folder
 - Filename
 - Task
@@ -65,7 +64,7 @@ Opens a modal to create a new project file. The form collects:
 - **Status** — one of `todo`, `waiting`, or `someday-maybe`, written to the configured status frontmatter field
 - **Tasks** — optional multiline text area; each non-empty line becomes an open task
 
-The command creates the project note, tags the first added task with the next-action tag when tasks are provided, creates missing parent folders, and opens the new file.
+The command creates the project note, creates missing parent folders, and opens the new file.
 
 ## Automatic Behavior (live editing)
 
@@ -74,14 +73,13 @@ The plugin reacts to checkbox changes as you edit:
 ### Task Completed (`[ ]` → `[x]`)
 - Appends `[completion-date:: YYYY-MM-DD]` and `[completion-time:: HH:MM:SS]` to the completed task line.
 - Moves the completed task line into the `## Completed Tasks` section of the same file (creates the section at the end if absent).
-- Moves `#next-action` to the first remaining open task. If none remain, sets the file status to `completed` and stamps `completion-date` and `completion-time` into the **file frontmatter** as well.
-- Prompts with a **Due Date Modal** to assign a due date and set the file priority for the newly tagged task (see below).
+- The first remaining open task becomes the current actionable task implicitly. If none remain, the file status becomes `completed` and `completion-date` / `completion-time` are also stamped into the **file frontmatter**.
+- Prompts with a **Due Date Modal** to assign a due date and set the file priority for the newly exposed first incomplete task (see below).
 
 ### Task Uncompleted (`[x]` → `[ ]`)
-- If the reopened task is now the first open task, retags it as `#next-action` and clears the tag from all others. Status resets to `todo`.
+- If the reopened task is now the first open task, it becomes the current actionable task implicitly. Status resets to `todo`.
 
-### Tagged Task Deleted
-- Reassigns `#next-action` to the nearest preceding open task. If none, sets status to `completed`.
+The plugin uses the first incomplete task in the file as the current actionable task.
 
 ### Recurring Tasks
 If a completed task has `[repeat:: X]` or `[repeats:: X]`, a new open copy is inserted above the completed task with a computed due date:
@@ -118,7 +116,7 @@ When a file's status field changes to a routable value, the file is automaticall
 
 ## Due Date Modal
 
-When `#next-action` is newly assigned to a task (and the task is not recurring and doesn't already have a due date), a modal appears offering:
+When a different task becomes the file's first incomplete task after completion or uncompletion (and that task is not recurring and doesn't already have a due date), a modal appears offering:
 
 - A preview of the task text.
 - A **project priority** dropdown (1–3, default 3; 1 is highest).
@@ -176,7 +174,7 @@ Display notes:
 | `src/tasks/repeat-rules.ts` | Pure recurring-rule parser, alias normalizer, and next-due-date calculator |
 | `src/tasks/task-utils.ts` | Pure parsing/diffing utilities (no side effects) |
 | `src/tasks/task-state-store.ts` | In-memory per-file task/status snapshot cache and pending-write guards |
-| `src/tasks/due-date-modal.ts` | Modal for collecting due date and file priority on next-action assignment |
+| `src/tasks/due-date-modal.ts` | Modal for collecting due date and file priority for the first incomplete task |
 | `src/projects/add-project-modal.ts` | Modal and helpers for creating a new project note from command input |
 | `src/tables/grouped-task-table.ts` | Pure grouped task-table model and shared display formatting for dashboard/summary tables |
 | `src/summary/tasks-summary.ts` | Builds and writes the Tasks Summary note from configured sources |

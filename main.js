@@ -388,7 +388,7 @@ function buildProjectFilePath(folderPath, name) {
   }
   return folderPath ? `${folderPath}/${fileName}.md` : `${fileName}.md`;
 }
-function buildProjectFileContent(input, nextActionTag, statusField) {
+function buildProjectFileContent(input, statusField) {
   const lines = [
     "---",
     `${statusField}: ${input.status}`,
@@ -399,9 +399,8 @@ function buildProjectFileContent(input, nextActionTag, statusField) {
   ];
   if (input.tasks.length > 0) {
     lines.push("");
-    input.tasks.forEach((task, index) => {
-      const suffix = index === 0 ? ` ${nextActionTag}` : "";
-      lines.push(`- [ ] ${task}${suffix}`);
+    input.tasks.forEach((task) => {
+      lines.push(`- [ ] ${task}`);
     });
   }
   return `${lines.join("\n").trimEnd()}
@@ -515,10 +514,6 @@ function parseTaskLine(line) {
     status: match[1].trim().toLowerCase() === "x" ? "completed" : "open",
     taskBody: match[2].trim()
   };
-}
-function hasTaskTag(taskBody, tag) {
-  const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|\\s)${escapedTag}(?=$|\\s)`).test(taskBody);
 }
 function isRecurringTask(taskBody) {
   return REPEAT_FIELD_REGEX.test(taskBody);
@@ -1176,7 +1171,6 @@ function createTodaySuggestionFactory() {
 
 // src/settings/settings-utils.ts
 var DEFAULT_SETTINGS = {
-  nextActionTag: "#next-action",
   statusField: "status",
   projectsFolder: "",
   completedProjectsFolder: "",
@@ -1187,13 +1181,6 @@ var DEFAULT_SETTINGS = {
   openSummaryAfterGeneration: false,
   dashboardHideKeywords: ""
 };
-function normalizeTag(tag) {
-  const trimmedTag = String(tag || "").trim();
-  if (!trimmedTag) {
-    return DEFAULT_SETTINGS.nextActionTag;
-  }
-  return trimmedTag.startsWith("#") ? trimmedTag : `#${trimmedTag}`;
-}
 function normalizeStatusField(field) {
   const trimmedField = String(field || "").trim();
   return trimmedField || DEFAULT_SETTINGS.statusField;
@@ -1209,7 +1196,6 @@ function normalizeSettings(rawSettings) {
   return {
     ...DEFAULT_SETTINGS,
     ...rawSettings,
-    nextActionTag: normalizeTag(rawSettings.nextActionTag),
     statusField: normalizeStatusField(rawSettings.statusField),
     projectsFolder: normalizeFolder(rawSettings.projectsFolder),
     completedProjectsFolder: normalizeFolder(rawSettings.completedProjectsFolder),
@@ -1233,10 +1219,10 @@ async function writeTasksSummary(app, settings, summaryFilePath) {
 }
 async function buildSummarySections(app, settings) {
   const sectionSources = [
-    { title: "Projects", collectRows: () => collectNextActionRowsForFolder(app, settings.projectsFolder, settings.nextActionTag) },
-    { title: "Waiting", collectRows: () => collectNextActionRowsForFolder(app, settings.waitingProjectsFolder, settings.nextActionTag) },
-    { title: "Someday-Maybe", collectRows: () => collectNextActionRowsForFolder(app, settings.somedayMaybeProjectsFolder, settings.nextActionTag) },
-    { title: "Inbox", collectRows: () => collectNextActionRowsForInbox(app, settings.inboxFile, settings.nextActionTag) }
+    { title: "Projects", collectRows: () => collectFirstIncompleteRowsForFolder(app, settings.projectsFolder) },
+    { title: "Waiting", collectRows: () => collectFirstIncompleteRowsForFolder(app, settings.waitingProjectsFolder) },
+    { title: "Someday-Maybe", collectRows: () => collectFirstIncompleteRowsForFolder(app, settings.somedayMaybeProjectsFolder) },
+    { title: "Inbox", collectRows: () => collectFirstIncompleteRowsForInbox(app, settings.inboxFile) }
   ];
   const sections = [];
   for (const source of sectionSources) {
@@ -1247,21 +1233,21 @@ async function buildSummarySections(app, settings) {
   }
   return sections;
 }
-async function collectNextActionRowsForFolder(app, folderPath, nextActionTag) {
+async function collectFirstIncompleteRowsForFolder(app, folderPath) {
   if (!folderPath) {
     return [];
   }
   const files = app.vault.getMarkdownFiles().filter((file) => isInFolder(file.path, folderPath));
   const rows = [];
   for (const file of files) {
-    const row = await findNextActionRow(app, file, nextActionTag);
+    const row = await findFirstIncompleteRow(app, file);
     if (row) {
       rows.push(row);
     }
   }
   return rows.sort(compareSummaryRows);
 }
-async function collectNextActionRowsForInbox(app, inboxFilePath, nextActionTag) {
+async function collectFirstIncompleteRowsForInbox(app, inboxFilePath) {
   if (!inboxFilePath) {
     return [];
   }
@@ -1269,15 +1255,15 @@ async function collectNextActionRowsForInbox(app, inboxFilePath, nextActionTag) 
   if (!(inboxFile instanceof import_obsidian7.TFile)) {
     return [];
   }
-  const row = await findNextActionRow(app, inboxFile, nextActionTag);
+  const row = await findFirstIncompleteRow(app, inboxFile);
   return row ? [row] : [];
 }
-async function findNextActionRow(app, file, nextActionTag) {
+async function findFirstIncompleteRow(app, file) {
   const content = await app.vault.read(file);
   const priority = readFilePriority(content);
   const lines = content.split(/\r?\n/);
   for (const line of lines) {
-    const parsed = parseNextActionTaskLine(line, nextActionTag);
+    const parsed = parseFirstIncompleteTaskLine(line);
     if (!parsed) {
       continue;
     }
@@ -1291,12 +1277,9 @@ async function findNextActionRow(app, file, nextActionTag) {
   }
   return null;
 }
-function parseNextActionTaskLine(line, nextActionTag) {
+function parseFirstIncompleteTaskLine(line) {
   const parsedTask = parseTaskLine(line);
   if (!parsedTask || parsedTask.status !== "open") {
-    return null;
-  }
-  if (!hasTaskTag(parsedTask.taskBody, nextActionTag)) {
     return null;
   }
   return {
@@ -1531,13 +1514,6 @@ function getFolderSettingConfigs(settings) {
 function getTextSettingConfigs(settings) {
   return [
     {
-      name: "Next Action Tag",
-      description: "Tag added to the active next task.",
-      placeholder: "#next-action",
-      key: "nextActionTag",
-      value: settings.nextActionTag
-    },
-    {
       name: "Completed Status Field",
       description: "Frontmatter field updated when the file has no remaining incomplete tasks.",
       placeholder: "status",
@@ -1640,7 +1616,7 @@ var import_obsidian11 = require("obsidian");
 
 // src/tasks/task-utils.ts
 var TASK_LINE_REGEX2 = /^(\s*[-*+]\s+\[( |x|X)\]\s+)(.*)$/;
-function extractTaskState(content, nextActionTag) {
+function extractTaskState(content) {
   const lines = content.split(/\r?\n/);
   const taskState = [];
   function getTaskStatus(checkboxChar) {
@@ -1655,8 +1631,7 @@ function extractTaskState(content, nextActionTag) {
     }
     taskState.push({
       line: index,
-      status: getTaskStatus(match[2]),
-      hasNextAction: lineHasTag(lines[index], nextActionTag)
+      status: getTaskStatus(match[2])
     });
   }
   return taskState;
@@ -1681,30 +1656,6 @@ function findNewlyUncompletedTask(previousState, nextState) {
   }
   return null;
 }
-function findDeletedTaggedTask(previousState, nextState) {
-  const previousTaggedTask = previousState.find((task) => task.hasNextAction);
-  if (!previousTaggedTask) {
-    return null;
-  }
-  const hasCurrentTaggedTask = nextState.some((task) => task.hasNextAction);
-  if (hasCurrentTaggedTask) {
-    return null;
-  }
-  const sameLineStillExists = nextState.some((task) => task.line === previousTaggedTask.line);
-  if (sameLineStillExists) {
-    return null;
-  }
-  return previousTaggedTask.line;
-}
-function findPreviousIncompleteTaskLine(lines, referenceLine) {
-  for (let index = Math.min(referenceLine - 1, lines.length - 1); index >= 0; index -= 1) {
-    const match = lines[index].match(TASK_LINE_REGEX2);
-    if (match && match[2].toLowerCase() !== "x") {
-      return index;
-    }
-  }
-  return findFirstIncompleteTaskLine(lines);
-}
 function findFirstIncompleteTaskLine(lines) {
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(TASK_LINE_REGEX2);
@@ -1713,22 +1664,6 @@ function findFirstIncompleteTaskLine(lines) {
     }
   }
   return null;
-}
-function stripNextActionTags(lines, nextActionTag) {
-  return lines.map((line) => {
-    if (!lineHasTag(line, nextActionTag) || !line.match(TASK_LINE_REGEX2)) {
-      return line;
-    }
-    return line.replace(getTagReplaceRegex(nextActionTag), "");
-  });
-}
-function addNextActionTag(lines, targetLine, nextActionTag) {
-  const nextLines = [...lines];
-  const targetLineContent = nextLines[targetLine];
-  if (!lineHasTag(targetLineContent, nextActionTag)) {
-    nextLines[targetLine] = `${targetLineContent} ${nextActionTag}`;
-  }
-  return nextLines.join("\n");
 }
 var COMPLETED_SECTION_HEADER = "## Completed Tasks";
 function moveTaskToCompletedSection(lines, taskLineIndex) {
@@ -1790,18 +1725,6 @@ function resetTaskContent(content) {
     changed
   };
 }
-function lineHasTag(line, nextActionTag) {
-  return getTagPresenceRegex(nextActionTag).test(line);
-}
-function getTagPresenceRegex(nextActionTag) {
-  return new RegExp(`(^|\\s)${escapeRegExp2(nextActionTag)}(?=$|\\s)`);
-}
-function getTagReplaceRegex(nextActionTag) {
-  return new RegExp(`\\s+${escapeRegExp2(nextActionTag)}(?=$|\\s)`, "g");
-}
-function escapeRegExp2(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 function stripResetTaskFields(taskBody) {
   return taskBody.replace(/\s*\[(?:due|completion-date|completion-time|created)::\s*[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trimEnd();
 }
@@ -1816,7 +1739,7 @@ function readStatusValue(content, statusField) {
   if (!frontmatterMatch) {
     return null;
   }
-  const fieldRegex = new RegExp(`^\\s*${escapeRegExp3(statusField)}\\s*:\\s*(.*?)\\s*$`, "i");
+  const fieldRegex = new RegExp(`^\\s*${escapeRegExp2(statusField)}\\s*:\\s*(.*?)\\s*$`, "i");
   const lines = frontmatterMatch[1].split(/\r?\n/);
   for (const line of lines) {
     const match = line.match(fieldRegex);
@@ -1845,7 +1768,7 @@ function assertConfiguredDestinationForStatus(status, settings) {
     throw new Error(`Set destination folder for status '${status}' in Task Manager settings.`);
   }
 }
-function escapeRegExp3(value) {
+function escapeRegExp2(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
@@ -2197,8 +2120,8 @@ function formatDate2(date) {
 }
 
 // src/tasks/reconciler.ts
-async function showDueDateModalForNextAction(file, taskLineIndex, previousContent, updatedContent, context) {
-  const { app, settings, readFile, writeFileContent, setTaskState } = context;
+async function showDueDateModalForFirstIncompleteTask(file, taskLineIndex, previousContent, updatedContent, context) {
+  const { app, readFile, writeFileContent, setTaskState } = context;
   if (!app) {
     return;
   }
@@ -2208,7 +2131,8 @@ async function showDueDateModalForNextAction(file, taskLineIndex, previousConten
     return;
   }
   const previousLines = previousContent.split(/\r?\n/);
-  if (previousLines.includes(taskLine)) {
+  const previousFirstIncompleteLine = findFirstIncompleteTaskLine(previousLines);
+  if (previousFirstIncompleteLine !== null && previousLines[previousFirstIncompleteLine] === taskLine) {
     return;
   }
   const isRepeating = parseRepeatRule(taskLine) !== null;
@@ -2246,14 +2170,14 @@ async function showDueDateModalForNextAction(file, taskLineIndex, previousConten
         const nextContent = updatedLines.join("\n");
         await writeFileContent(file, nextContent);
         await context.setFilePriority(file, Number.parseInt(priority, 10));
-        setTaskState(file.path, extractTaskState(updatedLines.join("\n"), settings.nextActionTag));
+        setTaskState(file.path, extractTaskState(nextContent));
       }
     }
   });
   modal.open();
 }
 async function applyCompletionRules(context) {
-  const { file, content, completedLine, settings, writeFileContent, setFileStatus, setTaskState } = context;
+  const { file, content, completedLine, writeFileContent, setFileStatus, setTaskState } = context;
   const lines = content.split(/\r?\n/);
   const nextLines = [...lines];
   const sourceTaskLine = lines[completedLine];
@@ -2267,13 +2191,9 @@ async function applyCompletionRules(context) {
     }
   }
   nextLines[completedLineIndex] = addCompletionFields(nextLines[completedLineIndex]);
-  const cleanedLines = stripNextActionTags(nextLines, settings.nextActionTag);
-  const nextTaskLine = findFirstIncompleteTaskLine(cleanedLines);
+  let workingLines = nextLines;
+  const nextTaskLine = findFirstIncompleteTaskLine(workingLines);
   const newStatus = nextTaskLine === null ? "completed" : "todo";
-  let workingLines = cleanedLines;
-  if (nextTaskLine !== null) {
-    workingLines = addNextActionTag(cleanedLines, nextTaskLine, settings.nextActionTag).split(/\r?\n/);
-  }
   const stampedLine = workingLines[completedLineIndex];
   const actualCompletedLineIndex = workingLines.indexOf(stampedLine, completedLineIndex);
   if (actualCompletedLineIndex !== -1) {
@@ -2284,58 +2204,36 @@ async function applyCompletionRules(context) {
     await writeFileContent(file, updatedContent);
   }
   await setFileStatus(file, newStatus);
-  setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
+  setTaskState(file.path, extractTaskState(updatedContent));
   if (nextTaskLine !== null) {
     const nextTaskLineInFinal = findFirstIncompleteTaskLine(workingLines);
     if (nextTaskLineInFinal !== null) {
-      await showDueDateModalForNextAction(file, nextTaskLineInFinal, content, updatedContent, context);
+      await showDueDateModalForFirstIncompleteTask(file, nextTaskLineInFinal, content, updatedContent, context);
     }
   }
 }
 async function applyUncompletionRules(context) {
-  const { file, content, uncompletedLine, settings, writeFileContent, setFileStatus, setTaskState } = context;
+  const { file, content, uncompletedLine, writeFileContent, setFileStatus, setTaskState } = context;
   const lines = content.split(/\r?\n/);
   lines[uncompletedLine] = stripCompletionFields(lines[uncompletedLine]);
-  const firstIncompleteTaskLine = findFirstIncompleteTaskLine(lines);
+  const workingLines = lines;
+  const firstIncompleteTaskLine = findFirstIncompleteTaskLine(workingLines);
   if (firstIncompleteTaskLine !== uncompletedLine) {
-    const updatedContent2 = lines.join("\n");
+    const updatedContent2 = workingLines.join("\n");
     if (updatedContent2 !== content) {
       await writeFileContent(file, updatedContent2);
     }
     await setFileStatus(file, "todo");
-    setTaskState(file.path, extractTaskState(updatedContent2, settings.nextActionTag));
+    setTaskState(file.path, extractTaskState(updatedContent2));
     return;
   }
-  const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
-  const updatedContent = addNextActionTag(cleanedLines, uncompletedLine, settings.nextActionTag);
+  const updatedContent = workingLines.join("\n");
   if (updatedContent !== content) {
     await writeFileContent(file, updatedContent);
   }
   await setFileStatus(file, "todo");
-  setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
-  await showDueDateModalForNextAction(file, uncompletedLine, content, updatedContent, context);
-}
-async function applyDeletedTagRules(context) {
-  const { file, content, deletedTaggedTaskLine, settings, writeFileContent, setFileStatus, setTaskState } = context;
-  const lines = content.split(/\r?\n/);
-  const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
-  const previousTaskLine = findPreviousIncompleteTaskLine(cleanedLines, deletedTaggedTaskLine);
-  if (previousTaskLine === null) {
-    const updatedContent2 = lines.join("\n");
-    if (updatedContent2 !== content) {
-      await writeFileContent(file, updatedContent2);
-    }
-    await setFileStatus(file, "completed");
-    setTaskState(file.path, extractTaskState(updatedContent2, settings.nextActionTag));
-    return;
-  }
-  const updatedContent = addNextActionTag(cleanedLines, previousTaskLine, settings.nextActionTag);
-  if (updatedContent !== content) {
-    await writeFileContent(file, updatedContent);
-  }
-  await setFileStatus(file, "todo");
-  setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
-  await showDueDateModalForNextAction(file, previousTaskLine, content, updatedContent, context);
+  setTaskState(file.path, extractTaskState(updatedContent));
+  await showDueDateModalForFirstIncompleteTask(file, uncompletedLine, content, updatedContent, context);
 }
 async function reconcileFile(context) {
   const { file, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
@@ -2351,12 +2249,10 @@ async function reconcileFile(context) {
     }
     return stripCompletionFields(line);
   });
-  const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
-  const firstIncompleteTaskLine = findFirstIncompleteTaskLine(cleanedLines);
-  let updatedContent = cleanedLines.join("\n");
+  const firstIncompleteTaskLine = findFirstIncompleteTaskLine(lines);
+  const updatedContent = lines.join("\n");
   let nextStatus = "completed";
   if (firstIncompleteTaskLine !== null) {
-    updatedContent = addNextActionTag(cleanedLines, firstIncompleteTaskLine, settings.nextActionTag);
     nextStatus = currentStatus !== null && currentStatus !== "completed" ? null : "todo";
   }
   if (updatedContent !== content) {
@@ -2365,10 +2261,7 @@ async function reconcileFile(context) {
   if (nextStatus !== null) {
     await setFileStatus(file, nextStatus);
   }
-  setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
-  if (firstIncompleteTaskLine !== null) {
-    await showDueDateModalForNextAction(file, firstIncompleteTaskLine, content, updatedContent, context);
-  }
+  setTaskState(file.path, extractTaskState(updatedContent));
 }
 function getCompletionDateString() {
   return getCurrentDateString();
@@ -2493,13 +2386,12 @@ var TaskProcessor = class {
     }
     const settings = this.getSettings();
     const content = await this.app.vault.read(file);
-    const nextState = extractTaskState(content, settings.nextActionTag);
+    const nextState = extractTaskState(content);
     const previousState = this.stateStore.getTaskState(file.path);
     const previousStatus = this.stateStore.getStatus(file.path);
     const currentStatus = readStatusValue(content, settings.statusField);
     const completion = findNewlyCompletedTask(previousState, nextState);
     const uncompleted = findNewlyUncompletedTask(previousState, nextState);
-    const deletedTaggedTaskLine = findDeletedTaggedTask(previousState, nextState);
     this.stateStore.setTaskState(file.path, nextState);
     this.stateStore.setStatus(file.path, currentStatus);
     if (completion !== null) {
@@ -2512,11 +2404,7 @@ var TaskProcessor = class {
       await this.routeAfterStatusChange(file, previousStatus, settings);
       return;
     }
-    if (deletedTaggedTaskLine !== null) {
-      await this.applyDeletedTagRules(file, content, deletedTaggedTaskLine, settings);
-      await this.routeAfterStatusChange(file, previousStatus, settings);
-      return;
-    }
+    await this.reconcileSingleFile(file, settings);
     await this.routeAfterStatusChange(file, previousStatus, settings);
   }
   async resetCurrentFileTasks() {
@@ -2538,7 +2426,7 @@ var TaskProcessor = class {
     const settings = this.getSettings();
     const initialContent = await this.app.vault.read(file);
     const initialStatus = readStatusValue(initialContent, settings.statusField);
-    const hasOpenTasks = extractTaskState(initialContent, settings.nextActionTag).some((task) => task.status === "open");
+    const hasOpenTasks = extractTaskState(initialContent).some((task) => task.status === "open");
     const predictedStatus = predictFinalStatus(initialStatus, hasOpenTasks);
     assertConfiguredDestinationForStatus(predictedStatus, settings);
     await this.reconcileSingleFile(file, settings);
@@ -2630,14 +2518,6 @@ ${sourceContent}`;
       ...this.createReconcilerServices(settings)
     });
   }
-  async applyDeletedTagRules(file, content, deletedTaggedTaskLine, settings) {
-    await applyDeletedTagRules({
-      file,
-      content,
-      deletedTaggedTaskLine,
-      ...this.createReconcilerServices(settings)
-    });
-  }
   createReconcilerServices(settings) {
     return {
       settings,
@@ -2652,7 +2532,7 @@ ${sourceContent}`;
     };
   }
   updateFileSnapshot(filePath, content, settings) {
-    this.stateStore.setTaskState(filePath, extractTaskState(content, settings.nextActionTag));
+    this.stateStore.setTaskState(filePath, extractTaskState(content));
     this.stateStore.setStatus(filePath, readStatusValue(content, settings.statusField));
   }
   async runWithPendingPaths(filePaths, action) {
@@ -2819,7 +2699,7 @@ var TaskManagerPlugin = class extends import_obsidian12.Plugin {
           throw new Error(`A file or folder already exists at '${projectPath}'.`);
         }
         await ensureParentFoldersExist(this.app, projectPath);
-        const content = buildProjectFileContent(input, settings.nextActionTag, settings.statusField);
+        const content = buildProjectFileContent(input, settings.statusField);
         const file = await this.app.vault.create(projectPath, content);
         await ((_a = this.taskProcessor) == null ? void 0 : _a.handleFileCreate(file));
         await this.app.workspace.getLeaf(true).openFile(file);

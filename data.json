@@ -1,5 +1,4 @@
 {
-  "nextActionTag": "#next-action",
   "statusField": "status",
   "projectsFolder": "Projects",
   "completedProjectsFolder": "Completed",
@@ -7,6 +6,7 @@
   "somedayMaybeProjectsFolder": "Someday-Maybe",
   "inboxFile": "Projects/Inbox.md",
   "tasksSummaryFile": "Tasks Summary.md",
-  "dashboardHideKeywords": "2026 Spring,",
+  "openSummaryAfterGeneration": false,
+  "dashboardHideKeywords": "2026 Spring, 2026 Summer, 2026 Fall",
   "journalFolder": "Journal"
 }

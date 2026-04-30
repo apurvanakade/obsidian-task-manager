@@ -5,7 +5,7 @@
  * Responsibilities:
  * - defines TaskManagerSettings shape and key aliases
  * - provides plugin defaults for first-run and missing values
- * - normalizes tag, status-field, folder-path, and file-path inputs for safe runtime usage
+ * - normalizes status-field, folder-path, and file-path inputs for safe runtime usage
  *
  * Dependencies:
  * - none outside language/runtime primitives
@@ -17,7 +17,6 @@
  * - Supports file-path settings for Inbox File and Tasks Summary File.
  */
 export type TaskManagerSettings = {
-  nextActionTag: string;
   statusField: string;
   projectsFolder: string;
   completedProjectsFolder: string;
@@ -35,7 +34,6 @@ export type FolderSettingKey = keyof Pick<
 >;
 
 export const DEFAULT_SETTINGS: TaskManagerSettings = {
-  nextActionTag: "#next-action",
   statusField: "status",
   projectsFolder: "",
   completedProjectsFolder: "",
@@ -46,15 +44,6 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   openSummaryAfterGeneration: false,
   dashboardHideKeywords: "",
 };
-
-function normalizeTag(tag: string | null | undefined): string {
-  const trimmedTag = String(tag || "").trim();
-  if (!trimmedTag) {
-    return DEFAULT_SETTINGS.nextActionTag;
-  }
-
-  return trimmedTag.startsWith("#") ? trimmedTag : `#${trimmedTag}`;
-}
 
 function normalizeStatusField(field: string | null | undefined): string {
   const trimmedField = String(field || "").trim();
@@ -73,7 +62,6 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
   return {
     ...DEFAULT_SETTINGS,
     ...rawSettings,
-    nextActionTag: normalizeTag(rawSettings.nextActionTag),
     statusField: normalizeStatusField(rawSettings.statusField),
     projectsFolder: normalizeFolder(rawSettings.projectsFolder),
     completedProjectsFolder: normalizeFolder(rawSettings.completedProjectsFolder),

@@ -4,9 +4,9 @@
  *
  * Responsibilities:
  * - detects completion/uncompletion/deletion effects from prior/current task state
- * - applies completion metadata updates and next-action tag reassignment
+ * - applies completion metadata updates and first-incomplete-task status updates
  * - inserts/updates recurring follow-up tasks based on repeat fields
- * - triggers due-date collection behavior for newly assigned next-action tasks
+ * - triggers due-date collection behavior for newly exposed first incomplete tasks
  *
  * Dependencies:
  * - task utilities, status helpers, and due-date modal callback integration
@@ -18,12 +18,9 @@ import { App, TFile } from "obsidian";
 import { getCurrentDateString, getCurrentTimeString } from "../date/date-utils";
 import { FilePriority, readFilePriority } from "./file-priority";
 import {
-  addNextActionTag,
   extractTaskState,
   findFirstIncompleteTaskLine,
-  findPreviousIncompleteTaskLine,
   moveTaskToCompletedSection,
-  stripNextActionTags,
   TaskState
 } from "./task-utils";
 import { TaskManagerSettings } from "../settings/settings-utils";
@@ -47,24 +44,19 @@ type CompletionContext = ReconcilerContext & {
   completedLine: number;
 };
 
-type DeletedTagContext = ReconcilerContext & {
-  content: string;
-  deletedTaggedTaskLine: number;
-};
-
 type UncompletionContext = ReconcilerContext & {
   content: string;
   uncompletedLine: number;
 };
 
-async function showDueDateModalForNextAction(
+async function showDueDateModalForFirstIncompleteTask(
   file: TFile,
   taskLineIndex: number,
   previousContent: string,
   updatedContent: string,
   context: ReconcilerContext
 ): Promise<void> {
-  const { app, settings, readFile, writeFileContent, setTaskState } = context;
+  const { app, readFile, writeFileContent, setTaskState } = context;
 
   if (!app) {
     return;
@@ -76,9 +68,9 @@ async function showDueDateModalForNextAction(
     return;
   }
 
-  // Only prompt when the assignment is genuinely new for this task line.
   const previousLines = previousContent.split(/\r?\n/);
-  if (previousLines.includes(taskLine)) {
+  const previousFirstIncompleteLine = findFirstIncompleteTaskLine(previousLines);
+  if (previousFirstIncompleteLine !== null && previousLines[previousFirstIncompleteLine] === taskLine) {
     return;
   }
   
@@ -124,19 +116,19 @@ async function showDueDateModalForNextAction(
         }
       }
 
-      if (taskFound) {
-        const nextContent = updatedLines.join("\n");
-        await writeFileContent(file, nextContent);
-        await context.setFilePriority(file, Number.parseInt(priority, 10) as FilePriority);
-        setTaskState(file.path, extractTaskState(updatedLines.join("\n"), settings.nextActionTag));
+        if (taskFound) {
+          const nextContent = updatedLines.join("\n");
+          await writeFileContent(file, nextContent);
+          await context.setFilePriority(file, Number.parseInt(priority, 10) as FilePriority);
+          setTaskState(file.path, extractTaskState(nextContent));
+        }
       }
-    }
-  });
+    });
   modal.open();
 }
 
 export async function applyCompletionRules(context: CompletionContext): Promise<void> {
-  const { file, content, completedLine, settings, writeFileContent, setFileStatus, setTaskState } = context;
+  const { file, content, completedLine, writeFileContent, setFileStatus, setTaskState } = context;
   const lines = content.split(/\r?\n/);
   const nextLines = [...lines];
   const sourceTaskLine = lines[completedLine];
@@ -154,15 +146,9 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
   // Stamp completion metadata on the completed task.
   nextLines[completedLineIndex] = addCompletionFields(nextLines[completedLineIndex]);
 
-  const cleanedLines = stripNextActionTags(nextLines, settings.nextActionTag);
-  const nextTaskLine = findFirstIncompleteTaskLine(cleanedLines);
+  let workingLines = nextLines;
+  const nextTaskLine = findFirstIncompleteTaskLine(workingLines);
   const newStatus = nextTaskLine === null ? "completed" : "todo";
-
-  let workingLines = cleanedLines;
-
-  if (nextTaskLine !== null) {
-    workingLines = addNextActionTag(cleanedLines, nextTaskLine, settings.nextActionTag).split(/\r?\n/);
-  }
 
   // Move the stamped completed task into the "## Completed Tasks" section.
   // completedLineIndex may have shifted if a recurring task was inserted above it,
@@ -180,77 +166,45 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
   }
 
   await setFileStatus(file, newStatus);
-  setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
+  setTaskState(file.path, extractTaskState(updatedContent));
 
-  // Show due date modal if next-action was assigned.
-  // Re-find the next task index in the final content since moveTaskToCompletedSection
-  // may have shifted line positions.
   if (nextTaskLine !== null) {
     const nextTaskLineInFinal = findFirstIncompleteTaskLine(workingLines);
     if (nextTaskLineInFinal !== null) {
-      await showDueDateModalForNextAction(file, nextTaskLineInFinal, content, updatedContent, context);
+      await showDueDateModalForFirstIncompleteTask(file, nextTaskLineInFinal, content, updatedContent, context);
     }
   }
 }
 
 export async function applyUncompletionRules(context: UncompletionContext): Promise<void> {
-  const { file, content, uncompletedLine, settings, writeFileContent, setFileStatus, setTaskState } = context;
+  const { file, content, uncompletedLine, writeFileContent, setFileStatus, setTaskState } = context;
   const lines = content.split(/\r?\n/);
   // Reopened tasks must lose completion metadata.
   lines[uncompletedLine] = stripCompletionFields(lines[uncompletedLine]);
-  const firstIncompleteTaskLine = findFirstIncompleteTaskLine(lines);
+  const workingLines = lines;
+  const firstIncompleteTaskLine = findFirstIncompleteTaskLine(workingLines);
 
   if (firstIncompleteTaskLine !== uncompletedLine) {
-    const updatedContent = lines.join("\n");
+    const updatedContent = workingLines.join("\n");
     if (updatedContent !== content) {
       await writeFileContent(file, updatedContent);
     }
 
     await setFileStatus(file, "todo");
-    setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
+    setTaskState(file.path, extractTaskState(updatedContent));
     return;
   }
 
-  const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
-  const updatedContent = addNextActionTag(cleanedLines, uncompletedLine, settings.nextActionTag);
+  const updatedContent = workingLines.join("\n");
 
   if (updatedContent !== content) {
     await writeFileContent(file, updatedContent);
   }
 
   await setFileStatus(file, "todo");
-  setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
+  setTaskState(file.path, extractTaskState(updatedContent));
 
-  // Show due date modal if next-action was assigned to this task
-  await showDueDateModalForNextAction(file, uncompletedLine, content, updatedContent, context);
-}
-
-export async function applyDeletedTagRules(context: DeletedTagContext): Promise<void> {
-  const { file, content, deletedTaggedTaskLine, settings, writeFileContent, setFileStatus, setTaskState } = context;
-  const lines = content.split(/\r?\n/);
-  const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
-  const previousTaskLine = findPreviousIncompleteTaskLine(cleanedLines, deletedTaggedTaskLine);
-
-  if (previousTaskLine === null) {
-    const updatedContent = lines.join("\n");
-    if (updatedContent !== content) {
-      await writeFileContent(file, updatedContent);
-    }
-    await setFileStatus(file, "completed");
-    setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
-    return;
-  }
-
-  const updatedContent = addNextActionTag(cleanedLines, previousTaskLine, settings.nextActionTag);
-  if (updatedContent !== content) {
-    await writeFileContent(file, updatedContent);
-  }
-
-  await setFileStatus(file, "todo");
-  setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
-
-  // Show due date modal if next-action was assigned to this task
-  await showDueDateModalForNextAction(file, previousTaskLine, content, updatedContent, context);
+  await showDueDateModalForFirstIncompleteTask(file, uncompletedLine, content, updatedContent, context);
 }
 
 export async function reconcileFile(context: ReconcilerContext): Promise<void> {
@@ -272,13 +226,11 @@ export async function reconcileFile(context: ReconcilerContext): Promise<void> {
 
       return stripCompletionFields(line);
     });
-  const cleanedLines = stripNextActionTags(lines, settings.nextActionTag);
-  const firstIncompleteTaskLine = findFirstIncompleteTaskLine(cleanedLines);
-  let updatedContent = cleanedLines.join("\n");
+  const firstIncompleteTaskLine = findFirstIncompleteTaskLine(lines);
+  const updatedContent = lines.join("\n");
   let nextStatus: string | null = "completed";
 
   if (firstIncompleteTaskLine !== null) {
-    updatedContent = addNextActionTag(cleanedLines, firstIncompleteTaskLine, settings.nextActionTag);
     nextStatus = currentStatus !== null && currentStatus !== "completed" ? null : "todo";
   }
 
@@ -289,12 +241,7 @@ export async function reconcileFile(context: ReconcilerContext): Promise<void> {
   if (nextStatus !== null) {
     await setFileStatus(file, nextStatus);
   }
-  setTaskState(file.path, extractTaskState(updatedContent, settings.nextActionTag));
-
-  // Show due date modal if next-action was assigned
-  if (firstIncompleteTaskLine !== null) {
-    await showDueDateModalForNextAction(file, firstIncompleteTaskLine, content, updatedContent, context);
-  }
+  setTaskState(file.path, extractTaskState(updatedContent));
 }
 
 export function getCompletionDateString(): string {

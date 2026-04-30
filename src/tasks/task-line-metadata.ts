@@ -5,7 +5,7 @@
  * Responsibilities:
  * - parse markdown checkbox task lines into open/completed states
  * - read inline field values from task bodies
- * - detect next-action tags and recurring fields
+ * - detect recurring fields
  * - normalize task text for dashboard/summary display
  *
  * Dependencies:
@@ -35,11 +35,6 @@ export function parseTaskLine(line: string): ParsedTaskLine | null {
     status: match[1].trim().toLowerCase() === "x" ? "completed" : "open",
     taskBody: match[2].trim(),
   };
-}
-
-export function hasTaskTag(taskBody: string, tag: string): boolean {
-  const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|\\s)${escapedTag}(?=$|\\s)`).test(taskBody);
 }
 
 export function isRecurringTask(taskBody: string): boolean {

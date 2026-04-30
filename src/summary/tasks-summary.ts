@@ -4,7 +4,7 @@
  *
  * Responsibilities:
  * - scans Projects, Waiting, Someday-Maybe, and Inbox sources
- * - selects the first next-action task per file
+ * - selects the first incomplete task per file
  * - renders grouped summary tables with due date and file-priority columns
  * - creates or overwrites the destination markdown file
  *
@@ -19,7 +19,7 @@ import { getCurrentDateString, getCurrentTimeString, getEndOfWeek, parseIsoDate 
 import { ensureParentFoldersExist } from "../routing/task-routing";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { readFilePriority } from "../tasks/file-priority";
-import { cleanTaskText, hasTaskTag, isRecurringTask, parseTaskLine, readInlineFieldValue } from "../tasks/task-line-metadata";
+import { cleanTaskText, isRecurringTask, parseTaskLine, readInlineFieldValue } from "../tasks/task-line-metadata";
 import { buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
 
 const DUE_FIELD_REGEX = /\[due::\s*([^\]]+?)\s*\]/i;
@@ -43,7 +43,7 @@ type ProjectSummaryBuckets = {
   recurring: SummaryRow[];
 };
 
-type ParsedNextActionRow = {
+type ParsedFirstIncompleteRow = {
   task: string;
   dueDate: string | null;
   isRecurring: boolean;
@@ -62,10 +62,10 @@ export async function writeTasksSummary(
 
 async function buildSummarySections(app: App, settings: TaskManagerSettings): Promise<SummarySection[]> {
   const sectionSources = [
-    { title: "Projects", collectRows: () => collectNextActionRowsForFolder(app, settings.projectsFolder, settings.nextActionTag) },
-    { title: "Waiting", collectRows: () => collectNextActionRowsForFolder(app, settings.waitingProjectsFolder, settings.nextActionTag) },
-    { title: "Someday-Maybe", collectRows: () => collectNextActionRowsForFolder(app, settings.somedayMaybeProjectsFolder, settings.nextActionTag) },
-    { title: "Inbox", collectRows: () => collectNextActionRowsForInbox(app, settings.inboxFile, settings.nextActionTag) },
+    { title: "Projects", collectRows: () => collectFirstIncompleteRowsForFolder(app, settings.projectsFolder) },
+    { title: "Waiting", collectRows: () => collectFirstIncompleteRowsForFolder(app, settings.waitingProjectsFolder) },
+    { title: "Someday-Maybe", collectRows: () => collectFirstIncompleteRowsForFolder(app, settings.somedayMaybeProjectsFolder) },
+    { title: "Inbox", collectRows: () => collectFirstIncompleteRowsForInbox(app, settings.inboxFile) },
   ];
 
   const sections: SummarySection[] = [];
@@ -79,7 +79,7 @@ async function buildSummarySections(app: App, settings: TaskManagerSettings): Pr
   return sections;
 }
 
-async function collectNextActionRowsForFolder(app: App, folderPath: string, nextActionTag: string): Promise<SummaryRow[]> {
+async function collectFirstIncompleteRowsForFolder(app: App, folderPath: string): Promise<SummaryRow[]> {
   if (!folderPath) {
     return [];
   }
@@ -88,7 +88,7 @@ async function collectNextActionRowsForFolder(app: App, folderPath: string, next
   const rows: SummaryRow[] = [];
 
   for (const file of files) {
-    const row = await findNextActionRow(app, file, nextActionTag);
+    const row = await findFirstIncompleteRow(app, file);
     if (row) {
       rows.push(row);
     }
@@ -97,7 +97,7 @@ async function collectNextActionRowsForFolder(app: App, folderPath: string, next
   return rows.sort(compareSummaryRows);
 }
 
-async function collectNextActionRowsForInbox(app: App, inboxFilePath: string, nextActionTag: string): Promise<SummaryRow[]> {
+async function collectFirstIncompleteRowsForInbox(app: App, inboxFilePath: string): Promise<SummaryRow[]> {
   if (!inboxFilePath) {
     return [];
   }
@@ -107,17 +107,17 @@ async function collectNextActionRowsForInbox(app: App, inboxFilePath: string, ne
     return [];
   }
 
-  const row = await findNextActionRow(app, inboxFile, nextActionTag);
+  const row = await findFirstIncompleteRow(app, inboxFile);
   return row ? [row] : [];
 }
 
-async function findNextActionRow(app: App, file: TFile, nextActionTag: string): Promise<SummaryRow | null> {
+async function findFirstIncompleteRow(app: App, file: TFile): Promise<SummaryRow | null> {
   const content = await app.vault.read(file);
   const priority = readFilePriority(content);
   const lines = content.split(/\r?\n/);
 
   for (const line of lines) {
-    const parsed = parseNextActionTaskLine(line, nextActionTag);
+    const parsed = parseFirstIncompleteTaskLine(line);
     if (!parsed) {
       continue;
     }
@@ -134,13 +134,9 @@ async function findNextActionRow(app: App, file: TFile, nextActionTag: string): 
   return null;
 }
 
-function parseNextActionTaskLine(line: string, nextActionTag: string): ParsedNextActionRow | null {
+function parseFirstIncompleteTaskLine(line: string): ParsedFirstIncompleteRow | null {
   const parsedTask = parseTaskLine(line);
   if (!parsedTask || parsedTask.status !== "open") {
-    return null;
-  }
-
-  if (!hasTaskTag(parsedTask.taskBody, nextActionTag)) {
     return null;
   }
 

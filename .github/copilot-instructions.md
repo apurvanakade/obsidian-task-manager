@@ -28,7 +28,7 @@ src/
     repeat-rules.ts              ← Pure recurring-rule parser, alias normalizer, and due-date calculator
     task-utils.ts                ← Pure parsing/diffing utilities (no side effects)
     task-state-store.ts          ← In-memory snapshot cache (tasks + status per file)
-    due-date-modal.ts            ← Modal for collecting due date + file priority on next-action assignment
+    due-date-modal.ts            ← Modal for collecting due date + file priority for the first incomplete task
   summary/
     tasks-summary.ts             ← Builds and writes the Tasks Summary markdown note
   routing/
@@ -65,8 +65,8 @@ src/
 ### Commands
 
 - **Reset Tasks** — in the active file, marks all tasks open (`[ ]`), strips `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, and `[created:: ...]` from task lines, then re-runs the normal task reconciliation and routing flow for that file
-- **Tasks Summary** — creates or overwrites the configured Tasks Summary File with sections for Projects, Waiting, Someday-Maybe, and Inbox. Each section lists the first open `#next-action` task per file in a grouped table with Folder, Filename, Task, Priority, and Due columns
-- **Add New Project** — opens a modal asking for Name, Folder, Priority, Status (`todo`, `waiting`, or `someday-maybe`), and optional starter tasks; the Folder field shows matching vault folders as you type; the command creates the project file, writes status/priority to frontmatter, tags the first added task with the next-action tag, creates missing parent folders, and opens the new file
+- **Tasks Summary** — creates or overwrites the configured Tasks Summary File with sections for Projects, Waiting, Someday-Maybe, and Inbox. Each section lists the first incomplete task per file in a grouped table with Folder, Filename, Task, Priority, and Due columns
+- **Add New Project** — opens a modal asking for Name, Folder, Priority, Status (`todo`, `waiting`, or `someday-maybe`), and optional starter tasks; the Folder field shows matching vault folders as you type; the command creates the project file, writes status/priority to frontmatter, creates missing parent folders, and opens the new file
 
 ### Settings Persistence
 
@@ -74,7 +74,7 @@ Settings live in `data.json` (loaded/saved via `plugin.loadData()` / `plugin.sav
 
 Configurable paths: Projects Folder, Completed Projects Folder, Waiting Projects Folder, Someday-Maybe Projects Folder, Inbox File (file picker, not folder), Tasks Summary File (file picker).
 
-Other settings: Next Action Tag (default `#next-action`), Completed Status Field (default `status`), Open Tasks Summary After Generation (default off), Dashboard Filename Hide Keywords (comma-separated keywords stripped from dashboard display names).
+Other settings: Completed Status Field (default `status`), Open Tasks Summary After Generation (default off), Dashboard Filename Hide Keywords (comma-separated keywords stripped from dashboard display names).
 
 ### Status Routing
 
@@ -94,23 +94,19 @@ Tasks use standard markdown checkboxes. Inline fields use Dataview-style double-
 
 Project priority is stored in file frontmatter as `priority: N`, where `1` is highest and missing/invalid values default to `3`.
 
-The next-action tag (default `#next-action`) marks the single active task in a file. Only one task per file should have this tag.
+The first incomplete task in a file is treated as the current actionable task.
 
 ### Completion (`[ ]` → `[x]`)
 
 - Append `[completion-date:: YYYY-MM-DD]` and `[completion-time:: HH:MM:SS]` to the completed task line
 - Move the completed task line into the `## Completed Tasks` section of the same file; if that section doesn't exist, it is appended to the end of the file
-- Move `#next-action` tag to the first remaining open task; if none remain, status becomes `completed`
+- The first remaining open task becomes the current actionable task implicitly; if none remain, status becomes `completed`
 - When status becomes `completed`, also stamp `completion-date` and `completion-time` into the **file frontmatter** (in addition to the task-line inline fields)
 
 ### Uncompletion (`[x]` → `[ ]`)
 
-- If the reopened task is the first open task, retag it as `#next-action` and clear the tag from others
+- If the reopened task is the first open task, it becomes the current actionable task implicitly
 - Reconciliation also strips stale `[completion-date:: ...]` and `[completion-time:: ...]` from open tasks
-
-### Tagged-Task Deletion
-
-- Reassign `#next-action` to the nearest preceding open task if one exists; otherwise status becomes `completed` behaviorally
 
 ### Recurring Tasks
 
@@ -138,9 +134,9 @@ Accepted aliases are normalized automatically:
 
 Weekday and ordinal repeats resolve to the **next future occurrence**. So `Monday` completed on a Monday becomes next Monday, and `5th` completed on the 5th becomes next month's 5th.
 
-### Next-Action Assignment & DueDateModal
+### First-Incomplete Assignment & DueDateModal
 
-When `#next-action` is newly assigned to a task, a `DueDateModal` is shown offering:
+When a different task becomes the file's first incomplete task after completion or uncompletion, a `DueDateModal` is shown offering:
 
 - A preview of the task text
 - A project priority dropdown (values 1–3, default 3)
@@ -151,7 +147,7 @@ When `#next-action` is newly assigned to a task, a `DueDateModal` is shown offer
 
 Modal submit writes `[due:: YYYY-MM-DD]` to the task line and `priority: N` to the file frontmatter.
 
-**Modal is skipped when**: the assignment was unchanged (task was already `#next-action` before reconcile), the task is recurring, or the task already has a `[due:: ...]` field.
+**Modal is skipped when**: the first incomplete task was unchanged, the task is recurring, or the task already has a `[due:: ...]` field.
 
 ## Date Dashboard
 
@@ -177,7 +173,7 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 - Rows are grouped first by parent folder (alphabetically), then by filename; `rowspan` is used for grouping cells
 - Folder display uses the immediate parent directory segment; Filename strips `.md`
 - **Dashboard Filename Hide Keywords**: each comma-separated keyword is removed case-insensitively from both folder and filename display. No automatic date/number stripping is applied.
-- Task text strips all inline fields and hashtag tags (e.g. `#next-action`) and is rendered as **bold** for priority 1, *italic* for priority 2, and default styling for priority 3 using the file's frontmatter priority
+- Task text strips all inline fields and hashtag tags and is rendered as **bold** for priority 1, *italic* for priority 2, and default styling for priority 3 using the file's frontmatter priority
 - Styling relies on native Obsidian markdown/theme rendering — no plugin-specific dashboard CSS
 
 ## Tasks Summary
@@ -194,9 +190,8 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 
 ### Selection Rules
 
-- Includes the **first open task tagged with the next-action tag** per file
-- If a file has multiple tagged tasks, only the first is summarized
-- Files without an open tagged task are omitted
+- Includes the **first incomplete task** per file
+- Files without an incomplete task are omitted
 
 ### Output Format
 
@@ -272,7 +267,7 @@ Do not defer README updates to a follow-up task — keep them in the same commit
 
 ### When Changing Reconciliation Logic
 
-- Ensure metadata stamping and tag reassignment remain idempotent
+- Ensure metadata stamping and first-incomplete-task behavior remain idempotent
 - Verify recurring insertion index and that the completed task line is not mutated as the clone source
 
 ### When Changing Dashboard Logic
@@ -287,8 +282,8 @@ Do not defer README updates to a follow-up task — keep them in the same commit
 Run after meaningful logic changes:
 
 1. `npm run build` succeeds
-2. Event-driven reconciliation updates tags/status correctly for complete, uncomplete, and delete cases; when the last task is completed, `completion-date` and `completion-time` are stamped in both the task line and the file frontmatter
-3. Task completion triggers the DueDateModal for the newly assigned `#next-action` task
+2. Event-driven reconciliation updates first-incomplete selection/status correctly for complete, uncomplete, and delete cases; when the last task is completed, `completion-date` and `completion-time` are stamped in both the task line and the file frontmatter
+3. Task completion triggers the DueDateModal for the newly exposed first incomplete task
 4. Modal shows task text preview; clicking a suggested date immediately applies it; manual date input (YYYY-MM-DD or natural-language) works via Add Due Date / Enter
 5. Submitted due date written as `[due:: YYYY-MM-DD]`; priority written as `priority: N` in file frontmatter (default 3)
 6. Modal Skip dismisses without modifying the task
@@ -304,5 +299,5 @@ Run after meaningful logic changes:
 16. Typing `due::` shows suggestions from today, matches ISO and weekday labels, inserts ` YYYY-MM-DD`
 17. Typing `created::` shows today suggestion and inserts ` YYYY-MM-DD`
 18. `Reset Tasks` reopens all tasks, removes due/completion/created inline fields, then re-runs file reconciliation and routing
-19. `Tasks Summary` writes the configured Tasks Summary File, stamps `creation-date`/`creation-time` frontmatter, splits Projects into recurring/due-this-week/scheduled-later/unscheduled subsections, and includes the first open `#next-action` task per file with due date and file priority
-20. `Add New Project` creates a new file at the chosen folder path, writes status/priority frontmatter, converts each task textarea line into an open task, and tags the first created task with the next-action tag
+19. `Tasks Summary` writes the configured Tasks Summary File, stamps `creation-date`/`creation-time` frontmatter, splits Projects into recurring/due-this-week/scheduled-later/unscheduled subsections, and includes the first incomplete task per file with due date and file priority
+20. `Add New Project` creates a new file at the chosen folder path, writes status/priority frontmatter, and converts each task textarea line into an open task

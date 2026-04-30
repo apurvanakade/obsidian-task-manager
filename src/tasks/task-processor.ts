@@ -19,7 +19,6 @@ import { TaskManagerSettings } from "../settings/settings-utils";
 import { FilePriority, PRIORITY_FRONTMATTER_FIELD } from "./file-priority";
 import {
   extractTaskState,
-  findDeletedTaggedTask,
   findNewlyCompletedTask,
   findNewlyUncompletedTask,
   resetTaskContent,
@@ -27,7 +26,6 @@ import {
 } from "./task-utils";
 import {
   applyCompletionRules,
-  applyDeletedTagRules,
   applyUncompletionRules,
   getCompletionDateString,
   getCompletionTimeString,
@@ -96,13 +94,12 @@ export class TaskProcessor {
 
     const settings = this.getSettings();
     const content = await this.app.vault.read(file);
-    const nextState = extractTaskState(content, settings.nextActionTag);
+    const nextState = extractTaskState(content);
     const previousState = this.stateStore.getTaskState(file.path);
     const previousStatus = this.stateStore.getStatus(file.path);
     const currentStatus = readStatusValue(content, settings.statusField);
     const completion = findNewlyCompletedTask(previousState, nextState);
     const uncompleted = findNewlyUncompletedTask(previousState, nextState);
-    const deletedTaggedTaskLine = findDeletedTaggedTask(previousState, nextState);
 
     this.stateStore.setTaskState(file.path, nextState);
     this.stateStore.setStatus(file.path, currentStatus);
@@ -119,12 +116,7 @@ export class TaskProcessor {
       return;
     }
 
-    if (deletedTaggedTaskLine !== null) {
-      await this.applyDeletedTagRules(file, content, deletedTaggedTaskLine, settings);
-      await this.routeAfterStatusChange(file, previousStatus, settings);
-      return;
-    }
-
+    await this.reconcileSingleFile(file, settings);
     await this.routeAfterStatusChange(file, previousStatus, settings);
   }
 
@@ -151,7 +143,7 @@ export class TaskProcessor {
     const settings = this.getSettings();
     const initialContent = await this.app.vault.read(file);
     const initialStatus = readStatusValue(initialContent, settings.statusField);
-    const hasOpenTasks = extractTaskState(initialContent, settings.nextActionTag).some((task) => task.status === "open");
+    const hasOpenTasks = extractTaskState(initialContent).some((task) => task.status === "open");
     const predictedStatus = predictFinalStatus(initialStatus, hasOpenTasks);
     assertConfiguredDestinationForStatus(predictedStatus, settings);
 
@@ -261,15 +253,6 @@ export class TaskProcessor {
     });
   }
 
-  private async applyDeletedTagRules(file: TFile, content: string, deletedTaggedTaskLine: number, settings: TaskManagerSettings): Promise<void> {
-    await applyDeletedTagRules({
-      file,
-      content,
-      deletedTaggedTaskLine,
-      ...this.createReconcilerServices(settings),
-    });
-  }
-
   private createReconcilerServices(settings: TaskManagerSettings) {
     return {
       settings,
@@ -285,7 +268,7 @@ export class TaskProcessor {
   }
 
   private updateFileSnapshot(filePath: string, content: string, settings: TaskManagerSettings): void {
-    this.stateStore.setTaskState(filePath, extractTaskState(content, settings.nextActionTag));
+    this.stateStore.setTaskState(filePath, extractTaskState(content));
     this.stateStore.setStatus(filePath, readStatusValue(content, settings.statusField));
   }
 

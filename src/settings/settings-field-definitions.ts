@@ -31,7 +31,7 @@ export type TextSettingConfig = {
   name: string;
   description: string;
   placeholder: string;
-  key: keyof Pick<TaskManagerSettings, "nextActionTag" | "statusField" | "dashboardHideKeywords">;
+  key: keyof Pick<TaskManagerSettings, "statusField" | "dashboardHideKeywords">;
   value: string;
   multiLine?: boolean;
 };
@@ -92,13 +92,6 @@ export function getFolderSettingConfigs(settings: TaskManagerSettings): FolderSe
 
 export function getTextSettingConfigs(settings: TaskManagerSettings): TextSettingConfig[] {
   return [
-    {
-      name: "Next Action Tag",
-      description: "Tag added to the active next task.",
-      placeholder: "#next-action",
-      key: "nextActionTag",
-      value: settings.nextActionTag,
-    },
     {
       name: "Completed Status Field",
       description: "Frontmatter field updated when the file has no remaining incomplete tasks.",

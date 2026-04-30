@@ -1,6 +1,6 @@
 /**
  * Purpose:
- * - collect a due date and file priority for newly assigned next-action tasks.
+ * - collect a due date and file priority for the current first incomplete task.
  *
  * Responsibilities:
  * - presents quick date suggestions, file-priority selection, and manual date input
