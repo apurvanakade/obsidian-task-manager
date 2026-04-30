@@ -65,7 +65,7 @@ src/
 ### Commands
 
 - **Reset Tasks** — in the active file, marks all tasks open (`[ ]`), strips `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, and `[created:: ...]` from task lines, then re-runs the normal task reconciliation and routing flow for that file
-- **Tasks Summary** — creates or overwrites the configured Tasks Summary File with sections for Projects, Waiting, Someday-Maybe, and Inbox. Each section lists the first incomplete task per file in a grouped table with Folder, Filename, Task, Priority, and Due columns
+- **Tasks Summary** — creates or overwrites the configured Tasks Summary File with sections for Projects, Waiting, Someday-Maybe, and Inbox. Existing summary files are overwritten in place with no merge/replace prompt, and the summary note itself is excluded from automatic task routing/reconciliation. Each section lists the first incomplete task per file in a grouped table with Folder, Filename, Task, Priority, and Due columns
 - **Add New Project** — opens a modal asking for Name, Folder, Priority, Status (`todo`, `waiting`, or `someday-maybe`), and optional starter tasks; the Folder field shows matching vault folders as you type; the command creates the project file, writes status/priority to frontmatter, creates missing parent folders, and opens the new file
 
 ### Settings Persistence

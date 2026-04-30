@@ -6,7 +6,7 @@
  * - scans Projects, Waiting, Someday-Maybe, and Inbox sources
  * - selects the first incomplete task per file
  * - renders grouped summary tables with due date and file-priority columns
- * - creates or overwrites the destination markdown file
+ * - creates or overwrites the destination markdown file without merge prompts
  *
  * Dependencies:
  * - Obsidian vault/file APIs and normalized plugin settings
@@ -56,7 +56,8 @@ export async function writeTasksSummary(
 ): Promise<string> {
   const sections = await buildSummarySections(app, settings);
   const summaryContent = renderSummary(sections, settings.dashboardHideKeywords);
-  await writeSummaryFile(app, summaryFilePath, summaryContent);
+  const summaryFile = await resolveSummaryFile(app, summaryFilePath);
+  await overwriteSummaryFile(app, summaryFile, summaryContent);
   return summaryFilePath;
 }
 
@@ -163,23 +164,24 @@ function renderSummary(sections: SummarySection[], hideKeywords: string): string
   return lines.join("\n").trimEnd();
 }
 
-async function writeSummaryFile(app: App, summaryFilePath: string, summaryContent: string): Promise<void> {
+async function resolveSummaryFile(app: App, summaryFilePath: string): Promise<TFile> {
   await ensureParentFoldersExist(app, summaryFilePath);
 
   const existing = app.vault.getAbstractFileByPath(summaryFilePath);
   if (!existing) {
-    const createdFile = await app.vault.create(summaryFilePath, summaryContent);
-    await stampSummaryMetadata(app, createdFile);
-    return;
+    return await app.vault.create(summaryFilePath, "");
   }
 
   if (existing instanceof TFile) {
-    await app.vault.modify(existing, summaryContent);
-    await stampSummaryMetadata(app, existing);
-    return;
+    return existing;
   }
 
   throw new Error(`Cannot write summary to '${summaryFilePath}' because a folder already exists at that path.`);
+}
+
+async function overwriteSummaryFile(app: App, file: TFile, summaryContent: string): Promise<void> {
+  await app.vault.modify(file, summaryContent);
+  await stampSummaryMetadata(app, file);
 }
 
 function compareSummaryRows(left: SummaryRow, right: SummaryRow): number {

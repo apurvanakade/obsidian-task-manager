@@ -72,6 +72,10 @@ export class TaskProcessor {
     this.stateStore.clear();
 
     for (const file of markdownFiles) {
+      if (!this.shouldTrackFile(file, settings)) {
+        continue;
+      }
+
       const content = await this.app.vault.read(file);
       this.updateFileSnapshot(file.path, content, settings);
     }
@@ -83,6 +87,10 @@ export class TaskProcessor {
     }
 
     const settings = this.getSettings();
+    if (!this.shouldTrackFile(file, settings)) {
+      return;
+    }
+
     const content = await this.app.vault.read(file);
     this.updateFileSnapshot(file.path, content, settings);
   }
@@ -93,6 +101,10 @@ export class TaskProcessor {
     }
 
     const settings = this.getSettings();
+    if (!this.shouldTrackFile(file, settings)) {
+      return;
+    }
+
     const content = await this.app.vault.read(file);
     const nextState = extractTaskState(content);
     const previousState = this.stateStore.getTaskState(file.path);
@@ -270,6 +282,18 @@ export class TaskProcessor {
   private updateFileSnapshot(filePath: string, content: string, settings: TaskManagerSettings): void {
     this.stateStore.setTaskState(filePath, extractTaskState(content));
     this.stateStore.setStatus(filePath, readStatusValue(content, settings.statusField));
+  }
+
+  private shouldTrackFile(file: TFile, settings: TaskManagerSettings): boolean {
+    if (settings.tasksSummaryFile && file.path === settings.tasksSummaryFile) {
+      return false;
+    }
+
+    if (settings.inboxFile && file.path === settings.inboxFile) {
+      return true;
+    }
+
+    return getTaskFolderRoots(settings).some((root) => file.path.startsWith(`${root}/`));
   }
 
   private async runWithPendingPaths(filePaths: string[], action: () => Promise<void>): Promise<void> {

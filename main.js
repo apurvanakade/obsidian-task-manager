@@ -1214,7 +1214,8 @@ var DUE_FIELD_REGEX2 = /\[due::\s*([^\]]+?)\s*\]/i;
 async function writeTasksSummary(app, settings, summaryFilePath) {
   const sections = await buildSummarySections(app, settings);
   const summaryContent = renderSummary(sections, settings.dashboardHideKeywords);
-  await writeSummaryFile(app, summaryFilePath, summaryContent);
+  const summaryFile = await resolveSummaryFile(app, summaryFilePath);
+  await overwriteSummaryFile(app, summaryFile, summaryContent);
   return summaryFilePath;
 }
 async function buildSummarySections(app, settings) {
@@ -1301,20 +1302,20 @@ function renderSummary(sections, hideKeywords) {
   }
   return lines.join("\n").trimEnd();
 }
-async function writeSummaryFile(app, summaryFilePath, summaryContent) {
+async function resolveSummaryFile(app, summaryFilePath) {
   await ensureParentFoldersExist(app, summaryFilePath);
   const existing = app.vault.getAbstractFileByPath(summaryFilePath);
   if (!existing) {
-    const createdFile = await app.vault.create(summaryFilePath, summaryContent);
-    await stampSummaryMetadata(app, createdFile);
-    return;
+    return await app.vault.create(summaryFilePath, "");
   }
   if (existing instanceof import_obsidian7.TFile) {
-    await app.vault.modify(existing, summaryContent);
-    await stampSummaryMetadata(app, existing);
-    return;
+    return existing;
   }
   throw new Error(`Cannot write summary to '${summaryFilePath}' because a folder already exists at that path.`);
+}
+async function overwriteSummaryFile(app, file, summaryContent) {
+  await app.vault.modify(file, summaryContent);
+  await stampSummaryMetadata(app, file);
 }
 function compareSummaryRows(left, right) {
   var _a, _b, _c, _d;
@@ -2368,6 +2369,9 @@ var TaskProcessor = class {
     const settings = this.getSettings();
     this.stateStore.clear();
     for (const file of markdownFiles) {
+      if (!this.shouldTrackFile(file, settings)) {
+        continue;
+      }
       const content = await this.app.vault.read(file);
       this.updateFileSnapshot(file.path, content, settings);
     }
@@ -2377,6 +2381,9 @@ var TaskProcessor = class {
       return;
     }
     const settings = this.getSettings();
+    if (!this.shouldTrackFile(file, settings)) {
+      return;
+    }
     const content = await this.app.vault.read(file);
     this.updateFileSnapshot(file.path, content, settings);
   }
@@ -2385,6 +2392,9 @@ var TaskProcessor = class {
       return;
     }
     const settings = this.getSettings();
+    if (!this.shouldTrackFile(file, settings)) {
+      return;
+    }
     const content = await this.app.vault.read(file);
     const nextState = extractTaskState(content);
     const previousState = this.stateStore.getTaskState(file.path);
@@ -2534,6 +2544,15 @@ ${sourceContent}`;
   updateFileSnapshot(filePath, content, settings) {
     this.stateStore.setTaskState(filePath, extractTaskState(content));
     this.stateStore.setStatus(filePath, readStatusValue(content, settings.statusField));
+  }
+  shouldTrackFile(file, settings) {
+    if (settings.tasksSummaryFile && file.path === settings.tasksSummaryFile) {
+      return false;
+    }
+    if (settings.inboxFile && file.path === settings.inboxFile) {
+      return true;
+    }
+    return getTaskFolderRoots(settings).some((root) => file.path.startsWith(`${root}/`));
   }
   async runWithPendingPaths(filePaths, action) {
     filePaths.forEach((filePath) => this.stateStore.markPending(filePath));

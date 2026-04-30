@@ -32,6 +32,9 @@ In the active file:
 ### Tasks Summary
 Creates or overwrites the configured **Tasks Summary File** with sections for **Projects**, **Waiting**, **Someday-Maybe**, and **Inbox**.
 
+If the summary file already exists, the command overwrites it directly in place. It does not prompt to merge, append, or confirm replacement.
+The summary note itself is excluded from automatic task routing and reconciliation.
+
 By default, generating the summary does **not** open the summary note. Enable **Open Tasks Summary After Generation** in plugin settings if you want it opened automatically.
 
 The summary note also stamps frontmatter metadata:
