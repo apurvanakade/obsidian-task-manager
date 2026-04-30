@@ -2360,6 +2360,7 @@ var TaskProcessor = class {
     this.stateStore = new TaskStateStore();
     this.app = options.app;
     this.getSettings = options.getSettings;
+    this.onFileStatusChanged = options.onFileStatusChanged;
   }
   onunload() {
     this.stateStore.clear();
@@ -2450,6 +2451,7 @@ var TaskProcessor = class {
     });
   }
   async routeAfterStatusChange(file, previousStatus, settings) {
+    var _a;
     const latestContent = await this.app.vault.read(file);
     const latestStatus = readStatusValue(latestContent, settings.statusField);
     this.stateStore.setStatus(file.path, latestStatus);
@@ -2461,6 +2463,11 @@ var TaskProcessor = class {
       await this.routeFileByStatus(file, settings, latestStatus);
     } catch (error) {
       new import_obsidian11.Notice(error instanceof Error ? error.message : "Failed to route file after status change.");
+    }
+    try {
+      await ((_a = this.onFileStatusChanged) == null ? void 0 : _a.call(this));
+    } catch (error) {
+      new import_obsidian11.Notice(error instanceof Error ? error.message : "Failed to update Tasks Summary after status change.");
     }
   }
   async routeFileByStatus(file, settings, statusOverride) {
@@ -2609,7 +2616,13 @@ var TaskManagerPlugin = class extends import_obsidian12.Plugin {
     console.log("Loading Task Manager plugin");
     this.taskProcessor = new TaskProcessor({
       app: this.app,
-      getSettings: () => this.getSettings()
+      getSettings: () => this.getSettings(),
+      onFileStatusChanged: async () => {
+        await this.writeTasksSummary({
+          openAfterGeneration: false,
+          showNotice: false
+        });
+      }
     });
     this.dateDashboard = new DateDashboardController({
       app: this.app,
@@ -2687,23 +2700,34 @@ var TaskManagerPlugin = class extends import_obsidian12.Plugin {
     }
   }
   async runCreateTasksSummary() {
-    const settings = this.getSettings();
-    if (!settings.tasksSummaryFile) {
-      new import_obsidian12.Notice("Set Tasks Summary File in plugin settings before running Tasks Summary.");
-      return;
-    }
     try {
-      const writtenPath = await writeTasksSummary(this.app, settings, settings.tasksSummaryFile);
-      if (settings.openSummaryAfterGeneration) {
-        const summaryFile = this.app.vault.getAbstractFileByPath(writtenPath);
-        if (summaryFile instanceof import_obsidian12.TFile) {
-          await this.app.workspace.getLeaf(true).openFile(summaryFile);
-        }
-      }
-      new import_obsidian12.Notice(`Tasks Summary written to ${writtenPath}.`);
+      await this.writeTasksSummary({
+        openAfterGeneration: true,
+        showNotice: true
+      });
     } catch (error) {
       new import_obsidian12.Notice(error instanceof Error ? error.message : "Failed to create Tasks Summary.");
     }
+  }
+  async writeTasksSummary(options) {
+    const settings = this.getSettings();
+    if (!settings.tasksSummaryFile) {
+      if (options.showNotice) {
+        new import_obsidian12.Notice("Set Tasks Summary File in plugin settings before running Tasks Summary.");
+      }
+      return null;
+    }
+    const writtenPath = await writeTasksSummary(this.app, settings, settings.tasksSummaryFile);
+    if (options.openAfterGeneration && settings.openSummaryAfterGeneration) {
+      const summaryFile = this.app.vault.getAbstractFileByPath(writtenPath);
+      if (summaryFile instanceof import_obsidian12.TFile) {
+        await this.app.workspace.getLeaf(true).openFile(summaryFile);
+      }
+    }
+    if (options.showNotice) {
+      new import_obsidian12.Notice(`Tasks Summary written to ${writtenPath}.`);
+    }
+    return writtenPath;
   }
   runAddNewProject() {
     const settings = this.getSettings();
