@@ -1,12 +1,13 @@
 {
   "statusField": "status",
-  "projectsFolder": "Projects",
-  "completedProjectsFolder": "Completed",
-  "waitingProjectsFolder": "Waiting",
-  "somedayMaybeProjectsFolder": "Someday-Maybe",
-  "inboxFile": "Projects/Inbox.md",
-  "tasksSummaryFile": "Tasks Summary.md",
+  "projectsFolder": "Tasks/Active",
+  "completedProjectsFolder": "Tasks/Completed",
+  "waitingProjectsFolder": "Tasks/Waiting",
+  "somedayMaybeProjectsFolder": "Tasks/Someday-Maybe",
+  "inboxFile": "Tasks/Inbox.md",
+  "tasksSummaryFile": "Tasks/Tasks Summary.md",
+  "projectSummaryFile": "Tasks/Project Summary.md",
   "openSummaryAfterGeneration": false,
-  "dashboardHideKeywords": "2026, 2026 Spring, 2026 Summer, 2026 Fall",
+  "dashboardHideKeywords": "2026, Spring, Summer, Fall",
   "journalFolder": "Journal"
 }

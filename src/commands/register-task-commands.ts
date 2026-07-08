@@ -32,7 +32,7 @@ export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandle
 
   plugin.addCommand({
     id: "create-tasks-summary",
-    name: "Tasks Summary",
+    name: "Tasks and Projects Summary",
     callback: handlers.createTasksSummary,
   });
 

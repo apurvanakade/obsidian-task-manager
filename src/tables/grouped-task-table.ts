@@ -3,7 +3,7 @@
  * - provide shared grouped-table modeling and display formatting for task tables.
  *
  * Responsibilities:
- * - groups task rows by folder and file in a stable structure
+ * - groups task rows by folder and file while preserving input order
  * - applies shared folder/filename hide-keyword cleanup
  * - formats due dates for shared table displays
  *
@@ -23,6 +23,7 @@ export type GroupedTaskTableRow = {
   task: string;
   priority: number;
   dueDate: string | null;
+  recurrence: string;
 };
 
 export type TaskFileGroup<TRow extends GroupedTaskTableRow> = {
@@ -60,10 +61,8 @@ export function buildGroupedTaskTable<TRow extends GroupedTaskTableRow>(
   }
 
   return [...folderMap.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
     .map(([folderPath, fileMap]) => {
       const files = [...fileMap.entries()]
-        .sort(([left], [right]) => left.localeCompare(right))
         .map(([, fileRows]) => ({
           file: fileRows[0].file,
           displayFileName: getDisplayFileName(fileRows[0].file.name, hideKeywords),

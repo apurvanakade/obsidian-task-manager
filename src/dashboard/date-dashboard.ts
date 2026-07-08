@@ -5,22 +5,22 @@
  * Responsibilities:
  * - registers and refreshes the custom dashboard view
  * - reacts to vault/workspace events with debounced refresh scheduling
- * - renders Due and Completed task tables for YYYY-MM-DD active notes
- * - formats display fields (filename cleanup and MM-DD due-date rendering)
+ * - renders Due, Current Page, Inbox, and Completed sections for YYYY-MM-DD active notes
+ * - formats display fields (filename cleanup, recurrence labels, and MM-DD due-date rendering)
  *
  * Dependencies:
- * - depends on dashboard-task-data.ts for data collection/parsing (including inbox file logic).
+ * - depends on dashboard-task-data.ts for data collection/parsing (including inbox and current-page logic).
  * - Obsidian view/workspace/vault APIs for lifecycle and rendering
  *
  * Side Effects:
  * - manipulates dashboard DOM and opens links in workspace
  *
  * Notes:
- * - Inbox section now lists all open tasks from the configured inbox file (set in settings).
+ * - Inbox section lists all open tasks from the configured inbox file; Current Page lists open tasks from the active date note.
  */
 import { App, ItemView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { getTodayDateString } from "../date/date-utils";
-import { collectTasksForDate, collectInboxTasks, DashboardRow, getDateStringFromFileName } from "./dashboard-task-data";
+import { collectOpenTasksFromFile, collectTasksForDate, collectInboxTasks, DashboardRow, getDateStringFromFileName } from "./dashboard-task-data";
 import { buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
 
 const MARKDOWN_EXTENSION_REGEX = /\.md$/i;
@@ -100,11 +100,16 @@ export class DateDashboardController {
     dashboard.appendChild(title);
 
     // Due tasks
-    const tasks = await collectTasksForDate(this.app, this.getTaskFolderRoots(), dateString);
+    const inboxFile = this.getInboxFile();
+    const tasks = await collectTasksForDate(this.app, this.getTaskFolderRoots(), inboxFile, dateString);
     this.appendDueSection(dashboard, tasks.dueTasks, sourcePath);
 
+    const currentPageTasks = activeFile && getDateStringFromFileName(activeFile.name)
+      ? await collectOpenTasksFromFile(this.app, activeFile)
+      : [];
+    this.appendSimpleTaskListSection(dashboard, "Current Page", currentPageTasks);
+
     // Inbox section (from inbox file)
-    const inboxFile = this.getInboxFile();
     const inboxTasks = await collectInboxTasks(this.app, inboxFile);
     this.appendInboxSection(dashboard, inboxFile, inboxTasks);
     // Completed tasks
@@ -149,9 +154,9 @@ export class DateDashboardController {
     container.appendChild(ul);
   }
 
-  private appendDueSection(container: HTMLElement, rows: DashboardRow[], sourcePath: string): void {
+  private appendSimpleTaskListSection(container: HTMLElement, title: string, rows: DashboardRow[]): void {
     const heading = document.createElement("h3");
-    heading.textContent = "Due";
+    heading.textContent = title;
     container.appendChild(heading);
 
     if (rows.length === 0) {
@@ -161,11 +166,21 @@ export class DateDashboardController {
       return;
     }
 
-    const nonRecurringRows = rows.filter((row) => !row.isRecurring);
-    const recurringRows = rows.filter((row) => row.isRecurring);
+    const ul = document.createElement("ul");
+    for (const row of rows) {
+      const li = document.createElement("li");
+      li.textContent = row.task;
+      ul.appendChild(li);
+    }
+    container.appendChild(ul);
+  }
 
-    this.appendTaskTableGroup(container, "Non-recurring Tasks", nonRecurringRows, sourcePath, true);
-    this.appendTaskTableGroup(container, "Recurring Tasks", recurringRows, sourcePath, true);
+  private appendDueSection(container: HTMLElement, rows: DashboardRow[], sourcePath: string): void {
+    const heading = document.createElement("h3");
+    heading.textContent = "Due";
+    container.appendChild(heading);
+
+    this.appendTaskTableContent(container, rows, sourcePath, true);
   }
 
   private isRelevantFile(file: unknown): boolean {
@@ -175,7 +190,11 @@ export class DateDashboardController {
     const inboxFile = this.getInboxFile();
     const inTaskFolder = roots.some((root) => file.path.startsWith(`${root}/`));
     const isInbox = !!inboxFile && file.path === inboxFile;
-    return inTaskFolder || isInbox;
+    const activeFile = this.app.workspace.getActiveFile();
+    const isActiveDatePage = !!activeFile
+      && file.path === activeFile.path
+      && getDateStringFromFileName(file.name) !== null;
+    return inTaskFolder || isInbox || isActiveDatePage;
   }
 
   private queueRefresh(): void {
@@ -228,20 +247,6 @@ export class DateDashboardController {
     this.appendTaskTableContent(container, rows, sourcePath, showDueDate);
   }
 
-  private appendTaskTableGroup(
-    container: HTMLElement,
-    title: string,
-    rows: DashboardRow[],
-    sourcePath: string,
-    showDueDate: boolean,
-  ): void {
-    const heading = document.createElement("h4");
-    heading.textContent = title;
-    container.appendChild(heading);
-
-    this.appendTaskTableContent(container, rows, sourcePath, showDueDate);
-  }
-
   private appendTaskTableContent(container: HTMLElement, rows: DashboardRow[], sourcePath: string, showDueDate: boolean): void {
     if (rows.length === 0) {
       const emptyState = document.createElement("p");
@@ -257,8 +262,8 @@ export class DateDashboardController {
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
     const labels = showDueDate
-      ? ["Folder", "Filename", "Task", "Priority", "Due"]
-      : ["Folder", "Filename", "Task", "Priority"];
+      ? ["Folder", "Filename", "Task", "Priority", "Recurrence", "Due"]
+      : ["Folder", "Filename", "Task", "Priority", "Recurrence"];
     for (const label of labels) {
       headerRow.appendChild(this.createTextElement("th", label));
     }
@@ -294,6 +299,7 @@ export class DateDashboardController {
 
           tableRow.appendChild(this.createTaskCell(row.task, row.priority));
           tableRow.appendChild(this.createTextElement("td", String(row.priority)));
+          tableRow.appendChild(this.createTextElement("td", row.recurrence));
           if (showDueDate) {
             tableRow.appendChild(this.createTextElement("td", formatMonthDay(row.dueDate)));
           }

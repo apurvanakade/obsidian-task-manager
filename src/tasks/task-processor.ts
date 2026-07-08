@@ -16,7 +16,7 @@
  */
 import { App, Notice, TFile, TFolder } from "obsidian";
 import { TaskManagerSettings } from "../settings/settings-utils";
-import { FilePriority, PRIORITY_FRONTMATTER_FIELD } from "./file-priority";
+import { DEFAULT_PRIORITY, FilePriority, PRIORITY_FRONTMATTER_FIELD } from "./file-priority";
 import {
   extractTaskState,
   findFirstIncompleteTaskStateLine,
@@ -170,9 +170,14 @@ export class TaskProcessor {
     const initialStatus = readStatusValue(initialContent, settings.statusField);
     const hasOpenTasks = extractTaskState(initialContent).some((task) => task.status === "open");
     const predictedStatus = predictFinalStatus(initialStatus, hasOpenTasks);
-    assertConfiguredDestinationForStatus(predictedStatus, settings);
 
     await this.reconcileSingleFile(file, settings);
+
+    if (this.isInboxFile(file, settings)) {
+      return `Processed ${file.name}.`;
+    }
+
+    assertConfiguredDestinationForStatus(predictedStatus, settings);
 
     const moveResult = await this.routeFileByStatus(file, settings);
     return moveResult ?? `Processed ${file.name}.`;
@@ -194,6 +199,10 @@ export class TaskProcessor {
       return;
     }
 
+    if (this.isInboxFile(file, settings)) {
+      return;
+    }
+
     try {
       assertConfiguredDestinationForStatus(latestStatus, settings);
       await this.routeFileByStatus(file, settings, latestStatus);
@@ -204,11 +213,15 @@ export class TaskProcessor {
     try {
       await this.onFileStatusChanged?.();
     } catch (error) {
-      new Notice(error instanceof Error ? error.message : "Failed to update Tasks Summary after status change.");
+      new Notice(error instanceof Error ? error.message : "Failed to update summary files after status change.");
     }
   }
 
   private async routeFileByStatus(file: TFile, settings: TaskManagerSettings, statusOverride?: string | null): Promise<string | null> {
+    if (this.isInboxFile(file, settings)) {
+      return null;
+    }
+
     const status = statusOverride ?? readStatusValue(await this.app.vault.read(file), settings.statusField);
     if (!status || !isRoutableStatus(status)) {
       return null;
@@ -317,7 +330,21 @@ export class TaskProcessor {
     if (settings.tasksSummaryFile && file.path === settings.tasksSummaryFile) {
       return false;
     }
-    return true;
+
+    if (settings.projectSummaryFile && file.path === settings.projectSummaryFile) {
+      return false;
+    }
+
+    if (this.isInboxFile(file, settings)) {
+      return true;
+    }
+
+    const taskFolderRoots = getTaskFolderRoots(settings);
+    return taskFolderRoots.some((root) => file.path.startsWith(`${root}/`));
+  }
+
+  private isInboxFile(file: TFile, settings: TaskManagerSettings): boolean {
+    return !!settings.inboxFile && file.path === settings.inboxFile;
   }
 
   private async runWithPendingPaths(filePaths: string[], action: () => Promise<void>): Promise<void> {
@@ -341,8 +368,9 @@ export class TaskProcessor {
 
   private async setFileStatus(file: TFile, status: string, settings: TaskManagerSettings): Promise<void> {
     await this.runWithPendingPaths([file.path], async () => {
-      await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, string>) => {
+      await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, string | number>) => {
         frontmatter[settings.statusField] = status;
+        this.ensureDefaultPriority(frontmatter);
         if (status === "completed") {
           frontmatter["completion-date"] = getCompletionDateString();
           frontmatter["completion-time"] = getCompletionTimeString();
@@ -353,6 +381,13 @@ export class TaskProcessor {
       });
       this.stateStore.setStatus(file.path, status);
     });
+  }
+
+  private ensureDefaultPriority(frontmatter: Record<string, string | number>): void {
+    const existingPriority = frontmatter[PRIORITY_FRONTMATTER_FIELD];
+    if (existingPriority === undefined || existingPriority === null || String(existingPriority).trim() === "") {
+      frontmatter[PRIORITY_FRONTMATTER_FIELD] = DEFAULT_PRIORITY;
+    }
   }
 
   private async setFilePriority(file: TFile, priority: FilePriority): Promise<void> {

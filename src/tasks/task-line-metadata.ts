@@ -16,6 +16,7 @@
  */
 const TASK_LINE_REGEX = /^\s*[-*+]\s+\[( |x|X)\]\s+(.*)$/;
 const REPEAT_FIELD_REGEX = /\[(?:repeat|repeats)::\s*[^\]]+?\]/i;
+const REPEAT_VALUE_REGEX = /\[(?:repeat|repeats)::\s*(?:every\s+)?([^\]]+?)\s*\]/i;
 const INLINE_FIELD_REGEX = /\s*\[[^\]]+::\s*[^\]]*\]/g;
 const TAG_REGEX = /(^|\s)#[^\s#]+/g;
 const MULTISPACE_REGEX = /\s+/g;
@@ -39,6 +40,10 @@ export function parseTaskLine(line: string): ParsedTaskLine | null {
 
 export function isRecurringTask(taskBody: string): boolean {
   return REPEAT_FIELD_REGEX.test(taskBody);
+}
+
+export function getRecurrenceLabel(taskBody: string): string {
+  return readInlineFieldValue(taskBody, REPEAT_VALUE_REGEX) ?? "none";
 }
 
 export function readInlineFieldValue(taskBody: string, fieldRegex: RegExp): string | null {

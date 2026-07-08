@@ -5,7 +5,7 @@
  * Responsibilities:
  * - scans Projects, Waiting, Someday-Maybe, and Inbox sources
  * - selects the first incomplete task per file
- * - renders grouped summary tables with due date and file-priority columns
+ * - renders grouped summary tables with due date, recurrence, and file-priority columns
  * - creates or overwrites the destination markdown file without merge prompts
  *
  * Dependencies:
@@ -15,11 +15,11 @@
  * - reads markdown files and writes the summary file to the vault
  */
 import { App, TAbstractFile, TFile } from "obsidian";
-import { getCurrentDateString, getCurrentTimeString, getEndOfWeek, parseIsoDate } from "../date/date-utils";
+import { getCurrentDateString, getCurrentTimeString } from "../date/date-utils";
 import { ensureParentFoldersExist } from "../routing/task-routing";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { readFilePriority } from "../tasks/file-priority";
-import { cleanTaskText, isRecurringTask, parseTaskLine, readInlineFieldValue } from "../tasks/task-line-metadata";
+import { cleanTaskText, getRecurrenceLabel, parseTaskLine, readInlineFieldValue } from "../tasks/task-line-metadata";
 import { buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
 
 const DUE_FIELD_REGEX = /\[due::\s*([^\]]+?)\s*\]/i;
@@ -33,20 +33,13 @@ type SummaryRow = {
   task: string;
   dueDate: string | null;
   priority: number;
-  isRecurring: boolean;
-};
-
-type ProjectSummaryBuckets = {
-  dueThisWeek: SummaryRow[];
-  scheduledLater: SummaryRow[];
-  unscheduled: SummaryRow[];
-  recurring: SummaryRow[];
+  recurrence: string;
 };
 
 type ParsedFirstIncompleteRow = {
   task: string;
   dueDate: string | null;
-  isRecurring: boolean;
+  recurrence: string;
 };
 
 export async function writeTasksSummary(
@@ -128,7 +121,7 @@ async function findFirstIncompleteRow(app: App, file: TFile): Promise<SummaryRow
       task: parsed.task,
       dueDate: parsed.dueDate,
       priority,
-      isRecurring: parsed.isRecurring,
+      recurrence: parsed.recurrence,
     };
   }
 
@@ -144,7 +137,7 @@ function parseFirstIncompleteTaskLine(line: string): ParsedFirstIncompleteRow | 
   return {
     task: cleanTaskText(parsedTask.taskBody),
     dueDate: readInlineFieldValue(parsedTask.taskBody, DUE_FIELD_REGEX),
-    isRecurring: isRecurringTask(parsedTask.taskBody),
+    recurrence: getRecurrenceLabel(parsedTask.taskBody),
   };
 }
 
@@ -153,11 +146,7 @@ function renderSummary(sections: SummarySection[], hideKeywords: string): string
 
   for (const section of sections) {
     lines.push(`## ${section.title}`, "");
-    if (section.title === "Projects") {
-      appendProjectSubsections(lines, section.rows, hideKeywords);
-    } else {
-      appendSectionTable(lines, section.rows, hideKeywords);
-    }
+    appendSectionTable(lines, section.rows, hideKeywords);
     lines.push("");
   }
 
@@ -185,25 +174,19 @@ async function overwriteSummaryFile(app: App, file: TFile, summaryContent: strin
 }
 
 function compareSummaryRows(left: SummaryRow, right: SummaryRow): number {
-  const folderCompare = (left.file.parent?.path ?? "").localeCompare(right.file.parent?.path ?? "");
-  if (folderCompare !== 0) {
-    return folderCompare;
+  const priorityCompare = left.priority - right.priority;
+  if (priorityCompare !== 0) {
+    return priorityCompare;
+  }
+
+  const leftDueDate = left.dueDate ?? "9999-99-99";
+  const rightDueDate = right.dueDate ?? "9999-99-99";
+  const dueDateCompare = leftDueDate.localeCompare(rightDueDate);
+  if (dueDateCompare !== 0) {
+    return dueDateCompare;
   }
 
   return left.file.path.localeCompare(right.file.path);
-}
-
-function appendProjectSubsections(lines: string[], rows: SummaryRow[], hideKeywords: string): void {
-  const buckets = splitProjectRows(rows);
-  appendNamedSubsection(lines, "Tasks Due This Week", buckets.dueThisWeek, hideKeywords);
-  appendNamedSubsection(lines, "Tasks Scheduled But Not Due This Week", buckets.scheduledLater, hideKeywords);
-  appendNamedSubsection(lines, "Unscheduled Tasks", buckets.unscheduled, hideKeywords);
-  appendNamedSubsection(lines, "Recurring Tasks", buckets.recurring, hideKeywords);
-}
-
-function appendNamedSubsection(lines: string[], title: string, rows: SummaryRow[], hideKeywords: string): void {
-  lines.push(`### ${title}`, "");
-  appendSectionTable(lines, rows, hideKeywords);
 }
 
 function appendSectionTable(lines: string[], rows: SummaryRow[], hideKeywords: string): void {
@@ -213,15 +196,15 @@ function appendSectionTable(lines: string[], rows: SummaryRow[], hideKeywords: s
   }
 
   const folderGroups = buildGroupedTaskTable(rows, hideKeywords);
-  lines.push("| Folder | Filename | Task | Priority | Due |");
-  lines.push("| --- | --- | --- | --- | --- |");
+  lines.push("| Folder | Filename | Task | Priority | Recurrence | Due |");
+  lines.push("| --- | --- | --- | --- | --- | --- |");
 
   for (const folderGroup of folderGroups) {
     let displayFolder = folderGroup.displayFolderName;
     for (const fileGroup of folderGroup.files) {
       for (const row of fileGroup.rows) {
         lines.push(
-          `| ${escapePipes(displayFolder)} | ${buildFileLink(fileGroup.displayFileName, row.file.path)} | ${buildWeightedTaskText(row.task, row.priority)} | ${row.priority} | ${formatMonthDay(row.dueDate)} |`,
+          `| ${escapePipes(displayFolder)} | ${buildFileLink(fileGroup.displayFileName, row.file.path)} | ${buildWeightedTaskText(row.task, row.priority)} | ${row.priority} | ${escapePipes(row.recurrence)} | ${formatMonthDay(row.dueDate)} |`,
         );
         displayFolder = "";
       }
@@ -229,37 +212,6 @@ function appendSectionTable(lines: string[], rows: SummaryRow[], hideKeywords: s
   }
 
   lines.push("");
-}
-
-function splitProjectRows(rows: SummaryRow[]): ProjectSummaryBuckets {
-  const endOfWeek = getEndOfWeek(new Date());
-  const buckets: ProjectSummaryBuckets = {
-    dueThisWeek: [],
-    scheduledLater: [],
-    unscheduled: [],
-    recurring: [],
-  };
-
-  for (const row of rows) {
-    if (row.isRecurring) {
-      buckets.recurring.push(row);
-      continue;
-    }
-
-    if (!row.dueDate) {
-      buckets.unscheduled.push(row);
-      continue;
-    }
-
-    const dueDate = parseIsoDate(row.dueDate);
-    if (dueDate !== null && dueDate <= endOfWeek) {
-      buckets.dueThisWeek.push(row);
-    } else {
-      buckets.scheduledLater.push(row);
-    }
-  }
-
-  return buckets;
 }
 
 function isInFolder(filePath: string, folderPath: string): boolean {

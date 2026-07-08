@@ -21,6 +21,7 @@ import { AddProjectModal, buildProjectFileContent, buildProjectFilePath } from "
 import { DateDashboardController } from "./src/dashboard/date-dashboard";
 import { CreatedDateEditorSuggest, DueDateEditorSuggest } from "./src/editor/due-date-suggest";
 import { normalizeSettings, TaskManagerSettings } from "./src/settings/settings-utils";
+import { writeProjectSummary } from "./src/summary/project-summary";
 import { writeTasksSummary } from "./src/summary/tasks-summary";
 import { TaskManagerSettingTabRenderer } from "./src/settings/settings-ui";
 import { ensureParentFoldersExist, getTaskFolderRoots } from "./src/routing/task-routing";
@@ -41,15 +42,17 @@ export default class TaskManagerPlugin extends Plugin {
       app: this.app,
       getSettings: () => this.getSettings(),
       onFileStatusChanged: async () => {
-        await this.writeTasksSummary({
+        await this.writeSummaries({
           openAfterGeneration: false,
           showNotice: false,
+          includeProjectSummary: true,
         });
       },
       onTaskPropertiesChanged: async () => {
-        await this.writeTasksSummary({
+        await this.writeSummaries({
           openAfterGeneration: false,
           showNotice: false,
+          includeProjectSummary: true,
         });
       },
     });
@@ -135,37 +138,58 @@ export default class TaskManagerPlugin extends Plugin {
 
   private async runCreateTasksSummary(): Promise<void> {
     try {
-      await this.writeTasksSummary({
+      await this.writeSummaries({
         openAfterGeneration: true,
         showNotice: true,
+        includeProjectSummary: true,
       });
     } catch (error) {
-      new Notice(error instanceof Error ? error.message : "Failed to create Tasks Summary.");
+      new Notice(error instanceof Error ? error.message : "Failed to create Tasks and Projects Summary.");
     }
   }
 
-  private async writeTasksSummary(options: { openAfterGeneration: boolean; showNotice: boolean }): Promise<string | null> {
+  private async writeSummaries(options: {
+    openAfterGeneration: boolean;
+    showNotice: boolean;
+    includeProjectSummary: boolean;
+  }): Promise<{ tasksSummaryPath: string | null; projectSummaryPath: string | null } | null> {
     const settings = this.getSettings();
-    if (!settings.tasksSummaryFile) {
+    const shouldWriteTasksSummary = settings.tasksSummaryFile.length > 0;
+    const shouldWriteProjectSummary = options.includeProjectSummary && settings.projectSummaryFile.length > 0;
+
+    if (!shouldWriteTasksSummary && !shouldWriteProjectSummary) {
       if (options.showNotice) {
-        new Notice("Set Tasks Summary File in plugin settings before running Tasks Summary.");
+        new Notice("Set Tasks Summary File or Project Summary File in plugin settings before running Tasks Summary.");
       }
       return null;
     }
 
-    const writtenPath = await writeTasksSummary(this.app, settings, settings.tasksSummaryFile);
+    const tasksSummaryPath = shouldWriteTasksSummary
+      ? await writeTasksSummary(this.app, settings, settings.tasksSummaryFile)
+      : null;
+    const projectSummaryPath = shouldWriteProjectSummary
+      ? await writeProjectSummary(this.app, settings, settings.projectSummaryFile)
+      : null;
+
     if (options.openAfterGeneration && settings.openSummaryAfterGeneration) {
-      const summaryFile = this.app.vault.getAbstractFileByPath(writtenPath);
+      const preferredOpenPath = projectSummaryPath ?? tasksSummaryPath;
+      const summaryFile = preferredOpenPath
+        ? this.app.vault.getAbstractFileByPath(preferredOpenPath)
+        : null;
       if (summaryFile instanceof TFile) {
         await this.app.workspace.getLeaf(true).openFile(summaryFile);
       }
     }
 
     if (options.showNotice) {
-      new Notice(`Tasks Summary written to ${writtenPath}.`);
+      const writtenFiles = [
+        tasksSummaryPath ? `Tasks Summary: ${tasksSummaryPath}` : null,
+        projectSummaryPath ? `Project Summary: ${projectSummaryPath}` : null,
+      ].filter((value): value is string => value !== null);
+      new Notice(`Summary files written. ${writtenFiles.join(" | ")}`);
     }
 
-    return writtenPath;
+    return { tasksSummaryPath, projectSummaryPath };
   }
 
   private runAddNewProject(): void {

@@ -1,6 +1,6 @@
 # Copilot Instructions
 
-This is an **Obsidian plugin** called Task Manager that automates task lifecycle management: state transitions, completion metadata stamping, recurring task creation, file routing by status, editor autocomplete for date fields, a right-sidebar date dashboard, and generated task summary notes.
+This is an **Obsidian plugin** called Task Manager that automates task lifecycle management: state transitions, completion metadata stamping, recurring task creation, file routing by status, editor autocomplete for date fields, a right-sidebar date dashboard, and generated task/project summary notes.
 
 ## Build Commands
 
@@ -31,6 +31,7 @@ src/
     due-date-modal.ts            ← Modal for collecting due date + file priority for the first incomplete task
   summary/
     tasks-summary.ts             ← Builds and writes the Tasks Summary markdown note
+    project-summary.ts           ← Builds and writes the Project Summary markdown note
   routing/
     status-routing.ts            ← Pure status extraction, validation, routable-status constants
     task-routing.ts              ← File movement: destination resolution, folder creation, merge handling
@@ -52,35 +53,35 @@ src/
     settings-field-definitions.ts← Declarative metadata for settings controls
     folder-picker.ts             ← FuzzySuggestModal wrappers for vault folder/file pickers
   commands/
-    register-task-commands.ts    ← Registers "Reset Tasks", "Tasks Summary", "Add New Project"
+    register-task-commands.ts    ← Registers "Reset Tasks", "Tasks and Projects Summary", "Add New Project"
 ```
 
 ### Key Data Flow
 
-1. **vault `modify` event** → `TaskProcessor.handleFileModify()` reads file fresh (non-cached) via `vault.read`, diffs against state-store snapshot, calls `reconciler` to apply transition rules, calls `task-routing` if status changed → writes back → state-store updated/rekeyed
+1. **vault `modify` event** → `TaskProcessor.handleFileModify()` processes only markdown files inside the configured task roots or the configured Inbox File (and excludes the Tasks Summary and Project Summary notes), reads file fresh (non-cached) via `vault.read`, diffs against state-store snapshot, calls `reconciler` to apply transition rules, calls `task-routing` if status changed → writes back → state-store updated/rekeyed
 2. **Pending-path guards** in `TaskStateStore` prevent re-triggering the modify handler on self-writes
-3. **Commands** call `TaskProcessor.resetCurrentFileTasks()` directly; **Tasks Summary** separately scans configured sources and writes a summary note
-4. **Status changes** trigger a silent Tasks Summary regeneration after routing
-5. **DueDateModal submit** triggers a silent Tasks Summary regeneration after due date/priority updates
+3. **Commands** call `TaskProcessor.resetCurrentFileTasks()` directly; **Tasks and Projects Summary** separately writes both generated summary notes
+4. **Status changes** trigger a silent Tasks Summary and Project Summary regeneration after routing
+5. **DueDateModal submit** triggers a silent Tasks Summary and Project Summary regeneration after due date/priority updates
 6. **Dashboard** is refreshed on `file-open`, `layout-change`, vault `rename`/`delete` events, and after settings changes
 
 ### Commands
 
 - **Reset Tasks** — in the active file, marks all tasks open (`[ ]`), strips `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, and `[created:: ...]` from task lines, then re-runs the normal task reconciliation and routing flow for that file
-- **Tasks Summary** — creates or overwrites the configured Tasks Summary File with sections for Projects, Waiting, Someday-Maybe, and Inbox. Existing summary files are overwritten in place with no merge/replace prompt, the summary note itself is excluded from automatic task routing/reconciliation, project status changes regenerate it silently, and DueDateModal submits regenerate it silently after due date/priority updates. Each section lists the first incomplete task per file in a grouped table with Folder, Filename, Task, Priority, and Due columns
+- **Tasks and Projects Summary** — creates or overwrites both generated summary files. The configured Tasks Summary File gets the task-table note with sections for Projects, Waiting, Someday-Maybe, and Inbox. The configured Project Summary File gets a depth-aware project table grouped by Projects, Waiting, Someday-Maybe, and Completed with each project's file priority; the active `Projects` section is further split into Priority 1, Priority 2, and Priority 3 subsections, with missing priorities treated as 3. Existing summary files are overwritten in place with no merge/replace prompt, both generated notes are excluded from automatic task routing/reconciliation, project status changes regenerate them silently, and DueDateModal submits regenerate them silently after due date/priority updates
 - **Add New Project** — opens a modal asking for Name, Folder, Priority, Status (`todo`, `waiting`, or `someday-maybe`), and optional starter tasks; the Folder field shows matching vault folders as you type; the command creates the project file, writes status/priority to frontmatter, creates missing parent folders, and opens the new file
 
 ### Settings Persistence
 
 Settings live in `data.json` (loaded/saved via `plugin.loadData()` / `plugin.saveData()`). After a settings change, call `plugin.updateSetting()` — it persists, re-primes task state, and refreshes the dashboard. Settings are normalized on load/save via `normalizeSettings()`.
 
-Configurable paths: Projects Folder, Completed Projects Folder, Waiting Projects Folder, Someday-Maybe Projects Folder, Inbox File (file picker, not folder), Tasks Summary File (file picker).
+Configurable paths: Projects Folder, Completed Projects Folder, Waiting Projects Folder, Someday-Maybe Projects Folder, Inbox File (file picker, not folder), Tasks Summary File (file picker), Project Summary File (file picker).
 
-Other settings: Completed Status Field (default `status`), Open Tasks Summary After Generation (default off), Dashboard Filename Hide Keywords (comma-separated keywords stripped from dashboard display names).
+Other settings: Completed Status Field (default `status`), Open Tasks Summary After Generation (default off; opens the generated Project Summary File first), Dashboard Filename Hide Keywords (comma-separated keywords stripped from dashboard display names).
 
 ### Status Routing
 
-Four routable statuses: `todo`, `completed`, `waiting`, `someday-maybe`. Each maps to a configured folder. **Relative sub-path from the matched source root is preserved at the destination** — compute it from the matched configured root, not a hardcoded single root, or files will collapse to the destination root. Missing destination parent folders are created automatically. On path collision, a `MergeConflictModal` prompts merge or skip. Empty folders left behind after a move are deleted (with safety checks).
+Four routable statuses: `todo`, `completed`, `waiting`, `someday-maybe`. Each maps to a configured folder. **Relative sub-path from the matched source root is preserved at the destination** — compute it from the matched configured root, not a hardcoded single root, or files will collapse to the destination root. Missing destination parent folders are created automatically. On path collision, a `MergeConflictModal` prompts merge or skip. Empty folders left behind after a move are deleted (with safety checks). The configured Inbox File is not routable and must never be moved by status changes. When plugin-driven frontmatter metadata edits touch a project file, they also add `priority: 3` if the priority field is missing.
 
 ## Task Reconciliation Rules
 
@@ -149,7 +150,7 @@ When a different task becomes the file's first incomplete task after completion 
 - A Skip option to dismiss without adding a due date
 
 Modal submit writes `[due:: YYYY-MM-DD]` to the task line, adds `[repeat:: X]` when provided, and writes `priority: N` to the file frontmatter.
-That submit also triggers a silent Tasks Summary regeneration.
+That submit also triggers a silent Tasks Summary and Project Summary regeneration.
 
 **Modal is skipped when**: the first incomplete task was unchanged or the task is recurring.
 
@@ -165,16 +166,18 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 
 ### Sections
 
-**Due** — open tasks with `[due:: YYYY-MM-DD]` where due date ≤ active date, scanned from configured task-folder roots only. Rendered as two stacked tables: **Non-recurring Tasks** first and **Recurring Tasks** below. Both are sorted by: file priority ascending (missing = 3), then due date, then file path.
+**Due** — open tasks with `[due:: YYYY-MM-DD]` where due date ≤ active date, scanned from the configured Projects / Completed / Waiting / Someday-Maybe folders plus the configured Inbox File. Rendered as a single table sorted by: file priority ascending (missing = 3), then due date, then file path.
+
+**Current Page** — all open tasks written directly on the active date note itself. Rendered as a heading and an unordered list so date-note tasks still appear even when the note is outside configured task folders.
 
 **Inbox** — all incomplete tasks from the configured Inbox File (regardless of date). Rendered as a heading, a link to the file, and an unordered list (no table, no priority column). Shows "No tasks." when empty.
 
-**Completed** — tasks with `[completion-date:: YYYY-MM-DD]` equal to the active date, scanned from configured roots. Sorted by: file priority ascending, then file path.
+**Completed** — tasks with `[completion-date:: YYYY-MM-DD]` equal to the active date, scanned from the configured Projects / Completed / Waiting / Someday-Maybe folders plus the configured Inbox File. Sorted by: file priority ascending, then file path.
 
 ### Display Formatting
 
-- Due subtables and the Completed table have columns: **Folder** | **Filename** | **Task** | **Priority** | (Due only) **Due** in `MM-DD` format
-- Rows are grouped first by parent folder (alphabetically), then by filename; `rowspan` is used for grouping cells
+- Due and Completed tables have columns: **Folder** | **Filename** | **Task** | **Priority** | **Recurrence** | (Due only) **Due** in `MM-DD` format
+- Rows are grouped by parent folder and filename with `rowspan`, preserving priority-first row ordering
 - Folder display uses the immediate parent directory segment; Filename strips `.md`
 - **Dashboard Filename Hide Keywords**: each comma-separated keyword is removed case-insensitively from both folder and filename display. No automatic date/number stripping is applied.
 - Task text strips all inline fields and hashtag tags and is rendered as **bold** for priority 1, *italic* for priority 2, and default styling for priority 3 using the file's frontmatter priority
@@ -185,7 +188,7 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 ### Inputs
 
 - Uses the configured **Tasks Summary File** setting as the destination path
-- Opens the summary note after generation only when **Open Tasks Summary After Generation** is enabled
+- Opens the generated **Project Summary File** after generation only when **Open Tasks Summary After Generation** is enabled (falling back to **Tasks Summary File** when needed)
 - Scans:
   - Projects Folder
   - Waiting Projects Folder
@@ -201,20 +204,38 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 
 - Writes a markdown note with sections: **Projects**, **Waiting**, **Someday-Maybe**, **Inbox**
 - Stamps `creation-date` and `creation-time` into the summary file frontmatter
-- Splits the **Projects** section into:
-  - **Tasks Due This Week** — tasks with a due date on or before the end of the current week
-  - **Tasks Scheduled But Not Due This Week** — tasks with a due date after the end of the current week
-  - **Unscheduled Tasks** — tasks without a due date
-  - **Recurring Tasks** — tasks with `[repeat:: ...]` or `[repeats:: ...]`
-- Recurring tasks appear **only** in the Recurring Tasks subsection, even if they also have a due date
 - Each non-empty section renders a grouped markdown table with columns:
   - Folder
   - Filename
   - Task
   - Priority
+  - Recurrence
   - Due (`MM-DD`)
+- Rows are ordered by file priority ascending, then due date, then file path
+- The recurrence column shows the repeat value or `none` for non-recurring tasks
 - Folder and filename display reuse the same hide-keyword cleanup behavior as the dashboard
 - Task text is rendered as **bold** for priority 1, *italic* for priority 2, and default styling for priority 3 using the file's frontmatter priority
+- Existing summary file content is overwritten
+
+## Project Summary
+
+### Inputs
+
+- Uses the configured **Project Summary File** setting as the destination path
+- Scans:
+  - Projects Folder
+  - Completed Projects Folder
+  - Waiting Projects Folder
+  - Someday-Maybe Projects Folder
+
+### Output Format
+
+- Writes a markdown note with sections: **Projects**, **Waiting**, **Someday-Maybe**, **Completed**
+- Stamps `creation-date` and `creation-time` into the summary file frontmatter
+- Renders an HTML table with one folder column per nesting level, plus **Project** and **Priority** columns
+- Uses row spans so repeated folder names appear once across adjacent descendant project rows
+- Splits the active **Projects** section into **Priority 1**, **Priority 2**, and **Priority 3** subsections, with missing priorities treated as `3`
+- Places **Completed** last rather than near the top of the summary
 - Existing summary file content is overwritten
 
 ## Editor Autocomplete
@@ -303,5 +324,5 @@ Run after meaningful logic changes:
 16. Typing `due::` shows suggestions from today, matches ISO and weekday labels, inserts ` YYYY-MM-DD`
 17. Typing `created::` shows today suggestion and inserts ` YYYY-MM-DD`
 18. `Reset Tasks` reopens all tasks, removes due/completion/created inline fields, then re-runs file reconciliation and routing
-19. `Tasks Summary` writes the configured Tasks Summary File, stamps `creation-date`/`creation-time` frontmatter, splits Projects into recurring/due-this-week/scheduled-later/unscheduled subsections, and includes the first incomplete task per file with due date and file priority
+19. `Tasks and Projects Summary` writes the configured Tasks Summary File and Project Summary File, stamps `creation-date`/`creation-time` frontmatter in both, renders the task summary tables, and renders the project hierarchy list with priorities
 20. `Add New Project` creates a new file at the chosen folder path, writes status/priority frontmatter, and converts each task textarea line into an open task

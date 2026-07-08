@@ -6,7 +6,7 @@
  * - parses task lines for due/completion metadata
  * - reads file-level priority from frontmatter
  * - filters tasks into Due and Completed sets for a target date note
- * - collects open tasks from the inbox file for the Inbox section
+ * - collects open tasks from the inbox file and active date note for dedicated sections
  * - normalizes task display text and sorting behavior
  * - exposes date-note filename parsing helper
  *
@@ -18,7 +18,7 @@
  */
 import { App, TFile } from "obsidian";
 import { readFilePriority } from "../tasks/file-priority";
-import { cleanTaskText, isRecurringTask, parseTaskLine, readInlineFieldValue } from "../tasks/task-line-metadata";
+import { cleanTaskText, getRecurrenceLabel, parseTaskLine, readInlineFieldValue } from "../tasks/task-line-metadata";
 
 const EMPTY_DUE_DATE_SORT_VALUE = "9999-99-99";
 const MARKDOWN_EXTENSION_REGEX = /\.md$/i;
@@ -31,7 +31,7 @@ export type DashboardRow = {
   task: string;
   dueDate: string | null;
   priority: number;
-  isRecurring: boolean;
+  recurrence: string;
 };
 
 type ParsedDashboardTask = {
@@ -39,7 +39,7 @@ type ParsedDashboardTask = {
   status: "open" | "completed";
   dueDate: string | null;
   completedDate: string | null;
-  isRecurring: boolean;
+  recurrence: string;
 };
 
 export function getDateStringFromFileName(fileName: string): string | null {
@@ -50,12 +50,14 @@ export function getDateStringFromFileName(fileName: string): string | null {
 export async function collectTasksForDate(
   app: App,
   taskFolderRoots: string[],
+  inboxFile: string,
   dateString: string,
 ): Promise<{ dueTasks: DashboardRow[]; completedTasks: DashboardRow[] }> {
   const dueTasks: DashboardRow[] = [];
   const completedTasks: DashboardRow[] = [];
   const files = app.vault.getMarkdownFiles().filter((file) =>
-    taskFolderRoots.some((root) => file.path.startsWith(`${root}/`)),
+    taskFolderRoots.some((root) => file.path.startsWith(`${root}/`))
+    || (!!inboxFile && file.path === inboxFile),
   );
 
   for (const file of files) {
@@ -75,7 +77,7 @@ export async function collectTasksForDate(
           task: parsedTask.text,
           dueDate: parsedTask.dueDate,
           priority,
-          isRecurring: parsedTask.isRecurring,
+          recurrence: parsedTask.recurrence,
         });
       }
 
@@ -85,7 +87,7 @@ export async function collectTasksForDate(
           task: parsedTask.text,
           dueDate: null,
           priority,
-          isRecurring: parsedTask.isRecurring,
+          recurrence: parsedTask.recurrence,
         });
       }
     }
@@ -123,11 +125,43 @@ export async function collectInboxTasks(
       task: cleanTaskText(parsedTask.taskBody),
       dueDate: null,
       priority,
-      isRecurring: false,
+      recurrence: "none",
     });
   }
   inboxTasks.sort(compareRows);
   return inboxTasks;
+}
+
+export async function collectOpenTasksFromFile(
+  app: App,
+  file: TFile | null,
+): Promise<DashboardRow[]> {
+  if (!file) {
+    return [];
+  }
+
+  const content = await app.vault.read(file);
+  const priority = readFilePriority(content);
+  const lines = content.split(/\r?\n/);
+  const rows: DashboardRow[] = [];
+
+  for (const line of lines) {
+    const parsedTask = parseTaskLine(line);
+    if (!parsedTask || parsedTask.status !== "open") {
+      continue;
+    }
+
+    rows.push({
+      file,
+      task: cleanTaskText(parsedTask.taskBody),
+      dueDate: null,
+      priority,
+      recurrence: "none",
+    });
+  }
+
+  rows.sort(compareRows);
+  return rows;
 }
 
 function parseDashboardTaskLine(line: string): ParsedDashboardTask | null {
@@ -149,7 +183,7 @@ function parseDashboardTaskLine(line: string): ParsedDashboardTask | null {
     status,
     dueDate,
     completedDate,
-    isRecurring: isRecurringTask(taskBody),
+    recurrence: getRecurrenceLabel(taskBody),
   };
 }
 
