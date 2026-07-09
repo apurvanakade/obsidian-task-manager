@@ -2586,27 +2586,34 @@ async function collectWaitingReviewRows(app, settings) {
   }
   return rows.sort(compareByStaleness((row) => row.daysWaiting));
 }
-async function collectSomedayReviewRows(app, settings) {
-  const folderPath = settings.somedayMaybeProjectsFolder;
+async function collectReviewRows(app, folderPath) {
   if (!folderPath) {
     return [];
   }
-  const cadenceDays = Number.parseInt(settings.somedayMaybeReviewCadenceDays, 10);
   const today = getTodayDateString();
   const files = app.vault.getMarkdownFiles().filter((file) => isInFolder(file.path, folderPath));
   const rows = [];
   for (const file of files) {
     const content = await app.vault.read(file);
     const reviewed = readFrontmatterField(content, REVIEWED_FRONTMATTER_FIELD);
-    const daysSinceReview = daysBetween(reviewed, today);
     rows.push({
       file,
       reviewed,
-      daysSinceReview,
-      needsReview: daysSinceReview === null || daysSinceReview >= cadenceDays
+      daysSinceReview: daysBetween(reviewed, today)
     });
   }
   return rows.sort(compareByStaleness((row) => row.daysSinceReview));
+}
+async function collectActiveProjectReviewRows(app, settings) {
+  return collectReviewRows(app, settings.projectsFolder);
+}
+async function collectSomedayReviewRows(app, settings) {
+  const cadenceDays = Number.parseInt(settings.somedayMaybeReviewCadenceDays, 10);
+  const rows = await collectReviewRows(app, settings.somedayMaybeProjectsFolder);
+  return rows.map((row) => ({
+    ...row,
+    needsReview: row.daysSinceReview === null || row.daysSinceReview >= cadenceDays
+  }));
 }
 async function stampReviewedDate(app, file) {
   await app.fileManager.processFrontMatter(file, (frontmatter) => {
@@ -2667,11 +2674,52 @@ var _WeeklyReviewController = class _WeeklyReviewController {
     const weekLabel = document.createElement("p");
     weekLabel.textContent = `Week ending ${formatDate3(getEndOfWeek(/* @__PURE__ */ new Date()))}`;
     section.appendChild(weekLabel);
+    const activeProjectRows = await collectActiveProjectReviewRows(this.app, settings);
+    this.appendActiveProjectsSection(section, activeProjectRows, settings, onNeedsRefresh);
     const waitingRows = await collectWaitingReviewRows(this.app, settings);
     this.appendWaitingSection(section, waitingRows, settings);
     const somedayRows = await collectSomedayReviewRows(this.app, settings);
     this.appendSomedaySection(section, somedayRows, settings, onNeedsRefresh);
     container.appendChild(section);
+  }
+  appendActiveProjectsSection(container, rows, settings, onNeedsRefresh) {
+    var _a;
+    const heading = document.createElement("h3");
+    heading.textContent = "Active Projects";
+    container.appendChild(heading);
+    if (!settings.projectsFolder) {
+      container.appendChild(this.createParagraph("Set Projects Folder in plugin settings to see active projects here."));
+      return;
+    }
+    if (rows.length === 0) {
+      container.appendChild(this.createParagraph("No active projects."));
+      return;
+    }
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    thead.appendChild(this.createRow(["Project", "Days Since Review", "Last Reviewed", ""], "th"));
+    table.appendChild(thead);
+    const tbody = document.createElement("tbody");
+    for (const row of rows) {
+      const tr = document.createElement("tr");
+      tr.appendChild(this.createCell(this.createFileLinkCell(row.file), "td"));
+      tr.appendChild(this.createCell(row.daysSinceReview === null ? "\u2014" : String(row.daysSinceReview), "td"));
+      tr.appendChild(this.createCell((_a = row.reviewed) != null ? _a : "Never", "td"));
+      const actionCell = document.createElement("td");
+      const button = document.createElement("button");
+      button.textContent = "Mark Reviewed";
+      button.addEventListener("click", () => {
+        void (async () => {
+          await stampReviewedDate(this.app, row.file);
+          onNeedsRefresh();
+        })();
+      });
+      actionCell.appendChild(button);
+      tr.appendChild(actionCell);
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    container.appendChild(table);
   }
   appendWaitingSection(container, rows, settings) {
     var _a;

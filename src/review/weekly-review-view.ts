@@ -1,13 +1,13 @@
 /**
  * Purpose:
- * - render the on-demand Weekly Review tab: stale Waiting items and Someday-Maybe
- *   items due for review.
+ * - render the on-demand Weekly Review tab: Active Projects and Someday-Maybe items
+ *   due for review, and stale Waiting items.
  *
  * Responsibilities:
  * - registers and opens a main-panel ItemView (not a persistent sidebar leaf)
- * - renders two flat, staleness-sorted tables (Waiting, Someday-Maybe)
- * - offers a per-row "Mark Reviewed" action for Someday-Maybe items, writing
- *   frontmatter directly and refreshing in place
+ * - renders three flat, staleness-sorted tables (Active Projects, Waiting, Someday-Maybe)
+ * - offers a per-row "Mark Reviewed" action for Active Projects/Someday-Maybe items,
+ *   writing frontmatter directly and refreshing in place
  *
  * Dependencies:
  * - depends on weekly-review-data.ts for data collection and the reviewed-date write
@@ -20,8 +20,10 @@ import { App, ItemView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { getEndOfWeek } from "../date/date-utils";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import {
+  collectActiveProjectReviewRows,
   collectSomedayReviewRows,
   collectWaitingReviewRows,
+  ReviewRow,
   SomedayReviewRow,
   stampReviewedDate,
   WaitingReviewRow,
@@ -77,6 +79,9 @@ export class WeeklyReviewController {
     weekLabel.textContent = `Week ending ${formatDate(getEndOfWeek(new Date()))}`;
     section.appendChild(weekLabel);
 
+    const activeProjectRows = await collectActiveProjectReviewRows(this.app, settings);
+    this.appendActiveProjectsSection(section, activeProjectRows, settings, onNeedsRefresh);
+
     const waitingRows = await collectWaitingReviewRows(this.app, settings);
     this.appendWaitingSection(section, waitingRows, settings);
 
@@ -84,6 +89,56 @@ export class WeeklyReviewController {
     this.appendSomedaySection(section, somedayRows, settings, onNeedsRefresh);
 
     container.appendChild(section);
+  }
+
+  private appendActiveProjectsSection(
+    container: HTMLElement,
+    rows: ReviewRow[],
+    settings: TaskManagerSettings,
+    onNeedsRefresh: () => void,
+  ): void {
+    const heading = document.createElement("h3");
+    heading.textContent = "Active Projects";
+    container.appendChild(heading);
+
+    if (!settings.projectsFolder) {
+      container.appendChild(this.createParagraph("Set Projects Folder in plugin settings to see active projects here."));
+      return;
+    }
+
+    if (rows.length === 0) {
+      container.appendChild(this.createParagraph("No active projects."));
+      return;
+    }
+
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    thead.appendChild(this.createRow(["Project", "Days Since Review", "Last Reviewed", ""], "th"));
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    for (const row of rows) {
+      const tr = document.createElement("tr");
+      tr.appendChild(this.createCell(this.createFileLinkCell(row.file), "td"));
+      tr.appendChild(this.createCell(row.daysSinceReview === null ? "—" : String(row.daysSinceReview), "td"));
+      tr.appendChild(this.createCell(row.reviewed ?? "Never", "td"));
+
+      const actionCell = document.createElement("td");
+      const button = document.createElement("button");
+      button.textContent = "Mark Reviewed";
+      button.addEventListener("click", () => {
+        void (async () => {
+          await stampReviewedDate(this.app, row.file);
+          onNeedsRefresh();
+        })();
+      });
+      actionCell.appendChild(button);
+      tr.appendChild(actionCell);
+
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    container.appendChild(table);
   }
 
   private appendWaitingSection(container: HTMLElement, rows: WaitingReviewRow[], settings: TaskManagerSettings): void {

@@ -1,10 +1,10 @@
 /**
  * Purpose:
- * - pure(ish) data collection for the Weekly Review view: stale Waiting items and
- *   Someday-Maybe items due for review.
+ * - pure(ish) data collection for the Weekly Review view: stale Waiting items, and
+ *   review-staleness for Active Projects and Someday-Maybe items.
  *
  * Responsibilities:
- * - scans the configured Waiting/Someday-Maybe folders
+ * - scans the configured Projects/Waiting/Someday-Maybe folders
  * - computes days-waiting / days-since-review staleness from frontmatter timestamps
  * - sorts each list most-overdue-first, with never-stamped items sorting first
  * - stamps the `reviewed` frontmatter field (the one write operation in this module)
@@ -33,10 +33,13 @@ export type WaitingReviewRow = {
   isNewlyStale: boolean;
 };
 
-export type SomedayReviewRow = {
+export type ReviewRow = {
   file: TFile;
   reviewed: string | null;
   daysSinceReview: number | null;
+};
+
+export type SomedayReviewRow = ReviewRow & {
   /** Never reviewed, or past the configured review cadence. */
   needsReview: boolean;
 };
@@ -66,30 +69,42 @@ export async function collectWaitingReviewRows(app: App, settings: TaskManagerSe
   return rows.sort(compareByStaleness((row) => row.daysWaiting));
 }
 
-export async function collectSomedayReviewRows(app: App, settings: TaskManagerSettings): Promise<SomedayReviewRow[]> {
-  const folderPath = settings.somedayMaybeProjectsFolder;
+/** Generic reviewed-staleness scan shared by Active Projects and Someday-Maybe. */
+async function collectReviewRows(app: App, folderPath: string): Promise<ReviewRow[]> {
   if (!folderPath) {
     return [];
   }
 
-  const cadenceDays = Number.parseInt(settings.somedayMaybeReviewCadenceDays, 10);
   const today = getTodayDateString();
   const files = app.vault.getMarkdownFiles().filter((file) => isInFolder(file.path, folderPath));
-  const rows: SomedayReviewRow[] = [];
+  const rows: ReviewRow[] = [];
 
   for (const file of files) {
     const content = await app.vault.read(file);
     const reviewed = readFrontmatterField(content, REVIEWED_FRONTMATTER_FIELD);
-    const daysSinceReview = daysBetween(reviewed, today);
     rows.push({
       file,
       reviewed,
-      daysSinceReview,
-      needsReview: daysSinceReview === null || daysSinceReview >= cadenceDays,
+      daysSinceReview: daysBetween(reviewed, today),
     });
   }
 
   return rows.sort(compareByStaleness((row) => row.daysSinceReview));
+}
+
+/** Every active project, sorted least-recently-reviewed first. No filtering/threshold. */
+export async function collectActiveProjectReviewRows(app: App, settings: TaskManagerSettings): Promise<ReviewRow[]> {
+  return collectReviewRows(app, settings.projectsFolder);
+}
+
+export async function collectSomedayReviewRows(app: App, settings: TaskManagerSettings): Promise<SomedayReviewRow[]> {
+  const cadenceDays = Number.parseInt(settings.somedayMaybeReviewCadenceDays, 10);
+  const rows = await collectReviewRows(app, settings.somedayMaybeProjectsFolder);
+
+  return rows.map((row) => ({
+    ...row,
+    needsReview: row.daysSinceReview === null || row.daysSinceReview >= cadenceDays,
+  }));
 }
 
 export async function stampReviewedDate(app: App, file: TFile): Promise<void> {
