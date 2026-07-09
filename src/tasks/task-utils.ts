@@ -14,7 +14,9 @@
  * Side Effects:
  * - none (pure functions over strings/arrays)
  */
-const TASK_LINE_REGEX = /^(\s*[-*+]\s+\[( |x|X)\]\s+)(.*)$/;
+import { parseTaskLineStructured } from "./task-line-metadata";
+
+const FRONTMATTER_BLOCK_REGEX = /^---\r?\n[\s\S]*?\r?\n---/;
 
 export type TaskState = {
   line: number;
@@ -31,21 +33,15 @@ export function extractTaskState(content: string): TaskState[] {
   const lines = content.split(/\r?\n/);
   const taskState: TaskState[] = [];
 
-  function getTaskStatus(checkboxChar: string): "open" | "completed" {
-    const char = checkboxChar.toLowerCase();
-    if (char === "x") return "completed";
-    return "open";
-  }
-
   for (let index = 0; index < lines.length; index += 1) {
-    const match = lines[index].match(TASK_LINE_REGEX);
-    if (!match) {
+    const structured = parseTaskLineStructured(lines[index]);
+    if (!structured) {
       continue;
     }
 
     taskState.push({
       line: index,
-      status: getTaskStatus(match[2]),
+      status: structured.status,
     });
   }
 
@@ -85,8 +81,8 @@ export function findFirstIncompleteTaskStateLine(taskState: TaskState[]): number
 
 export function findFirstIncompleteTaskLine(lines: string[]): number | null {
   for (let index = 0; index < lines.length; index += 1) {
-    const match = lines[index].match(TASK_LINE_REGEX);
-    if (match && match[2].toLowerCase() !== "x") {
+    const structured = parseTaskLineStructured(lines[index]);
+    if (structured && structured.status === "open") {
       return index;
     }
   }
@@ -149,14 +145,14 @@ export function resetTaskContent(content: string): ResetTaskContentResult {
   let taskCount = 0;
 
   const nextLines = lines.map((line) => {
-    const match = line.match(TASK_LINE_REGEX);
-    if (!match) {
+    const structured = parseTaskLineStructured(line);
+    if (!structured) {
       return line;
     }
 
     taskCount += 1;
-    const openPrefix = match[1].replace(/\[( |x|X)\]/, "[ ]");
-    const cleanedBody = stripResetTaskFields(match[3]);
+    const openPrefix = `${structured.prefix} ${structured.bracketSuffix}`;
+    const cleanedBody = stripResetTaskFields(structured.body);
     const nextLine = `${openPrefix}${cleanedBody}`.trimEnd();
     if (nextLine !== line) {
       changed = true;
@@ -170,6 +166,18 @@ export function resetTaskContent(content: string): ResetTaskContentResult {
     taskCount,
     changed,
   };
+}
+
+/**
+ * Normalizes content for merge-dedup comparison: strips the frontmatter block
+ * (which often differs trivially, e.g. creation timestamps) and collapses whitespace,
+ * so trivial formatting differences don't defeat containment checks.
+ */
+export function normalizeForComparison(content: string): string {
+  return content
+    .replace(FRONTMATTER_BLOCK_REGEX, "")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 function stripResetTaskFields(taskBody: string): string {

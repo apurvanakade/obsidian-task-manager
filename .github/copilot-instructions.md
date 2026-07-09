@@ -24,14 +24,16 @@ src/
     task-processor.ts            ← Primary orchestrator; vault.modify handler + command runner
     reconciler.ts                ← Task transition logic (completion, uncompletion, deletion, recurring)
     file-priority.ts             ← Pure file-priority parser
-    task-line-metadata.ts        ← Pure shared task-line parsing and display-text helpers
+    task-line-metadata.ts        ← Canonical task-line parser (parseTaskLineStructured) + display-text helpers; task-utils.ts and reconciler.ts build on this instead of their own regexes
+    frontmatter-utils.ts         ← Pure single-field frontmatter parser over a content string (shared by status-routing.ts and file-priority.ts; deliberately NOT metadataCache-based, see Obsidian API Usage below)
     repeat-rules.ts              ← Pure recurring-rule parser, alias normalizer, and due-date calculator
-    task-utils.ts                ← Pure parsing/diffing utilities (no side effects)
+    task-utils.ts                ← Pure parsing/diffing utilities (no side effects); task-line parsing delegates to task-line-metadata.ts
     task-state-store.ts          ← In-memory snapshot cache (tasks + status per file)
-    due-date-modal.ts            ← Modal for collecting due date + file priority for the first incomplete task
+    due-date-modal.ts            ← Modal for collecting due date + file priority for the first incomplete task; submit is keyed by the captured task-line index, not string equality
   summary/
     tasks-summary.ts             ← Builds and writes the Tasks Summary markdown note
     project-summary.ts           ← Builds and writes the Project Summary markdown note
+    summary-file-io.ts           ← Shared isInFolder/isExcludedSummaryFile/resolveSummaryFile/overwriteSummaryFile, used by both summary generators and random-project.ts
   routing/
     status-routing.ts            ← Pure status extraction, validation, routable-status constants
     task-routing.ts              ← File movement: destination resolution, folder creation, merge handling
@@ -61,10 +63,11 @@ src/
 
 1. **vault `modify` event** → `TaskProcessor.handleFileModify()` processes only markdown files inside the configured task roots or the configured Inbox File (and excludes the Tasks Summary and Project Summary notes), reads file fresh (non-cached) via `vault.read`, diffs against state-store snapshot, calls `reconciler` to apply transition rules, calls `task-routing` if status changed → writes back → state-store updated/rekeyed
 2. **Pending-path guards** in `TaskStateStore` prevent re-triggering the modify handler on self-writes
-3. **Commands** call `TaskProcessor.resetCurrentFileTasks()` directly; **Tasks and Projects Summary** separately writes both generated summary notes
-4. **Status changes** trigger a silent Tasks Summary and Project Summary regeneration after routing
-5. **DueDateModal submit** triggers a silent Tasks Summary and Project Summary regeneration after due date/priority updates
-6. **Dashboard** is refreshed on `file-open`, `layout-change`, vault `rename`/`delete` events, and after settings changes
+3. **vault `rename`/`delete` events** → `main.ts` also calls `TaskProcessor.handleFileRename()`/`handleFileDelete()`, which rekey/delete the corresponding `TaskStateStore` entries. This exists specifically so external renames/deletes (file explorer, sync, other plugins) don't leave a stale snapshot under the old path — internal moves driven by routing already call `stateStore.rekey()` directly, but external ones previously had no path to keep the store in sync.
+4. **Commands** call `TaskProcessor.resetCurrentFileTasks()` directly; **Tasks and Projects Summary** separately writes both generated summary notes
+5. **Status changes** trigger a silent Tasks Summary and Project Summary regeneration after routing
+6. **DueDateModal submit** triggers a silent Tasks Summary and Project Summary regeneration after due date/priority updates
+7. **Dashboard** is refreshed on `file-open`, `layout-change`, vault `rename`/`delete` events, and after settings changes
 
 ### Commands
 
@@ -260,6 +263,7 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 - File writes: `await app.vault.modify(file, newContent)`
 - Frontmatter updates: `await app.fileManager.processFrontMatter(file, fn)` for the `status` field
 - File moves: `await app.fileManager.renameFile(file, newPath)` — not `vault.rename`, which does not preserve links
+- Status/priority frontmatter reads (`status-routing.ts`'s `readStatusValue`, `file-priority.ts`'s `readFilePriority`) deliberately parse the raw content string via `frontmatter-utils.ts`'s `readFrontmatterField` rather than `app.metadataCache.getFileCache(file)?.frontmatter`. Both are called from `TaskProcessor.handleFileModify()` immediately after `vault.read()` on a `modify` event, before there's any guarantee the metadataCache has reparsed the just-written file — using the cache there would risk reading stale values. Reserve `metadataCache` for read-only call sites that already hold a `TFile` and aren't racing a just-completed write.
 
 ### TypeScript Conventions
 
@@ -329,3 +333,6 @@ Run after meaningful logic changes:
 19. `Tasks and Projects Summary` writes the configured Tasks Summary File and Project Summary File, stamps `creation-date`/`creation-time` frontmatter in both, renders the task summary tables, and renders the project hierarchy list with priorities
 20. `Add New Project` creates a new file at the chosen folder path, writes status/priority frontmatter, and converts each task textarea line into an open task
 21. `Open Random Someday-Maybe Project` (command and ribbon icon) opens a file from the configured Someday-Maybe Projects Folder; shows a Notice instead of opening a file when the folder is unset or empty
+22. Renaming or deleting a tracked file from Obsidian's file explorer (not via a plugin-driven move) keeps subsequent reconciliation correct — completing/uncompleting a task in the renamed file does not spuriously re-trigger recurring-task insertion from stale state
+23. If a Due Date Modal's target task line is edited (or the file is otherwise modified) while the modal is still open, submitting either still updates the correct line or shows a Notice explaining the due date wasn't saved — it never silently no-ops
+24. Routing a file onto an existing destination merges by content rather than duplicating: retrying an already-merged move does not re-append a second `---`-divided copy

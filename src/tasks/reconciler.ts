@@ -14,9 +14,10 @@
  * Side Effects:
  * - returns updated content/state and can trigger modal-driven async due-date writes
  */
-import { App, TFile } from "obsidian";
+import { App, Notice, TFile } from "obsidian";
 import { getCurrentDateString, getCurrentTimeString } from "../date/date-utils";
 import { FilePriority, readFilePriority } from "./file-priority";
+import { parseTaskLine, parseTaskLineStructured } from "./task-line-metadata";
 import {
   extractTaskState,
   findFirstIncompleteTaskLine,
@@ -83,9 +84,10 @@ async function showDueDateModalForFirstIncompleteTask(
   const modal = new DueDateModal({
     app,
     taskLine,
+    taskLineIndex,
     initialPriority,
     initialDueDate,
-    onSubmit: async (taskLine, dueDate, priority, repeat) => {
+    onSubmit: async (targetLineIndex, taskLine, dueDate, priority, repeat) => {
       // Validate date format
       if (!isValidDateFormat(dueDate)) {
         return;
@@ -93,39 +95,45 @@ async function showDueDateModalForFirstIncompleteTask(
 
       const currentContent = await readFile(file);
       const updatedLines = currentContent.split(/\r?\n/);
-      let taskFound = false;
 
-      for (let i = 0; i < updatedLines.length; i++) {
-        if (updatedLines[i] === taskLine) {
-          // Check if task already has a due date
-          if (updatedLines[i].includes("[due::")) {
-            updatedLines[i] = updatedLines[i].replace(/\[due::\s*[^\]]*\]/g, `[due:: ${dueDate}]`);
-          } else {
-            updatedLines[i] = `${updatedLines[i].trimEnd()} [due:: ${dueDate}]`;
-          }
+      // Prefer the line index captured when the modal opened; it's only trustworthy if
+      // that line is still an open task line. Otherwise fall back to matching the exact
+      // original line text, since content may have shifted during the async modal gap.
+      let targetIndex: number | null = null;
+      if (targetLineIndex < updatedLines.length && parseTaskLine(updatedLines[targetLineIndex])?.status === "open") {
+        targetIndex = targetLineIndex;
+      } else {
+        const fallbackIndex = updatedLines.indexOf(taskLine);
+        targetIndex = fallbackIndex === -1 ? null : fallbackIndex;
+      }
 
-          if (repeat !== null) {
-            if (updatedLines[i].match(/\[(?:repeat|repeats)::\s*[^\]]*\]/i)) {
-              updatedLines[i] = updatedLines[i].replace(/\[(?:repeat|repeats)::\s*[^\]]*\]/gi, `[repeat:: ${repeat}]`);
-            } else {
-              updatedLines[i] = `${updatedLines[i].trimEnd()} [repeat:: ${repeat}]`;
-            }
-          }
+      if (targetIndex === null) {
+        new Notice(`Could not find "${taskLine.trim()}" in ${file.name}; the due date was not saved.`);
+        return;
+      }
 
-          taskFound = true;
-          break;
+      // Check if task already has a due date
+      if (updatedLines[targetIndex].includes("[due::")) {
+        updatedLines[targetIndex] = updatedLines[targetIndex].replace(/\[due::\s*[^\]]*\]/g, `[due:: ${dueDate}]`);
+      } else {
+        updatedLines[targetIndex] = `${updatedLines[targetIndex].trimEnd()} [due:: ${dueDate}]`;
+      }
+
+      if (repeat !== null) {
+        if (updatedLines[targetIndex].match(/\[(?:repeat|repeats)::\s*[^\]]*\]/i)) {
+          updatedLines[targetIndex] = updatedLines[targetIndex].replace(/\[(?:repeat|repeats)::\s*[^\]]*\]/gi, `[repeat:: ${repeat}]`);
+        } else {
+          updatedLines[targetIndex] = `${updatedLines[targetIndex].trimEnd()} [repeat:: ${repeat}]`;
         }
       }
 
-        if (taskFound) {
-          const nextContent = updatedLines.join("\n");
-          await writeFileContent(file, nextContent);
-          await context.setFilePriority(file, Number.parseInt(priority, 10) as FilePriority);
-          setTaskState(file.path, extractTaskState(nextContent));
-          await context.onTaskPropertiesChanged?.();
-        }
-      }
-    });
+      const nextContent = updatedLines.join("\n");
+      await writeFileContent(file, nextContent);
+      await context.setFilePriority(file, Number.parseInt(priority, 10) as FilePriority);
+      setTaskState(file.path, extractTaskState(nextContent));
+      await context.onTaskPropertiesChanged?.();
+    },
+  });
   modal.open();
 }
 
@@ -216,16 +224,12 @@ export async function reconcileFile(context: ReconcilerContext): Promise<void> {
   const lines = content
     .split(/\r?\n/)
     .map((line) => {
-      const match = line.match(/^(\s*[-*+]\s+\[)( |x|X)(\]\s*.*)$/);
-      if (!match) {
+      const structured = parseTaskLineStructured(line);
+      if (!structured || structured.status === "completed") {
         return line;
       }
 
       // Open tasks should never keep completion metadata when reconciled.
-      if (match[2].toLowerCase() === "x") {
-        return line;
-      }
-
       return stripCompletionFields(line);
     });
   const firstIncompleteTaskLine = findFirstIncompleteTaskLine(lines);
@@ -267,11 +271,12 @@ function stripCompletionFields(line: string): string {
 
 function buildRepeatedTaskLine(completedLine: string, repeatRule: RepeatRule): string | null {
   const cleaned = stripCompletionFields(completedLine);
-  if (!cleaned.match(/^(\s*[-*+]\s+\[)[^\]](\]\s*)/)) {
+  const structured = parseTaskLineStructured(cleaned);
+  if (!structured) {
     return null;
   }
 
-  const openTask = cleaned.replace(/^(\s*[-*+]\s+\[)[^\]](\]\s*)/, "$1 $2");
+  const openTask = `${structured.prefix} ${structured.bracketSuffix}${structured.body}`;
   const taskBodyWithoutDue = openTask.replace(/\s*\[due::\s*[^\]]*\]/g, "").trimEnd();
   const dueDate = getRepeatDueDate(repeatRule);
   return `${taskBodyWithoutDue} [due:: ${dueDate}]`;

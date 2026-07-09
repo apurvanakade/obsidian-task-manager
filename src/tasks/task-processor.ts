@@ -22,6 +22,7 @@ import {
   findFirstIncompleteTaskStateLine,
   findNewlyCompletedTask,
   findNewlyUncompletedTask,
+  normalizeForComparison,
   resetTaskContent,
   TaskState,
 } from "./task-utils";
@@ -100,6 +101,22 @@ export class TaskProcessor {
 
     const content = await this.app.vault.read(file);
     this.updateFileSnapshot(file.path, content, settings);
+  }
+
+  handleFileRename(file: TFile, oldPath: string): void {
+    if (file.extension !== "md") {
+      return;
+    }
+
+    this.stateStore.rekey(oldPath, file.path);
+  }
+
+  handleFileDelete(file: TFile): void {
+    if (file.extension !== "md") {
+      return;
+    }
+
+    this.stateStore.delete(file.path);
   }
 
   async handleFileModify(file: TFile): Promise<void> {
@@ -266,7 +283,7 @@ export class TaskProcessor {
     const sourcePath = sourceFile.path;
     const destinationContent = await this.app.vault.read(destinationFile);
     const sourceContent = await this.app.vault.read(sourceFile);
-    const mergedContent = destinationContent.includes(sourceContent)
+    const mergedContent = normalizeForComparison(destinationContent).includes(normalizeForComparison(sourceContent))
       ? destinationContent
       : `${destinationContent.trimEnd()}\n\n---\n\n${sourceContent}`;
 

@@ -15,6 +15,7 @@
  */
 import { App, TFile } from "obsidian";
 import { TaskManagerSettings } from "../settings/settings-utils";
+import { isExcludedSummaryFile, isInFolder } from "../summary/summary-file-io";
 
 export function getSomedayMaybeProjectFiles(app: App, settings: TaskManagerSettings): TFile[] {
   const folderPath = settings.somedayMaybeProjectsFolder;
@@ -34,14 +35,4 @@ export function pickRandomFile(files: TFile[]): TFile | null {
 
   const index = Math.floor(Math.random() * files.length);
   return files[index];
-}
-
-function isInFolder(filePath: string, folderPath: string): boolean {
-  return filePath.startsWith(`${folderPath}/`);
-}
-
-function isExcludedSummaryFile(filePath: string, settings: TaskManagerSettings): boolean {
-  return filePath === settings.tasksSummaryFile
-    || filePath === settings.projectSummaryFile
-    || filePath === settings.inboxFile;
 }

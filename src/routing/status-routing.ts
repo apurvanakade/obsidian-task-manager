@@ -14,6 +14,7 @@
  * - none (pure decision logic)
  */
 import { TaskManagerSettings } from "../settings/settings-utils";
+import { readFrontmatterField } from "../tasks/frontmatter-utils";
 import { getDestinationRootForStatus } from "./task-routing";
 
 export const ROUTABLE_STATUSES = ["todo", "completed", "waiting", "someday-maybe"] as const;
@@ -25,24 +26,8 @@ export function isRoutableStatus(value: string): value is RoutableStatus {
 }
 
 export function readStatusValue(content: string, statusField: string): string | null {
-  const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!frontmatterMatch) {
-    return null;
-  }
-
-  const fieldRegex = new RegExp(`^\\s*${escapeRegExp(statusField)}\\s*:\\s*(.*?)\\s*$`, "i");
-  const lines = frontmatterMatch[1].split(/\r?\n/);
-
-  for (const line of lines) {
-    const match = line.match(fieldRegex);
-    if (!match) {
-      continue;
-    }
-
-    return match[1].replace(/^['\"]|['\"]$/g, "").trim().toLowerCase();
-  }
-
-  return null;
+  const value = readFrontmatterField(content, statusField);
+  return value === null ? null : value.toLowerCase();
 }
 
 export function predictFinalStatus(currentStatus: string | null, hasOpenTasks: boolean): string | null {
@@ -66,8 +51,4 @@ export function assertConfiguredDestinationForStatus(status: string | null, sett
   if (!destinationRoot) {
     throw new Error(`Set destination folder for status '${status}' in Task Manager settings.`);
   }
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

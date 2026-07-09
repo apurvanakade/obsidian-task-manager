@@ -15,12 +15,11 @@
  * - reads markdown files and writes the summary file to the vault
  */
 import { App, TAbstractFile, TFile } from "obsidian";
-import { getCurrentDateString, getCurrentTimeString } from "../date/date-utils";
-import { ensureParentFoldersExist } from "../routing/task-routing";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { readFilePriority } from "../tasks/file-priority";
 import { cleanTaskText, getRecurrenceLabel, parseTaskLine, readInlineFieldValue } from "../tasks/task-line-metadata";
 import { buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
+import { isInFolder, overwriteSummaryFile, resolveSummaryFile } from "./summary-file-io";
 
 const DUE_FIELD_REGEX = /\[due::\s*([^\]]+?)\s*\]/i;
 type SummarySection = {
@@ -153,26 +152,6 @@ function renderSummary(sections: SummarySection[], hideKeywords: string): string
   return lines.join("\n").trimEnd();
 }
 
-async function resolveSummaryFile(app: App, summaryFilePath: string): Promise<TFile> {
-  await ensureParentFoldersExist(app, summaryFilePath);
-
-  const existing = app.vault.getAbstractFileByPath(summaryFilePath);
-  if (!existing) {
-    return await app.vault.create(summaryFilePath, "");
-  }
-
-  if (existing instanceof TFile) {
-    return existing;
-  }
-
-  throw new Error(`Cannot write summary to '${summaryFilePath}' because a folder already exists at that path.`);
-}
-
-async function overwriteSummaryFile(app: App, file: TFile, summaryContent: string): Promise<void> {
-  await app.vault.modify(file, summaryContent);
-  await stampSummaryMetadata(app, file);
-}
-
 function compareSummaryRows(left: SummaryRow, right: SummaryRow): number {
   const priorityCompare = left.priority - right.priority;
   if (priorityCompare !== 0) {
@@ -214,10 +193,6 @@ function appendSectionTable(lines: string[], rows: SummaryRow[], hideKeywords: s
   lines.push("");
 }
 
-function isInFolder(filePath: string, folderPath: string): boolean {
-  return filePath.startsWith(`${folderPath}/`);
-}
-
 function buildFileLink(displayName: string, filePath: string): string {
   return `[${escapeLinkText(displayName)}](<${filePath}>)`;
 }
@@ -241,11 +216,4 @@ function buildWeightedTaskText(task: string, priority: number): string {
   }
 
   return escapedTask;
-}
-
-async function stampSummaryMetadata(app: App, file: TFile): Promise<void> {
-  await app.fileManager.processFrontMatter(file, (frontmatter: Record<string, string>) => {
-    frontmatter["creation-date"] = getCurrentDateString();
-    frontmatter["creation-time"] = getCurrentTimeString();
-  });
 }

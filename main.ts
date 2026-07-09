@@ -99,6 +99,20 @@ export default class TaskManagerPlugin extends Plugin {
 
       void this.taskProcessor?.handleFileModify(file);
     }));
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+      if (!(file instanceof TFile)) {
+        return;
+      }
+
+      this.taskProcessor?.handleFileRename(file, oldPath);
+    }));
+    this.registerEvent(this.app.vault.on("delete", (file) => {
+      if (!(file instanceof TFile)) {
+        return;
+      }
+
+      this.taskProcessor?.handleFileDelete(file);
+    }));
     await this.taskProcessor.primeState();
     await this.dateDashboard.onload(this);
   }

@@ -80,16 +80,18 @@ const buttonStyles = {
 type DueDateModalOptions = {
   app: App;
   taskLine: string;
+  taskLineIndex: number;
   initialPriority: "1" | "2" | "3";
   initialDueDate?: string | null;
-  onSubmit: (taskLine: string, dueDate: string, priority: "1" | "2" | "3", repeat: string | null) => Promise<void>;
+  onSubmit: (taskLineIndex: number, taskLine: string, dueDate: string, priority: "1" | "2" | "3", repeat: string | null) => Promise<void>;
 };
 
 export class DueDateModal extends Modal {
   private readonly taskLine: string;
+  private readonly taskLineIndex: number;
   private readonly initialPriority: "1" | "2" | "3";
   private readonly initialDueDate: string;
-  private readonly onSubmit: (taskLine: string, dueDate: string, priority: "1" | "2" | "3", repeat: string | null) => Promise<void>;
+  private readonly onSubmit: (taskLineIndex: number, taskLine: string, dueDate: string, priority: "1" | "2" | "3", repeat: string | null) => Promise<void>;
   private readonly dateSuggestions = buildDateSuggestions();
   private inputElement: HTMLInputElement | null = null;
   private prioritySelectElement: HTMLSelectElement | null = null;
@@ -98,6 +100,7 @@ export class DueDateModal extends Modal {
   constructor(options: DueDateModalOptions) {
     super(options.app);
     this.taskLine = options.taskLine;
+    this.taskLineIndex = options.taskLineIndex;
     this.initialPriority = options.initialPriority;
     this.initialDueDate = options.initialDueDate?.trim() ?? "";
     this.onSubmit = options.onSubmit;
@@ -288,7 +291,7 @@ export class DueDateModal extends Modal {
     }
 
     try {
-      await this.onSubmit(this.taskLine, resolvedDate, priority, repeat);
+      await this.onSubmit(this.taskLineIndex, this.taskLine, resolvedDate, priority, repeat);
       this.close();
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Failed to add due date.");

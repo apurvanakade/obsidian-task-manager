@@ -14,7 +14,10 @@
  * Side Effects:
  * - none (pure parsing helpers)
  */
-const TASK_LINE_REGEX = /^\s*[-*+]\s+\[( |x|X)\]\s+(.*)$/;
+// Canonical task-line grammar. This is the single source of truth for what counts as a
+// checkbox task line across the plugin (extraction, first-incomplete lookup, reset,
+// reconciliation, and repeat-task rebuilding all derive from this one parser).
+const TASK_LINE_STRUCTURE_REGEX = /^(\s*[-*+]\s+\[)( |x|X)(\]\s+)(.*)$/;
 const REPEAT_FIELD_REGEX = /\[(?:repeat|repeats)::\s*[^\]]+?\]/i;
 const REPEAT_VALUE_REGEX = /\[(?:repeat|repeats)::\s*(?:every\s+)?([^\]]+?)\s*\]/i;
 const INLINE_FIELD_REGEX = /\s*\[[^\]]+::\s*[^\]]*\]/g;
@@ -26,15 +29,41 @@ export type ParsedTaskLine = {
   taskBody: string;
 };
 
-export function parseTaskLine(line: string): ParsedTaskLine | null {
-  const match = line.match(TASK_LINE_REGEX);
+export type TaskLineStructure = {
+  /** Everything from the start of the line through the opening "[" of the checkbox. */
+  prefix: string;
+  checkboxChar: string;
+  /** The closing "]" plus the whitespace separating it from the task body. */
+  bracketSuffix: string;
+  body: string;
+  status: "open" | "completed";
+};
+
+export function parseTaskLineStructured(line: string): TaskLineStructure | null {
+  const match = line.match(TASK_LINE_STRUCTURE_REGEX);
   if (!match) {
     return null;
   }
 
+  const checkboxChar = match[2];
   return {
-    status: match[1].trim().toLowerCase() === "x" ? "completed" : "open",
-    taskBody: match[2].trim(),
+    prefix: match[1],
+    checkboxChar,
+    bracketSuffix: match[3],
+    body: match[4],
+    status: checkboxChar.toLowerCase() === "x" ? "completed" : "open",
+  };
+}
+
+export function parseTaskLine(line: string): ParsedTaskLine | null {
+  const structured = parseTaskLineStructured(line);
+  if (!structured) {
+    return null;
+  }
+
+  return {
+    status: structured.status,
+    taskBody: structured.body.trim(),
   };
 }
 

@@ -15,10 +15,9 @@
  * - reads markdown files and writes the project summary file to the vault
  */
 import { App, TFile } from "obsidian";
-import { getCurrentDateString, getCurrentTimeString } from "../date/date-utils";
-import { ensureParentFoldersExist } from "../routing/task-routing";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { readFilePriority } from "../tasks/file-priority";
+import { isExcludedSummaryFile, isInFolder, overwriteSummaryFile, resolveSummaryFile } from "./summary-file-io";
 
 const MARKDOWN_EXTENSION_REGEX = /\.md$/i;
 
@@ -280,39 +279,6 @@ function prefixesEqual(segments: string[], prefix: string[], length: number): bo
   }
 
   return true;
-}
-
-async function resolveSummaryFile(app: App, summaryFilePath: string): Promise<TFile> {
-  await ensureParentFoldersExist(app, summaryFilePath);
-
-  const existing = app.vault.getAbstractFileByPath(summaryFilePath);
-  if (!existing) {
-    return await app.vault.create(summaryFilePath, "");
-  }
-
-  if (existing instanceof TFile) {
-    return existing;
-  }
-
-  throw new Error(`Cannot write summary to '${summaryFilePath}' because a folder already exists at that path.`);
-}
-
-async function overwriteSummaryFile(app: App, file: TFile, summaryContent: string): Promise<void> {
-  await app.vault.modify(file, summaryContent);
-  await app.fileManager.processFrontMatter(file, (frontmatter: Record<string, string>) => {
-    frontmatter["creation-date"] = getCurrentDateString();
-    frontmatter["creation-time"] = getCurrentTimeString();
-  });
-}
-
-function isInFolder(filePath: string, folderPath: string): boolean {
-  return filePath.startsWith(`${folderPath}/`);
-}
-
-function isExcludedSummaryFile(filePath: string, settings: TaskManagerSettings): boolean {
-  return filePath === settings.tasksSummaryFile
-    || filePath === settings.projectSummaryFile
-    || filePath === settings.inboxFile;
 }
 
 function formatDisplayName(name: string, hideKeywords: string): string {
