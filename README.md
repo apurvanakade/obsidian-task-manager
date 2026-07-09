@@ -73,6 +73,11 @@ The command creates the project note, creates missing parent folders, and opens 
 ### Open Random Someday-Maybe Project
 Opens a random project file from the configured **Someday-Maybe Projects Folder** in a new tab. Also available as a shuffle-icon ribbon button in the left sidebar. If the folder setting is empty, or the folder contains no project files, a notice explains why nothing opened instead of failing silently.
 
+### Quick Capture Task
+Opens a single-line capture modal from anywhere in the vault — no need to open the Inbox File first. Also available as a list-plus-icon ribbon button in the left sidebar. Press Enter or click **Capture** to append the text as a new open task (`- [ ] ...`) to the configured **Inbox File**, creating that file first if it doesn't exist yet.
+
+End the input with `due:` followed by a date to attach a due date at capture time, e.g. `Call the dentist due:tomorrow` or `Renew passport due:2026-08-01` — accepts the same values as the `due::` editor autocomplete (ISO dates, `today`/`tomorrow`, weekday names). If the trailing `due:` token isn't a recognizable date, it's left in place as part of the task text instead of being dropped. If the Inbox File setting is empty, a notice explains why the modal didn't open.
+
 ## Automatic Behavior (live editing)
 
 The plugin reacts to checkbox changes as you edit, but only for markdown files inside the configured Projects / Completed / Waiting / Someday-Maybe folders and the configured Inbox File. Random notes elsewhere in the vault are ignored by the live task-processing pipeline.
@@ -189,11 +194,14 @@ Display notes:
 | `src/tasks/task-utils.ts` | Pure parsing/diffing utilities (no side effects) |
 | `src/tasks/task-state-store.ts` | In-memory per-file task/status snapshot cache and pending-write guards |
 | `src/tasks/due-date-modal.ts` | Modal for collecting due date and file priority for the first incomplete task |
+| `src/tasks/quick-capture-modal.ts` | Single-input modal for capturing a task into the Inbox File, with `due:` shorthand parsing |
+| `src/tasks/frontmatter-utils.ts` | Shared single-field frontmatter parser over a content string |
 | `src/projects/add-project-modal.ts` | Modal and helpers for creating a new project note from command input |
 | `src/projects/random-project.ts` | Lists Someday-Maybe project files and picks one at random |
 | `src/tables/grouped-task-table.ts` | Pure grouped task-table model and shared display formatting for dashboard/summary tables |
 | `src/summary/tasks-summary.ts` | Builds and writes the Tasks Summary note from configured sources |
 | `src/summary/project-summary.ts` | Builds and writes the hierarchical Project Summary note with priorities |
+| `src/summary/summary-file-io.ts` | Shared folder-scan and summary-file resolve/overwrite helpers used by both summary notes and the random-project picker |
 | `src/routing/status-routing.ts` | Status extraction, validation, routable-status constants |
 | `src/routing/task-routing.ts` | File movement: destination resolution, folder creation, merge handling |
 | `src/dashboard/date-dashboard.ts` | Right-sidebar ItemView controller and renderer |
@@ -205,7 +213,7 @@ Display notes:
 | `src/settings/settings-ui.ts` | PluginSettingTab renderer |
 | `src/settings/settings-field-definitions.ts` | Declarative metadata for settings controls |
 | `src/settings/folder-picker.ts` | FuzzySuggestModal wrappers for vault folder/file pickers |
-| `src/commands/register-task-commands.ts` | Registers Reset Tasks, Tasks and Projects Summary, Add New Project, and Open Random Someday-Maybe Project commands |
+| `src/commands/register-task-commands.ts` | Registers Reset Tasks, Tasks and Projects Summary, Add New Project, Open Random Someday-Maybe Project, and Quick Capture Task commands |
 | `manifest.json` | Obsidian plugin metadata |
 
 ## Dependency Graph
@@ -235,12 +243,15 @@ graph TD
    RC[reconciler.ts]
    PRI[file-priority.ts]
    TLM[task-line-metadata.ts]
+   FMU[frontmatter-utils.ts]
    RR[repeat-rules.ts]
    DDM[due-date-modal.ts]
+   QC[quick-capture-modal.ts]
    TS[task-state-store.ts]
    TU[task-utils.ts]
    SUM[tasks-summary.ts]
    PSUM[project-summary.ts]
+   SFIO[summary-file-io.ts]
    CMD[register-task-commands.ts]
 
     D --> M
@@ -253,6 +264,7 @@ graph TD
     SUM --> M
     PSUM --> M
     CMD --> M
+    QC --> M
 
      DTD --> D
      DU --> D
@@ -277,6 +289,7 @@ graph TD
 
     SU --> RP
     RP --> M
+    SFIO --> RP
 
      GT --> SUM
      DU --> SUM
@@ -287,6 +300,7 @@ graph TD
    RT --> TP
    RS --> TP
    TS --> TP
+   FMU --> TP
 
     TU --> RC
     DU --> RC
@@ -295,8 +309,11 @@ graph TD
     SU --> RC
     RS --> RC
     DDM --> RC
+    TLM --> RC
     DS --> DDM
+    DS --> QC
     TLM --> SUM
+    TLM --> TU
 
     TU --> TS
     RT --> SUM
@@ -305,4 +322,9 @@ graph TD
     PRI --> PSUM
     SU --> PSUM
     RT --> PSUM
+
+    FMU --> RS
+    FMU --> PRI
+    SFIO --> SUM
+    SFIO --> PSUM
 ```

@@ -22,6 +22,7 @@ import { DateDashboardController } from "./src/dashboard/date-dashboard";
 import { CreatedDateEditorSuggest, DueDateEditorSuggest } from "./src/editor/due-date-suggest";
 import { getSomedayMaybeProjectFiles, pickRandomFile } from "./src/projects/random-project";
 import { normalizeSettings, TaskManagerSettings } from "./src/settings/settings-utils";
+import { QuickCaptureModal } from "./src/tasks/quick-capture-modal";
 import { writeProjectSummary } from "./src/summary/project-summary";
 import { writeTasksSummary } from "./src/summary/tasks-summary";
 import { TaskManagerSettingTabRenderer } from "./src/settings/settings-ui";
@@ -81,9 +82,15 @@ export default class TaskManagerPlugin extends Plugin {
       openRandomSomedayMaybeProject: () => {
         void this.runOpenRandomSomedayMaybeProject();
       },
+      quickCapture: () => {
+        this.runQuickCapture();
+      },
     });
     this.addRibbonIcon("shuffle", "Open Random Someday-Maybe Project", () => {
       void this.runOpenRandomSomedayMaybeProject();
+    });
+    this.addRibbonIcon("list-plus", "Quick Capture Task", () => {
+      this.runQuickCapture();
     });
     this.registerEvent(this.app.vault.on("create", (file) => {
       if (!(file instanceof TFile)) {
@@ -231,6 +238,36 @@ export default class TaskManagerPlugin extends Plugin {
         await this.taskProcessor?.handleFileCreate(file);
         await this.app.workspace.getLeaf(true).openFile(file);
         new Notice(`Created ${projectPath}.`);
+      },
+    });
+
+    modal.open();
+  }
+
+  private runQuickCapture(): void {
+    const settings = this.getSettings();
+    if (!settings.inboxFile) {
+      new Notice("Set Inbox File in plugin settings before capturing tasks.");
+      return;
+    }
+
+    const modal = new QuickCaptureModal({
+      app: this.app,
+      onSubmit: async (result) => {
+        const dueSuffix = result.dueDate ? ` [due:: ${result.dueDate}]` : "";
+        const taskLine = `- [ ] ${result.text}${dueSuffix}`;
+
+        const existingEntry = this.app.vault.getAbstractFileByPath(settings.inboxFile);
+        if (existingEntry instanceof TFile) {
+          await this.app.vault.append(existingEntry, `\n${taskLine}`);
+        } else if (existingEntry) {
+          throw new Error(`'${settings.inboxFile}' is a folder, not a file.`);
+        } else {
+          await ensureParentFoldersExist(this.app, settings.inboxFile);
+          await this.app.vault.create(settings.inboxFile, `${taskLine}\n`);
+        }
+
+        new Notice(`Captured: ${result.text}`);
       },
     });
 

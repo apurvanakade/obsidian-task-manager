@@ -22,6 +22,7 @@ type TaskCommandHandlers = {
   createTasksSummary: () => void;
   addNewProject: () => void;
   openRandomSomedayMaybeProject: () => void;
+  quickCapture: () => void;
 };
 
 export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandlers): void {
@@ -47,5 +48,11 @@ export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandle
     id: "open-random-someday-maybe-project",
     name: "Open Random Someday-Maybe Project",
     callback: handlers.openRandomSomedayMaybeProject,
+  });
+
+  plugin.addCommand({
+    id: "quick-capture-task",
+    name: "Quick Capture Task",
+    callback: handlers.quickCapture,
   });
 }
