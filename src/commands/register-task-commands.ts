@@ -21,6 +21,7 @@ type TaskCommandHandlers = {
   resetCurrentFileTasks: () => void;
   createTasksSummary: () => void;
   addNewProject: () => void;
+  openRandomSomedayMaybeProject: () => void;
 };
 
 export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandlers): void {
@@ -40,5 +41,11 @@ export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandle
     id: "add-new-project",
     name: "Add New Project",
     callback: handlers.addNewProject,
+  });
+
+  plugin.addCommand({
+    id: "open-random-someday-maybe-project",
+    name: "Open Random Someday-Maybe Project",
+    callback: handlers.openRandomSomedayMaybeProject,
   });
 }

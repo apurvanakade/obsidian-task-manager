@@ -42,6 +42,11 @@ function registerTaskCommands(plugin, handlers) {
     name: "Add New Project",
     callback: handlers.addNewProject
   });
+  plugin.addCommand({
+    id: "open-random-someday-maybe-project",
+    name: "Open Random Someday-Maybe Project",
+    callback: handlers.openRandomSomedayMaybeProject
+  });
 }
 
 // src/projects/add-project-modal.ts
@@ -1187,6 +1192,30 @@ function createTodaySuggestionFactory() {
   };
 }
 
+// src/projects/random-project.ts
+function getSomedayMaybeProjectFiles(app, settings) {
+  const folderPath = settings.somedayMaybeProjectsFolder;
+  if (!folderPath) {
+    return [];
+  }
+  return app.vault.getMarkdownFiles().filter(
+    (file) => isInFolder(file.path, folderPath) && !isExcludedSummaryFile(file.path, settings)
+  );
+}
+function pickRandomFile(files) {
+  if (files.length === 0) {
+    return null;
+  }
+  const index = Math.floor(Math.random() * files.length);
+  return files[index];
+}
+function isInFolder(filePath, folderPath) {
+  return filePath.startsWith(`${folderPath}/`);
+}
+function isExcludedSummaryFile(filePath, settings) {
+  return filePath === settings.tasksSummaryFile || filePath === settings.projectSummaryFile || filePath === settings.inboxFile;
+}
+
 // src/settings/settings-utils.ts
 var DEFAULT_SETTINGS = {
   statusField: "status",
@@ -1259,7 +1288,7 @@ async function collectProjectsForFolder(app, folderPath, settings) {
     return [];
   }
   const files = app.vault.getMarkdownFiles().filter(
-    (file) => isInFolder(file.path, folderPath) && !isExcludedSummaryFile(file.path, settings)
+    (file) => isInFolder2(file.path, folderPath) && !isExcludedSummaryFile2(file.path, settings)
   );
   const entries = [];
   for (const file of files) {
@@ -1422,10 +1451,10 @@ async function overwriteSummaryFile(app, file, summaryContent) {
     frontmatter["creation-time"] = getCurrentTimeString();
   });
 }
-function isInFolder(filePath, folderPath) {
+function isInFolder2(filePath, folderPath) {
   return filePath.startsWith(`${folderPath}/`);
 }
-function isExcludedSummaryFile(filePath, settings) {
+function isExcludedSummaryFile2(filePath, settings) {
   return filePath === settings.tasksSummaryFile || filePath === settings.projectSummaryFile || filePath === settings.inboxFile;
 }
 function formatDisplayName(name, hideKeywords) {
@@ -1480,7 +1509,7 @@ async function collectFirstIncompleteRowsForFolder(app, folderPath) {
   if (!folderPath) {
     return [];
   }
-  const files = app.vault.getMarkdownFiles().filter((file) => isInFolder2(file.path, folderPath));
+  const files = app.vault.getMarkdownFiles().filter((file) => isInFolder3(file.path, folderPath));
   const rows = [];
   for (const file of files) {
     const row = await findFirstIncompleteRow(app, file);
@@ -1590,7 +1619,7 @@ function appendSectionTable(lines, rows, hideKeywords) {
   }
   lines.push("");
 }
-function isInFolder2(filePath, folderPath) {
+function isInFolder3(filePath, folderPath) {
   return filePath.startsWith(`${folderPath}/`);
 }
 function buildFileLink(displayName, filePath) {
@@ -2933,7 +2962,13 @@ var TaskManagerPlugin = class extends import_obsidian13.Plugin {
       },
       addNewProject: () => {
         this.runAddNewProject();
+      },
+      openRandomSomedayMaybeProject: () => {
+        void this.runOpenRandomSomedayMaybeProject();
       }
+    });
+    this.addRibbonIcon("shuffle", "Open Random Someday-Maybe Project", () => {
+      void this.runOpenRandomSomedayMaybeProject();
     });
     this.registerEvent(this.app.vault.on("create", (file) => {
       var _a;
@@ -3048,6 +3083,19 @@ var TaskManagerPlugin = class extends import_obsidian13.Plugin {
       }
     });
     modal.open();
+  }
+  async runOpenRandomSomedayMaybeProject() {
+    const settings = this.getSettings();
+    if (!settings.somedayMaybeProjectsFolder) {
+      new import_obsidian13.Notice("Set Someday-Maybe Projects Folder in plugin settings first.");
+      return;
+    }
+    const file = pickRandomFile(getSomedayMaybeProjectFiles(this.app, settings));
+    if (!file) {
+      new import_obsidian13.Notice("No project files found in the Someday-Maybe Projects Folder.");
+      return;
+    }
+    await this.app.workspace.getLeaf(true).openFile(file);
   }
   getTaskFolderRoots() {
     return getTaskFolderRoots(this.settings);

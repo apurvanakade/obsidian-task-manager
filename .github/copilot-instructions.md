@@ -37,6 +37,7 @@ src/
     task-routing.ts              ← File movement: destination resolution, folder creation, merge handling
   projects/
     add-project-modal.ts         ← Modal and helpers for creating a new project note
+    random-project.ts            ← Lists Someday-Maybe project files and picks one at random
   tables/
     grouped-task-table.ts        ← Pure grouped task-table model shared by dashboard and summary
   dashboard/
@@ -53,7 +54,7 @@ src/
     settings-field-definitions.ts← Declarative metadata for settings controls
     folder-picker.ts             ← FuzzySuggestModal wrappers for vault folder/file pickers
   commands/
-    register-task-commands.ts    ← Registers "Reset Tasks", "Tasks and Projects Summary", "Add New Project"
+    register-task-commands.ts    ← Registers "Reset Tasks", "Tasks and Projects Summary", "Add New Project", "Open Random Someday-Maybe Project"
 ```
 
 ### Key Data Flow
@@ -70,6 +71,7 @@ src/
 - **Reset Tasks** — in the active file, marks all tasks open (`[ ]`), strips `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, and `[created:: ...]` from task lines, then re-runs the normal task reconciliation and routing flow for that file
 - **Tasks and Projects Summary** — creates or overwrites both generated summary files. The configured Tasks Summary File gets the task-table note with sections for Projects, Waiting, Someday-Maybe, and Inbox. The configured Project Summary File gets a depth-aware project table grouped by Projects, Waiting, Someday-Maybe, and Completed with each project's file priority; the active `Projects` section is further split into Priority 1, Priority 2, and Priority 3 subsections, with missing priorities treated as 3. Existing summary files are overwritten in place with no merge/replace prompt, both generated notes are excluded from automatic task routing/reconciliation, project status changes regenerate them silently, and DueDateModal submits regenerate them silently after due date/priority updates
 - **Add New Project** — opens a modal asking for Name, Folder, Priority, Status (`todo`, `waiting`, or `someday-maybe`), and optional starter tasks; the Folder field shows matching vault folders as you type; the command creates the project file, writes status/priority to frontmatter, creates missing parent folders, and opens the new file
+- **Open Random Someday-Maybe Project** — lists markdown files under the configured Someday-Maybe Projects Folder (excluding the Tasks Summary, Project Summary, and Inbox files, in case one is misconfigured into that folder), picks one uniformly at random via `getSomedayMaybeProjectFiles()`/`pickRandomFile()` in `src/projects/random-project.ts`, and opens it in a new leaf. Also bound to a `shuffle` ribbon icon (`main.ts` `addRibbonIcon`) calling the same handler. Shows a `Notice` instead of opening a file when the folder setting is empty or no candidate files exist.
 
 ### Settings Persistence
 
@@ -326,3 +328,4 @@ Run after meaningful logic changes:
 18. `Reset Tasks` reopens all tasks, removes due/completion/created inline fields, then re-runs file reconciliation and routing
 19. `Tasks and Projects Summary` writes the configured Tasks Summary File and Project Summary File, stamps `creation-date`/`creation-time` frontmatter in both, renders the task summary tables, and renders the project hierarchy list with priorities
 20. `Add New Project` creates a new file at the chosen folder path, writes status/priority frontmatter, and converts each task textarea line into an open task
+21. `Open Random Someday-Maybe Project` (command and ribbon icon) opens a file from the configured Someday-Maybe Projects Folder; shows a Notice instead of opening a file when the folder is unset or empty

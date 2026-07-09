@@ -20,6 +20,7 @@ import { registerTaskCommands } from "./src/commands/register-task-commands";
 import { AddProjectModal, buildProjectFileContent, buildProjectFilePath } from "./src/projects/add-project-modal";
 import { DateDashboardController } from "./src/dashboard/date-dashboard";
 import { CreatedDateEditorSuggest, DueDateEditorSuggest } from "./src/editor/due-date-suggest";
+import { getSomedayMaybeProjectFiles, pickRandomFile } from "./src/projects/random-project";
 import { normalizeSettings, TaskManagerSettings } from "./src/settings/settings-utils";
 import { writeProjectSummary } from "./src/summary/project-summary";
 import { writeTasksSummary } from "./src/summary/tasks-summary";
@@ -77,6 +78,12 @@ export default class TaskManagerPlugin extends Plugin {
       addNewProject: () => {
         this.runAddNewProject();
       },
+      openRandomSomedayMaybeProject: () => {
+        void this.runOpenRandomSomedayMaybeProject();
+      },
+    });
+    this.addRibbonIcon("shuffle", "Open Random Someday-Maybe Project", () => {
+      void this.runOpenRandomSomedayMaybeProject();
     });
     this.registerEvent(this.app.vault.on("create", (file) => {
       if (!(file instanceof TFile)) {
@@ -214,6 +221,22 @@ export default class TaskManagerPlugin extends Plugin {
     });
 
     modal.open();
+  }
+
+  private async runOpenRandomSomedayMaybeProject(): Promise<void> {
+    const settings = this.getSettings();
+    if (!settings.somedayMaybeProjectsFolder) {
+      new Notice("Set Someday-Maybe Projects Folder in plugin settings first.");
+      return;
+    }
+
+    const file = pickRandomFile(getSomedayMaybeProjectFiles(this.app, settings));
+    if (!file) {
+      new Notice("No project files found in the Someday-Maybe Projects Folder.");
+      return;
+    }
+
+    await this.app.workspace.getLeaf(true).openFile(file);
   }
 
   private getTaskFolderRoots(): string[] {

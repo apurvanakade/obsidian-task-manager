@@ -70,6 +70,9 @@ Opens a modal to create a new project file. The form collects:
 
 The command creates the project note, creates missing parent folders, and opens the new file.
 
+### Open Random Someday-Maybe Project
+Opens a random project file from the configured **Someday-Maybe Projects Folder** in a new tab. Also available as a shuffle-icon ribbon button in the left sidebar. If the folder setting is empty, or the folder contains no project files, a notice explains why nothing opened instead of failing silently.
+
 ## Automatic Behavior (live editing)
 
 The plugin reacts to checkbox changes as you edit, but only for markdown files inside the configured Projects / Completed / Waiting / Someday-Maybe folders and the configured Inbox File. Random notes elsewhere in the vault are ignored by the live task-processing pipeline.
@@ -187,6 +190,7 @@ Display notes:
 | `src/tasks/task-state-store.ts` | In-memory per-file task/status snapshot cache and pending-write guards |
 | `src/tasks/due-date-modal.ts` | Modal for collecting due date and file priority for the first incomplete task |
 | `src/projects/add-project-modal.ts` | Modal and helpers for creating a new project note from command input |
+| `src/projects/random-project.ts` | Lists Someday-Maybe project files and picks one at random |
 | `src/tables/grouped-task-table.ts` | Pure grouped task-table model and shared display formatting for dashboard/summary tables |
 | `src/summary/tasks-summary.ts` | Builds and writes the Tasks Summary note from configured sources |
 | `src/summary/project-summary.ts` | Builds and writes the hierarchical Project Summary note with priorities |
@@ -201,7 +205,7 @@ Display notes:
 | `src/settings/settings-ui.ts` | PluginSettingTab renderer |
 | `src/settings/settings-field-definitions.ts` | Declarative metadata for settings controls |
 | `src/settings/folder-picker.ts` | FuzzySuggestModal wrappers for vault folder/file pickers |
-| `src/commands/register-task-commands.ts` | Registers Reset Tasks, Tasks and Projects Summary, and Add New Project commands |
+| `src/commands/register-task-commands.ts` | Registers Reset Tasks, Tasks and Projects Summary, Add New Project, and Open Random Someday-Maybe Project commands |
 | `manifest.json` | Obsidian plugin metadata |
 
 ## Dependency Graph
@@ -224,6 +228,7 @@ graph TD
    RS[status-routing.ts]
    RT[task-routing.ts]
    AP[add-project-modal.ts]
+   RP[random-project.ts]
    GT[grouped-task-table.ts]
 
    TP[task-processor.ts]
@@ -269,6 +274,9 @@ graph TD
     FP --> AP
     RT --> AP
     SU --> AP
+
+    SU --> RP
+    RP --> M
 
      GT --> SUM
      DU --> SUM
