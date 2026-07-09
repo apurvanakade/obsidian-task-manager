@@ -282,7 +282,8 @@ export default class TaskManagerPlugin extends Plugin {
 
         const existingEntry = this.app.vault.getAbstractFileByPath(settings.inboxFile);
         if (existingEntry instanceof TFile) {
-          await this.app.vault.append(existingEntry, `\n${taskLine}`);
+          const content = await this.app.vault.read(existingEntry);
+          await this.app.vault.modify(existingEntry, prependTaskLine(content, taskLine));
         } else if (existingEntry) {
           throw new Error(`'${settings.inboxFile}' is a folder, not a file.`);
         } else {
@@ -332,6 +333,22 @@ export default class TaskManagerPlugin extends Plugin {
   private getKnownContexts(): string[] {
     return parseContextList(this.settings.knownContexts);
   }
+}
+
+const FRONTMATTER_BLOCK_REGEX = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
+
+/**
+ * Inserts a captured task as the first task line in the file: right after the
+ * frontmatter block if present, otherwise at the very start of the file.
+ */
+function prependTaskLine(content: string, taskLine: string): string {
+  const frontmatterMatch = content.match(FRONTMATTER_BLOCK_REGEX);
+  if (frontmatterMatch) {
+    const frontmatterBlock = frontmatterMatch[0];
+    return `${frontmatterBlock}${taskLine}\n${content.slice(frontmatterBlock.length)}`;
+  }
+
+  return content.length > 0 ? `${taskLine}\n${content}` : `${taskLine}\n`;
 }
 
 class BaseTaskManagerSettingTab extends PluginSettingTab {

@@ -3781,8 +3781,8 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
         const taskLine = `- [ ] ${result.text}${dueSuffix}${contextSuffix}`;
         const existingEntry = this.app.vault.getAbstractFileByPath(settings.inboxFile);
         if (existingEntry instanceof import_obsidian17.TFile) {
-          await this.app.vault.append(existingEntry, `
-${taskLine}`);
+          const content = await this.app.vault.read(existingEntry);
+          await this.app.vault.modify(existingEntry, prependTaskLine(content, taskLine));
         } else if (existingEntry) {
           throw new Error(`'${settings.inboxFile}' is a folder, not a file.`);
         } else {
@@ -3824,6 +3824,18 @@ ${taskLine}`);
     return parseContextList(this.settings.knownContexts);
   }
 };
+var FRONTMATTER_BLOCK_REGEX3 = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
+function prependTaskLine(content, taskLine) {
+  const frontmatterMatch = content.match(FRONTMATTER_BLOCK_REGEX3);
+  if (frontmatterMatch) {
+    const frontmatterBlock = frontmatterMatch[0];
+    return `${frontmatterBlock}${taskLine}
+${content.slice(frontmatterBlock.length)}`;
+  }
+  return content.length > 0 ? `${taskLine}
+${content}` : `${taskLine}
+`;
+}
 var BaseTaskManagerSettingTab = class extends import_obsidian17.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
