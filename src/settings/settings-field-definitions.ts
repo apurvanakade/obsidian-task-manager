@@ -31,7 +31,7 @@ export type TextSettingConfig = {
   name: string;
   description: string;
   placeholder: string;
-  key: keyof Pick<TaskManagerSettings, "statusField" | "dashboardHideKeywords">;
+  key: keyof Pick<TaskManagerSettings, "statusField" | "dashboardHideKeywords" | "knownContexts">;
   value: string;
   multiLine?: boolean;
 };
@@ -112,6 +112,14 @@ export function getTextSettingConfigs(settings: TaskManagerSettings): TextSettin
       placeholder: "e.g. draft, archive, 2024",
       key: "dashboardHideKeywords",
       value: settings.dashboardHideKeywords,
+      multiLine: false,
+    },
+    {
+      name: "Known Contexts",
+      description: "Comma-separated list of task contexts for the dashboard filter and `context::` editor autocomplete (e.g. \"@home, @calls, @errands, @computer\"). The \"@\" prefix is added automatically if omitted.",
+      placeholder: "e.g. @home, @calls, @errands, @computer",
+      key: "knownContexts",
+      value: settings.knownContexts,
       multiLine: false,
     },
   ];

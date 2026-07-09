@@ -18,7 +18,7 @@
  */
 import { App, TFile } from "obsidian";
 import { readFilePriority } from "../tasks/file-priority";
-import { cleanTaskText, getRecurrenceLabel, parseTaskLine, readInlineFieldValue } from "../tasks/task-line-metadata";
+import { cleanTaskText, getContexts, getRecurrenceLabel, parseTaskLine, readInlineFieldValue } from "../tasks/task-line-metadata";
 
 const EMPTY_DUE_DATE_SORT_VALUE = "9999-99-99";
 const MARKDOWN_EXTENSION_REGEX = /\.md$/i;
@@ -32,6 +32,7 @@ export type DashboardRow = {
   dueDate: string | null;
   priority: number;
   recurrence: string;
+  contexts: string[];
 };
 
 type ParsedDashboardTask = {
@@ -40,6 +41,7 @@ type ParsedDashboardTask = {
   dueDate: string | null;
   completedDate: string | null;
   recurrence: string;
+  contexts: string[];
 };
 
 export function getDateStringFromFileName(fileName: string): string | null {
@@ -78,6 +80,7 @@ export async function collectTasksForDate(
           dueDate: parsedTask.dueDate,
           priority,
           recurrence: parsedTask.recurrence,
+          contexts: parsedTask.contexts,
         });
       }
 
@@ -88,6 +91,7 @@ export async function collectTasksForDate(
           dueDate: null,
           priority,
           recurrence: parsedTask.recurrence,
+          contexts: parsedTask.contexts,
         });
       }
     }
@@ -126,6 +130,7 @@ export async function collectInboxTasks(
       dueDate: null,
       priority,
       recurrence: "none",
+      contexts: getContexts(parsedTask.taskBody),
     });
   }
   inboxTasks.sort(compareRows);
@@ -157,6 +162,7 @@ export async function collectOpenTasksFromFile(
       dueDate: null,
       priority,
       recurrence: "none",
+      contexts: getContexts(parsedTask.taskBody),
     });
   }
 
@@ -184,6 +190,7 @@ function parseDashboardTaskLine(line: string): ParsedDashboardTask | null {
     dueDate,
     completedDate,
     recurrence: getRecurrenceLabel(taskBody),
+    contexts: getContexts(taskBody),
   };
 }
 

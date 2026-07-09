@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => TaskManagerPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian15 = require("obsidian");
+var import_obsidian16 = require("obsidian");
 
 // src/commands/register-task-commands.ts
 function registerTaskCommands(plugin, handlers) {
@@ -499,6 +499,7 @@ function parsePriorityValue(value) {
 // src/tasks/task-line-metadata.ts
 var TASK_LINE_STRUCTURE_REGEX = /^(\s*[-*+]\s+\[)( |x|X)(\]\s+)(.*)$/;
 var REPEAT_VALUE_REGEX = /\[(?:repeat|repeats)::\s*(?:every\s+)?([^\]]+?)\s*\]/i;
+var CONTEXT_VALUE_REGEX = /\[(?:context|contexts)::\s*([^\]]+?)\s*\]/i;
 var INLINE_FIELD_REGEX = /\s*\[[^\]]+::\s*[^\]]*\]/g;
 var TAG_REGEX = /(^|\s)#[^\s#]+/g;
 var MULTISPACE_REGEX = /\s+/g;
@@ -533,6 +534,20 @@ function getRecurrenceLabel(taskBody) {
 function readInlineFieldValue(taskBody, fieldRegex) {
   const match = taskBody.match(fieldRegex);
   return match ? match[1].trim() : null;
+}
+function parseContextList(raw) {
+  return raw.split(",").map((token) => normalizeContext(token)).filter((token) => token.length > 0);
+}
+function getContexts(taskBody) {
+  const raw = readInlineFieldValue(taskBody, CONTEXT_VALUE_REGEX);
+  return raw ? parseContextList(raw) : [];
+}
+function normalizeContext(token) {
+  const trimmed = token.trim().toLowerCase();
+  if (!trimmed) {
+    return "";
+  }
+  return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
 }
 function cleanTaskText(taskBody) {
   return taskBody.replace(INLINE_FIELD_REGEX, "").replace(TAG_REGEX, "$1").replace(MULTISPACE_REGEX, " ").trim();
@@ -569,7 +584,8 @@ async function collectTasksForDate(app, taskFolderRoots, inboxFile, dateString) 
           task: parsedTask.text,
           dueDate: parsedTask.dueDate,
           priority,
-          recurrence: parsedTask.recurrence
+          recurrence: parsedTask.recurrence,
+          contexts: parsedTask.contexts
         });
       }
       if (parsedTask.completedDate === dateString) {
@@ -578,7 +594,8 @@ async function collectTasksForDate(app, taskFolderRoots, inboxFile, dateString) 
           task: parsedTask.text,
           dueDate: null,
           priority,
-          recurrence: parsedTask.recurrence
+          recurrence: parsedTask.recurrence,
+          contexts: parsedTask.contexts
         });
       }
     }
@@ -605,7 +622,8 @@ async function collectInboxTasks(app, inboxFile) {
       task: cleanTaskText(parsedTask.taskBody),
       dueDate: null,
       priority,
-      recurrence: "none"
+      recurrence: "none",
+      contexts: getContexts(parsedTask.taskBody)
     });
   }
   inboxTasks.sort(compareRows);
@@ -629,7 +647,8 @@ async function collectOpenTasksFromFile(app, file) {
       task: cleanTaskText(parsedTask.taskBody),
       dueDate: null,
       priority,
-      recurrence: "none"
+      recurrence: "none",
+      contexts: getContexts(parsedTask.taskBody)
     });
   }
   rows.sort(compareRows);
@@ -651,7 +670,8 @@ function parseDashboardTaskLine(line) {
     status,
     dueDate,
     completedDate,
-    recurrence: getRecurrenceLabel(taskBody)
+    recurrence: getRecurrenceLabel(taskBody),
+    contexts: getContexts(taskBody)
   };
 }
 function compareRows(left, right) {
@@ -746,10 +766,12 @@ var MARKDOWN_EXTENSION_REGEX3 = /\.md$/i;
 var _DateDashboardController = class _DateDashboardController {
   constructor(options) {
     this.refreshHandle = null;
+    this.selectedContext = null;
     this.app = options.app;
     this.getTaskFolderRoots = options.getTaskFolderRoots;
     this.getInboxFile = options.getInboxFile;
     this.getHideKeywords = options.getHideKeywords;
+    this.getKnownContexts = options.getKnownContexts;
   }
   async onload(plugin) {
     plugin.registerView(_DateDashboardController.VIEW_TYPE, (leaf) => new DateDashboardView(leaf, this));
@@ -793,15 +815,52 @@ var _DateDashboardController = class _DateDashboardController {
     const title = document.createElement("h2");
     title.textContent = `Tasks for ${dateString}`;
     dashboard.appendChild(title);
+    this.appendContextFilter(dashboard);
     const inboxFile = this.getInboxFile();
     const tasks = await collectTasksForDate(this.app, this.getTaskFolderRoots(), inboxFile, dateString);
-    this.appendDueSection(dashboard, tasks.dueTasks, sourcePath);
+    this.appendDueSection(dashboard, this.filterByContext(tasks.dueTasks), sourcePath);
     const currentPageTasks = activeFile && getDateStringFromFileName(activeFile.name) ? await collectOpenTasksFromFile(this.app, activeFile) : [];
-    this.appendSimpleTaskListSection(dashboard, "Current Page", currentPageTasks);
+    this.appendSimpleTaskListSection(dashboard, "Current Page", this.filterByContext(currentPageTasks));
     const inboxTasks = await collectInboxTasks(this.app, inboxFile);
-    this.appendInboxSection(dashboard, inboxFile, inboxTasks);
-    this.appendTaskTable(dashboard, "Completed", tasks.completedTasks, sourcePath, false);
+    this.appendInboxSection(dashboard, inboxFile, this.filterByContext(inboxTasks));
+    this.appendTaskTable(dashboard, "Completed", this.filterByContext(tasks.completedTasks), sourcePath, false);
     container.appendChild(dashboard);
+  }
+  appendContextFilter(container) {
+    var _a;
+    const knownContexts = this.getKnownContexts();
+    if (knownContexts.length === 0) {
+      return;
+    }
+    const wrapper = document.createElement("div");
+    wrapper.style.marginBottom = "10px";
+    const label = document.createElement("label");
+    label.textContent = "Context: ";
+    wrapper.appendChild(label);
+    const select = document.createElement("select");
+    const allOption = document.createElement("option");
+    allOption.value = "";
+    allOption.textContent = "All";
+    select.appendChild(allOption);
+    for (const context of knownContexts) {
+      const option = document.createElement("option");
+      option.value = context;
+      option.textContent = context;
+      select.appendChild(option);
+    }
+    select.value = (_a = this.selectedContext) != null ? _a : "";
+    select.addEventListener("change", () => {
+      this.selectedContext = select.value.length > 0 ? select.value : null;
+      this.refreshSoon();
+    });
+    label.appendChild(select);
+    container.appendChild(wrapper);
+  }
+  filterByContext(rows) {
+    if (!this.selectedContext) {
+      return rows;
+    }
+    return rows.filter((row) => row.contexts.includes(this.selectedContext));
   }
   /**
    * Renders the Inbox section: heading, link to inbox file, and a plain list of tasks (no table, no priorities).
@@ -830,7 +889,7 @@ var _DateDashboardController = class _DateDashboardController {
     const ul = document.createElement("ul");
     for (const row of inboxTasks) {
       const li = document.createElement("li");
-      li.textContent = row.task;
+      li.textContent = this.formatTaskListText(row);
       ul.appendChild(li);
     }
     container.appendChild(ul);
@@ -848,10 +907,13 @@ var _DateDashboardController = class _DateDashboardController {
     const ul = document.createElement("ul");
     for (const row of rows) {
       const li = document.createElement("li");
-      li.textContent = row.task;
+      li.textContent = this.formatTaskListText(row);
       ul.appendChild(li);
     }
     container.appendChild(ul);
+  }
+  formatTaskListText(row) {
+    return row.contexts.length > 0 ? `${row.task} (${row.contexts.join(", ")})` : row.task;
   }
   appendDueSection(container, rows, sourcePath) {
     const heading = document.createElement("h3");
@@ -923,7 +985,7 @@ var _DateDashboardController = class _DateDashboardController {
     const table = document.createElement("table");
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
-    const labels = showDueDate ? ["Folder", "Filename", "Task", "Priority", "Recurrence", "Due"] : ["Folder", "Filename", "Task", "Priority", "Recurrence"];
+    const labels = showDueDate ? ["Folder", "Filename", "Task", "Priority", "Recurrence", "Context", "Due"] : ["Folder", "Filename", "Task", "Priority", "Recurrence", "Context"];
     for (const label of labels) {
       headerRow.appendChild(this.createTextElement("th", label));
     }
@@ -954,6 +1016,7 @@ var _DateDashboardController = class _DateDashboardController {
           tableRow.appendChild(this.createTaskCell(row.task, row.priority));
           tableRow.appendChild(this.createTextElement("td", String(row.priority)));
           tableRow.appendChild(this.createTextElement("td", row.recurrence));
+          tableRow.appendChild(this.createTextElement("td", row.contexts.join(", ")));
           if (showDueDate) {
             tableRow.appendChild(this.createTextElement("td", formatMonthDay(row.dueDate)));
           }
@@ -1019,8 +1082,70 @@ var DateDashboardView = class extends import_obsidian5.ItemView {
   }
 };
 
-// src/editor/due-date-suggest.ts
+// src/editor/context-suggest.ts
 var import_obsidian6 = require("obsidian");
+var TRIGGER_REGEX = /((?:context|contexts)::)(\s*)([@a-z0-9-]*)$/i;
+var ContextEditorSuggest = class extends import_obsidian6.EditorSuggest {
+  constructor(app, getKnownContexts) {
+    super(app);
+    this.triggerInfo = null;
+    this.activeEditor = null;
+    this.getKnownContexts = getKnownContexts;
+    this.setInstructions([
+      {
+        command: "Enter",
+        purpose: "Insert context"
+      },
+      {
+        command: "Esc",
+        purpose: "Close suggestions"
+      }
+    ]);
+  }
+  onTrigger(cursor, editor) {
+    var _a, _b;
+    const linePrefix = editor.getLine(cursor.line).slice(0, cursor.ch);
+    const triggerMatch = linePrefix.match(TRIGGER_REGEX);
+    if (!triggerMatch) {
+      this.triggerInfo = null;
+      this.activeEditor = null;
+      return null;
+    }
+    const query = (_a = triggerMatch[3]) != null ? _a : "";
+    const typedWhitespace = (_b = triggerMatch[2]) != null ? _b : "";
+    const startCh = linePrefix.length - typedWhitespace.length - query.length;
+    const trigger = {
+      start: { line: cursor.line, ch: startCh },
+      end: cursor,
+      query
+    };
+    this.triggerInfo = trigger;
+    this.activeEditor = editor;
+    return trigger;
+  }
+  getSuggestions(context) {
+    const normalizedQuery = context.query.trim().toLowerCase();
+    return this.getKnownContexts().filter((value) => normalizedQuery.length === 0 || value.toLowerCase().includes(normalizedQuery)).map((value) => ({ value }));
+  }
+  renderSuggestion(value, el) {
+    el.createDiv({ text: value.value });
+  }
+  selectSuggestion(value) {
+    if (!this.activeEditor || !this.triggerInfo) {
+      return;
+    }
+    this.activeEditor.replaceRange(` ${value.value}`, this.triggerInfo.start, this.triggerInfo.end);
+    this.close();
+  }
+  close() {
+    super.close();
+    this.triggerInfo = null;
+    this.activeEditor = null;
+  }
+};
+
+// src/editor/due-date-suggest.ts
+var import_obsidian7 = require("obsidian");
 
 // src/date/date-suggestions.ts
 var DEFAULT_LOOKAHEAD_DAYS = 30;
@@ -1099,7 +1224,7 @@ function isValidIsoDate(value) {
 }
 
 // src/editor/due-date-suggest.ts
-var DateFieldEditorSuggest = class extends import_obsidian6.EditorSuggest {
+var DateFieldEditorSuggest = class extends import_obsidian7.EditorSuggest {
   constructor(app, fieldName, suggestionFactory) {
     super(app);
     this.triggerInfo = null;
@@ -1214,7 +1339,7 @@ function createTodaySuggestionFactory() {
 }
 
 // src/summary/summary-file-io.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 function isInFolder(filePath, folderPath) {
   return filePath.startsWith(`${folderPath}/`);
 }
@@ -1227,7 +1352,7 @@ async function resolveSummaryFile(app, summaryFilePath) {
   if (!existing) {
     return await app.vault.create(summaryFilePath, "");
   }
-  if (existing instanceof import_obsidian7.TFile) {
+  if (existing instanceof import_obsidian8.TFile) {
     return existing;
   }
   throw new Error(`Cannot write summary to '${summaryFilePath}' because a folder already exists at that path.`);
@@ -1269,7 +1394,8 @@ var DEFAULT_SETTINGS = {
   tasksSummaryFile: "Tasks Summary.md",
   projectSummaryFile: "Project Summary.md",
   openSummaryAfterGeneration: false,
-  dashboardHideKeywords: ""
+  dashboardHideKeywords: "",
+  knownContexts: ""
 };
 function normalizeStatusField(field) {
   const trimmedField = String(field || "").trim();
@@ -1282,7 +1408,7 @@ function normalizeBoolean(value, fallback) {
   return typeof value === "boolean" ? value : fallback;
 }
 function normalizeSettings(rawSettings) {
-  var _a;
+  var _a, _b;
   return {
     ...DEFAULT_SETTINGS,
     ...rawSettings,
@@ -1295,12 +1421,13 @@ function normalizeSettings(rawSettings) {
     tasksSummaryFile: normalizeFolder(rawSettings.tasksSummaryFile) || DEFAULT_SETTINGS.tasksSummaryFile,
     projectSummaryFile: normalizeFolder(rawSettings.projectSummaryFile) || DEFAULT_SETTINGS.projectSummaryFile,
     openSummaryAfterGeneration: normalizeBoolean(rawSettings.openSummaryAfterGeneration, DEFAULT_SETTINGS.openSummaryAfterGeneration),
-    dashboardHideKeywords: String((_a = rawSettings.dashboardHideKeywords) != null ? _a : "")
+    dashboardHideKeywords: String((_a = rawSettings.dashboardHideKeywords) != null ? _a : ""),
+    knownContexts: String((_b = rawSettings.knownContexts) != null ? _b : "")
   };
 }
 
 // src/tasks/quick-capture-modal.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 var INPUT_STYLES2 = {
   width: "100%",
   boxSizing: "border-box",
@@ -1325,23 +1452,34 @@ var SECONDARY_BUTTON_STYLES2 = {
   borderRadius: "4px",
   padding: "8px 16px"
 };
-var DUE_SHORTHAND_REGEX = /\s+due:(\S+)$/i;
+var DUE_TOKEN_REGEX = /^due:(\S+)$/i;
+var CONTEXT_TOKEN_REGEX = /^@[^\s,]+$/;
 function parseQuickCaptureShorthand(rawInput) {
-  const trimmed = rawInput.trim();
-  const match = trimmed.match(DUE_SHORTHAND_REGEX);
-  if (!match) {
-    return { text: trimmed, dueDate: null };
+  let remaining = rawInput.trim();
+  let dueDate = null;
+  const contexts = [];
+  while (remaining.length > 0) {
+    const lastSpaceIndex = remaining.lastIndexOf(" ");
+    const lastToken = lastSpaceIndex === -1 ? remaining : remaining.slice(lastSpaceIndex + 1);
+    const dueMatch = lastToken.match(DUE_TOKEN_REGEX);
+    if (dueMatch && dueDate === null) {
+      const resolvedDate = resolveDateInput(dueMatch[1]);
+      if (resolvedDate) {
+        dueDate = resolvedDate;
+        remaining = lastSpaceIndex === -1 ? "" : remaining.slice(0, lastSpaceIndex);
+        continue;
+      }
+    }
+    if (CONTEXT_TOKEN_REGEX.test(lastToken)) {
+      contexts.unshift(lastToken.toLowerCase());
+      remaining = lastSpaceIndex === -1 ? "" : remaining.slice(0, lastSpaceIndex);
+      continue;
+    }
+    break;
   }
-  const resolvedDate = resolveDateInput(match[1]);
-  if (!resolvedDate) {
-    return { text: trimmed, dueDate: null };
-  }
-  return {
-    text: trimmed.slice(0, match.index).trimEnd(),
-    dueDate: resolvedDate
-  };
+  return { text: remaining.trim(), dueDate, contexts };
 }
-var QuickCaptureModal = class extends import_obsidian8.Modal {
+var QuickCaptureModal = class extends import_obsidian9.Modal {
   constructor(options) {
     super(options.app);
     this.inputElement = null;
@@ -1352,11 +1490,11 @@ var QuickCaptureModal = class extends import_obsidian8.Modal {
     contentEl.empty();
     contentEl.createEl("h2", { text: "Capture Task" });
     contentEl.createEl("p", {
-      text: "Added to your Inbox as an open task. Optionally end with due:tomorrow or due:2026-07-20."
+      text: "Added to your Inbox as an open task. Optionally end with due:tomorrow / due:2026-07-20 and/or one or more @context tags."
     });
     this.inputElement = contentEl.createEl("input", {
       type: "text",
-      placeholder: "e.g., Call the dentist due:tomorrow"
+      placeholder: "e.g., Call the dentist due:tomorrow @calls"
     });
     applyStyles2(this.inputElement, INPUT_STYLES2);
     this.inputElement.addEventListener("keydown", (event) => {
@@ -1391,14 +1529,14 @@ var QuickCaptureModal = class extends import_obsidian8.Modal {
     }
     const result = parseQuickCaptureShorthand(rawInput);
     if (!result.text) {
-      new import_obsidian8.Notice("Enter some task text.");
+      new import_obsidian9.Notice("Enter some task text.");
       return;
     }
     try {
       await this.onSubmit(result);
       this.close();
     } catch (error) {
-      new import_obsidian8.Notice(error instanceof Error ? error.message : "Failed to capture task.");
+      new import_obsidian9.Notice(error instanceof Error ? error.message : "Failed to capture task.");
     }
   }
 };
@@ -1604,7 +1742,7 @@ function escapeHtml(value) {
 }
 
 // src/summary/tasks-summary.ts
-var import_obsidian9 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 var DUE_FIELD_REGEX2 = /\[due::\s*([^\]]+?)\s*\]/i;
 async function writeTasksSummary(app, settings, summaryFilePath) {
   const sections = await buildSummarySections(app, settings);
@@ -1648,7 +1786,7 @@ async function collectFirstIncompleteRowsForInbox(app, inboxFilePath) {
     return [];
   }
   const inboxFile = app.vault.getAbstractFileByPath(inboxFilePath);
-  if (!(inboxFile instanceof import_obsidian9.TFile)) {
+  if (!(inboxFile instanceof import_obsidian10.TFile)) {
     return [];
   }
   const row = await findFirstIncompleteRow(app, inboxFile);
@@ -1668,7 +1806,8 @@ async function findFirstIncompleteRow(app, file) {
       task: parsed.task,
       dueDate: parsed.dueDate,
       priority,
-      recurrence: parsed.recurrence
+      recurrence: parsed.recurrence,
+      contexts: parsed.contexts
     };
   }
   return null;
@@ -1681,7 +1820,8 @@ function parseFirstIncompleteTaskLine(line) {
   return {
     task: cleanTaskText(parsedTask.taskBody),
     dueDate: readInlineFieldValue(parsedTask.taskBody, DUE_FIELD_REGEX2),
-    recurrence: getRecurrenceLabel(parsedTask.taskBody)
+    recurrence: getRecurrenceLabel(parsedTask.taskBody),
+    contexts: getContexts(parsedTask.taskBody)
   };
 }
 function renderSummary(sections, hideKeywords) {
@@ -1713,14 +1853,14 @@ function appendSectionTable(lines, rows, hideKeywords) {
     return;
   }
   const folderGroups = buildGroupedTaskTable(rows, hideKeywords);
-  lines.push("| Folder | Filename | Task | Priority | Recurrence | Due |");
-  lines.push("| --- | --- | --- | --- | --- | --- |");
+  lines.push("| Folder | Filename | Task | Priority | Recurrence | Context | Due |");
+  lines.push("| --- | --- | --- | --- | --- | --- | --- |");
   for (const folderGroup of folderGroups) {
     let displayFolder = folderGroup.displayFolderName;
     for (const fileGroup of folderGroup.files) {
       for (const row of fileGroup.rows) {
         lines.push(
-          `| ${escapePipes(displayFolder)} | ${buildFileLink(fileGroup.displayFileName, row.file.path)} | ${buildWeightedTaskText(row.task, row.priority)} | ${row.priority} | ${escapePipes(row.recurrence)} | ${formatMonthDay(row.dueDate)} |`
+          `| ${escapePipes(displayFolder)} | ${buildFileLink(fileGroup.displayFileName, row.file.path)} | ${buildWeightedTaskText(row.task, row.priority)} | ${row.priority} | ${escapePipes(row.recurrence)} | ${escapePipes(row.contexts.join(", "))} | ${formatMonthDay(row.dueDate)} |`
         );
         displayFolder = "";
       }
@@ -1749,25 +1889,25 @@ function buildWeightedTaskText(task, priority) {
 }
 
 // src/settings/settings-ui.ts
-var import_obsidian11 = require("obsidian");
+var import_obsidian12 = require("obsidian");
 
 // src/settings/folder-picker.ts
-var import_obsidian10 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 function openFilePicker(app, onChoose) {
-  if (typeof import_obsidian10.FuzzySuggestModal !== "function") {
-    new import_obsidian10.Notice("File picker is not available in this Obsidian version.");
+  if (typeof import_obsidian11.FuzzySuggestModal !== "function") {
+    new import_obsidian11.Notice("File picker is not available in this Obsidian version.");
     return;
   }
   new FileSuggestModal(app, onChoose).open();
 }
-var FileSuggestModal = class extends import_obsidian10.FuzzySuggestModal {
+var FileSuggestModal = class extends import_obsidian11.FuzzySuggestModal {
   constructor(app, onChoose) {
     super(app);
     this.onChoose = onChoose;
     this.setPlaceholder("Select a file");
   }
   getItems() {
-    return this.app.vault.getAllLoadedFiles().filter((file) => file instanceof import_obsidian10.TFile).map((file) => file.path).sort((left, right) => left.localeCompare(right));
+    return this.app.vault.getAllLoadedFiles().filter((file) => file instanceof import_obsidian11.TFile).map((file) => file.path).sort((left, right) => left.localeCompare(right));
   }
   getItemText(filePath) {
     return filePath;
@@ -1777,20 +1917,20 @@ var FileSuggestModal = class extends import_obsidian10.FuzzySuggestModal {
   }
 };
 function openFolderPicker(app, onChoose) {
-  if (typeof import_obsidian10.FuzzySuggestModal !== "function") {
-    new import_obsidian10.Notice("Folder picker is not available in this Obsidian version.");
+  if (typeof import_obsidian11.FuzzySuggestModal !== "function") {
+    new import_obsidian11.Notice("Folder picker is not available in this Obsidian version.");
     return;
   }
   new FolderSuggestModal(app, onChoose).open();
 }
-var FolderSuggestModal = class extends import_obsidian10.FuzzySuggestModal {
+var FolderSuggestModal = class extends import_obsidian11.FuzzySuggestModal {
   constructor(app, onChoose) {
     super(app);
     this.onChoose = onChoose;
     this.setPlaceholder("Select a folder");
   }
   getItems() {
-    const folders = this.app.vault.getAllLoadedFiles().filter((file) => file instanceof import_obsidian10.TFolder).map((folder) => folder.path).sort((left, right) => left.localeCompare(right));
+    const folders = this.app.vault.getAllLoadedFiles().filter((file) => file instanceof import_obsidian11.TFolder).map((folder) => folder.path).sort((left, right) => left.localeCompare(right));
     return ["", ...folders];
   }
   getItemText(folderPath) {
@@ -1871,6 +2011,14 @@ function getTextSettingConfigs(settings) {
       key: "dashboardHideKeywords",
       value: settings.dashboardHideKeywords,
       multiLine: false
+    },
+    {
+      name: "Known Contexts",
+      description: 'Comma-separated list of task contexts for the dashboard filter and `context::` editor autocomplete (e.g. "@home, @calls, @errands, @computer"). The "@" prefix is added automatically if omitted.',
+      placeholder: "e.g. @home, @calls, @errands, @computer",
+      key: "knownContexts",
+      value: settings.knownContexts,
+      multiLine: false
     }
   ];
 }
@@ -1907,7 +2055,7 @@ var TaskManagerSettingTabRenderer = class {
   }
   addFolderSetting(containerEl, config) {
     const isFilePathSetting = config.key === "inboxFile" || config.key === "tasksSummaryFile" || config.key === "projectSummaryFile";
-    new import_obsidian11.Setting(containerEl).setName(config.name).setDesc(`${config.description} Use Browse to pick a vault ${isFilePathSetting ? "file" : "path"}.`).addText((text) => {
+    new import_obsidian12.Setting(containerEl).setName(config.name).setDesc(`${config.description} Use Browse to pick a vault ${isFilePathSetting ? "file" : "path"}.`).addText((text) => {
       this.configureFolderTextInput(text, config.key, config.value, config.placeholder);
     }).addButton((button) => {
       button.setButtonText("Browse").onClick(() => {
@@ -1926,7 +2074,7 @@ var TaskManagerSettingTabRenderer = class {
     });
   }
   addTextSetting(containerEl, config) {
-    const setting = new import_obsidian11.Setting(containerEl).setName(config.name).setDesc(config.description);
+    const setting = new import_obsidian12.Setting(containerEl).setName(config.name).setDesc(config.description);
     if (config.multiLine) {
       setting.addTextArea((textArea) => {
         textArea.setPlaceholder(config.placeholder).setValue(config.value).onChange(async (value) => {
@@ -1942,7 +2090,7 @@ var TaskManagerSettingTabRenderer = class {
     }
   }
   addToggleSetting(containerEl, config) {
-    new import_obsidian11.Setting(containerEl).setName(config.name).setDesc(config.description).addToggle((toggle) => {
+    new import_obsidian12.Setting(containerEl).setName(config.name).setDesc(config.description).addToggle((toggle) => {
       toggle.setValue(config.value).onChange(async (value) => {
         await this.plugin.updateSetting(config.key, value);
       });
@@ -1956,7 +2104,7 @@ var TaskManagerSettingTabRenderer = class {
 };
 
 // src/tasks/task-processor.ts
-var import_obsidian14 = require("obsidian");
+var import_obsidian15 = require("obsidian");
 
 // src/tasks/task-utils.ts
 var FRONTMATTER_BLOCK_REGEX2 = /^---\r?\n[\s\S]*?\r?\n---/;
@@ -2076,7 +2224,7 @@ function stripResetTaskFields(taskBody) {
 }
 
 // src/tasks/reconciler.ts
-var import_obsidian13 = require("obsidian");
+var import_obsidian14 = require("obsidian");
 
 // src/routing/status-routing.ts
 var ROUTABLE_STATUSES = ["todo", "completed", "waiting", "someday-maybe"];
@@ -2107,7 +2255,7 @@ function assertConfiguredDestinationForStatus(status, settings) {
 }
 
 // src/tasks/due-date-modal.ts
-var import_obsidian12 = require("obsidian");
+var import_obsidian13 = require("obsidian");
 
 // src/tasks/repeat-rules.ts
 var REPEAT_FIELD_REGEX = /\[(?:repeat|repeats)::\s*(?:every\s+)?([^\]]+?)\s*\]/i;
@@ -2303,7 +2451,7 @@ var buttonStyles = {
     cursor: "pointer"
   }
 };
-var DueDateModal = class extends import_obsidian12.Modal {
+var DueDateModal = class extends import_obsidian13.Modal {
   constructor(options) {
     var _a, _b;
     super(options.app);
@@ -2458,19 +2606,19 @@ var DueDateModal = class extends import_obsidian12.Modal {
     }
     const resolvedDate = resolveDateInput(dateValue);
     if (!resolvedDate) {
-      new import_obsidian12.Notice("Enter YYYY-MM-DD or a natural date like today, tomorrow, or a weekday.");
+      new import_obsidian13.Notice("Enter YYYY-MM-DD or a natural date like today, tomorrow, or a weekday.");
       return;
     }
     const repeat = repeatValue.length > 0 ? repeatValue : null;
     if (repeat !== null && parseRepeatRule(`${this.taskLine} [repeat:: ${repeat}]`) === null) {
-      new import_obsidian12.Notice("Enter a valid repeat rule like daily, 2 weeks, Monday, or 5th.");
+      new import_obsidian13.Notice("Enter a valid repeat rule like daily, 2 weeks, Monday, or 5th.");
       return;
     }
     try {
       await this.onSubmit(this.taskLineIndex, this.taskLine, resolvedDate, priority, repeat);
       this.close();
     } catch (error) {
-      new import_obsidian12.Notice(error instanceof Error ? error.message : "Failed to add due date.");
+      new import_obsidian13.Notice(error instanceof Error ? error.message : "Failed to add due date.");
     }
   }
 };
@@ -2518,7 +2666,7 @@ async function showDueDateModalForFirstIncompleteTask(file, taskLineIndex, updat
         targetIndex = fallbackIndex === -1 ? null : fallbackIndex;
       }
       if (targetIndex === null) {
-        new import_obsidian13.Notice(`Could not find "${taskLine2.trim()}" in ${file.name}; the due date was not saved.`);
+        new import_obsidian14.Notice(`Could not find "${taskLine2.trim()}" in ${file.name}; the due date was not saved.`);
         return;
       }
       if (updatedLines[targetIndex].includes("[due::")) {
@@ -2850,12 +2998,12 @@ var TaskProcessor = class {
       assertConfiguredDestinationForStatus(latestStatus, settings);
       await this.routeFileByStatus(file, settings, latestStatus);
     } catch (error) {
-      new import_obsidian14.Notice(error instanceof Error ? error.message : "Failed to route file after status change.");
+      new import_obsidian15.Notice(error instanceof Error ? error.message : "Failed to route file after status change.");
     }
     try {
       await ((_a = this.onFileStatusChanged) == null ? void 0 : _a.call(this));
     } catch (error) {
-      new import_obsidian14.Notice(error instanceof Error ? error.message : "Failed to update summary files after status change.");
+      new import_obsidian15.Notice(error instanceof Error ? error.message : "Failed to update summary files after status change.");
     }
   }
   async routeFileByStatus(file, settings, statusOverride) {
@@ -2876,10 +3024,10 @@ var TaskProcessor = class {
     }
     await ensureParentFoldersExist(this.app, destinationPath);
     const destinationEntry = this.app.vault.getAbstractFileByPath(destinationPath);
-    if (destinationEntry instanceof import_obsidian14.TFolder) {
+    if (destinationEntry instanceof import_obsidian15.TFolder) {
       throw new Error(`Cannot move '${file.path}' because '${destinationPath}' is a folder.`);
     }
-    if (destinationEntry instanceof import_obsidian14.TFile) {
+    if (destinationEntry instanceof import_obsidian15.TFile) {
       const shouldMerge = await promptMergeOrSkip(this.app, file.path, destinationPath);
       if (!shouldMerge) {
         return `Skipped ${file.name} (destination exists).`;
@@ -3012,13 +3160,14 @@ ${sourceContent}`;
 };
 
 // main.ts
-var TaskManagerPlugin = class extends import_obsidian15.Plugin {
+var TaskManagerPlugin = class extends import_obsidian16.Plugin {
   constructor() {
     super(...arguments);
     this.taskProcessor = null;
     this.dateDashboard = null;
     this.dueDateSuggest = null;
     this.createdDateSuggest = null;
+    this.contextSuggest = null;
     this.settings = normalizeSettings({});
   }
   async onload() {
@@ -3046,12 +3195,15 @@ var TaskManagerPlugin = class extends import_obsidian15.Plugin {
       app: this.app,
       getTaskFolderRoots: () => this.getTaskFolderRoots(),
       getInboxFile: () => this.settings.inboxFile,
-      getHideKeywords: () => this.settings.dashboardHideKeywords
+      getHideKeywords: () => this.settings.dashboardHideKeywords,
+      getKnownContexts: () => this.getKnownContexts()
     });
     this.dueDateSuggest = new DueDateEditorSuggest(this.app);
     this.createdDateSuggest = new CreatedDateEditorSuggest(this.app);
+    this.contextSuggest = new ContextEditorSuggest(this.app, () => this.getKnownContexts());
     this.registerEditorSuggest(this.dueDateSuggest);
     this.registerEditorSuggest(this.createdDateSuggest);
+    this.registerEditorSuggest(this.contextSuggest);
     this.addSettingTab(new BaseTaskManagerSettingTab(this.app, this));
     registerTaskCommands(this, {
       resetCurrentFileTasks: () => {
@@ -3078,28 +3230,28 @@ var TaskManagerPlugin = class extends import_obsidian15.Plugin {
     });
     this.registerEvent(this.app.vault.on("create", (file) => {
       var _a;
-      if (!(file instanceof import_obsidian15.TFile)) {
+      if (!(file instanceof import_obsidian16.TFile)) {
         return;
       }
       void ((_a = this.taskProcessor) == null ? void 0 : _a.handleFileCreate(file));
     }));
     this.registerEvent(this.app.vault.on("modify", (file) => {
       var _a;
-      if (!(file instanceof import_obsidian15.TFile)) {
+      if (!(file instanceof import_obsidian16.TFile)) {
         return;
       }
       void ((_a = this.taskProcessor) == null ? void 0 : _a.handleFileModify(file));
     }));
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
       var _a;
-      if (!(file instanceof import_obsidian15.TFile)) {
+      if (!(file instanceof import_obsidian16.TFile)) {
         return;
       }
       (_a = this.taskProcessor) == null ? void 0 : _a.handleFileRename(file, oldPath);
     }));
     this.registerEvent(this.app.vault.on("delete", (file) => {
       var _a;
-      if (!(file instanceof import_obsidian15.TFile)) {
+      if (!(file instanceof import_obsidian16.TFile)) {
         return;
       }
       (_a = this.taskProcessor) == null ? void 0 : _a.handleFileDelete(file);
@@ -3115,6 +3267,7 @@ var TaskManagerPlugin = class extends import_obsidian15.Plugin {
     this.dateDashboard = null;
     this.dueDateSuggest = null;
     this.createdDateSuggest = null;
+    this.contextSuggest = null;
     console.log("Unloading Task Manager plugin");
   }
   async loadSettings() {
@@ -3138,9 +3291,9 @@ var TaskManagerPlugin = class extends import_obsidian15.Plugin {
   async runResetCurrentFileTasks() {
     try {
       const result = await this.taskProcessor.resetCurrentFileTasks();
-      new import_obsidian15.Notice(result);
+      new import_obsidian16.Notice(result);
     } catch (error) {
-      new import_obsidian15.Notice(error instanceof Error ? error.message : "Failed to reset tasks.");
+      new import_obsidian16.Notice(error instanceof Error ? error.message : "Failed to reset tasks.");
     }
   }
   async runCreateTasksSummary() {
@@ -3151,7 +3304,7 @@ var TaskManagerPlugin = class extends import_obsidian15.Plugin {
         includeProjectSummary: true
       });
     } catch (error) {
-      new import_obsidian15.Notice(error instanceof Error ? error.message : "Failed to create Tasks and Projects Summary.");
+      new import_obsidian16.Notice(error instanceof Error ? error.message : "Failed to create Tasks and Projects Summary.");
     }
   }
   async writeSummaries(options) {
@@ -3160,7 +3313,7 @@ var TaskManagerPlugin = class extends import_obsidian15.Plugin {
     const shouldWriteProjectSummary = options.includeProjectSummary && settings.projectSummaryFile.length > 0;
     if (!shouldWriteTasksSummary && !shouldWriteProjectSummary) {
       if (options.showNotice) {
-        new import_obsidian15.Notice("Set Tasks Summary File or Project Summary File in plugin settings before running Tasks Summary.");
+        new import_obsidian16.Notice("Set Tasks Summary File or Project Summary File in plugin settings before running Tasks Summary.");
       }
       return null;
     }
@@ -3169,7 +3322,7 @@ var TaskManagerPlugin = class extends import_obsidian15.Plugin {
     if (options.openAfterGeneration && settings.openSummaryAfterGeneration) {
       const preferredOpenPath = projectSummaryPath != null ? projectSummaryPath : tasksSummaryPath;
       const summaryFile = preferredOpenPath ? this.app.vault.getAbstractFileByPath(preferredOpenPath) : null;
-      if (summaryFile instanceof import_obsidian15.TFile) {
+      if (summaryFile instanceof import_obsidian16.TFile) {
         await this.app.workspace.getLeaf(true).openFile(summaryFile);
       }
     }
@@ -3178,7 +3331,7 @@ var TaskManagerPlugin = class extends import_obsidian15.Plugin {
         tasksSummaryPath ? `Tasks Summary: ${tasksSummaryPath}` : null,
         projectSummaryPath ? `Project Summary: ${projectSummaryPath}` : null
       ].filter((value) => value !== null);
-      new import_obsidian15.Notice(`Summary files written. ${writtenFiles.join(" | ")}`);
+      new import_obsidian16.Notice(`Summary files written. ${writtenFiles.join(" | ")}`);
     }
     return { tasksSummaryPath, projectSummaryPath };
   }
@@ -3199,7 +3352,7 @@ var TaskManagerPlugin = class extends import_obsidian15.Plugin {
         const file = await this.app.vault.create(projectPath, content);
         await ((_a = this.taskProcessor) == null ? void 0 : _a.handleFileCreate(file));
         await this.app.workspace.getLeaf(true).openFile(file);
-        new import_obsidian15.Notice(`Created ${projectPath}.`);
+        new import_obsidian16.Notice(`Created ${projectPath}.`);
       }
     });
     modal.open();
@@ -3207,16 +3360,17 @@ var TaskManagerPlugin = class extends import_obsidian15.Plugin {
   runQuickCapture() {
     const settings = this.getSettings();
     if (!settings.inboxFile) {
-      new import_obsidian15.Notice("Set Inbox File in plugin settings before capturing tasks.");
+      new import_obsidian16.Notice("Set Inbox File in plugin settings before capturing tasks.");
       return;
     }
     const modal = new QuickCaptureModal({
       app: this.app,
       onSubmit: async (result) => {
         const dueSuffix = result.dueDate ? ` [due:: ${result.dueDate}]` : "";
-        const taskLine = `- [ ] ${result.text}${dueSuffix}`;
+        const contextSuffix = result.contexts.length > 0 ? ` [context:: ${result.contexts.join(", ")}]` : "";
+        const taskLine = `- [ ] ${result.text}${dueSuffix}${contextSuffix}`;
         const existingEntry = this.app.vault.getAbstractFileByPath(settings.inboxFile);
-        if (existingEntry instanceof import_obsidian15.TFile) {
+        if (existingEntry instanceof import_obsidian16.TFile) {
           await this.app.vault.append(existingEntry, `
 ${taskLine}`);
         } else if (existingEntry) {
@@ -3226,7 +3380,7 @@ ${taskLine}`);
           await this.app.vault.create(settings.inboxFile, `${taskLine}
 `);
         }
-        new import_obsidian15.Notice(`Captured: ${result.text}`);
+        new import_obsidian16.Notice(`Captured: ${result.text}`);
       }
     });
     modal.open();
@@ -3234,12 +3388,12 @@ ${taskLine}`);
   async runOpenRandomSomedayMaybeProject() {
     const settings = this.getSettings();
     if (!settings.somedayMaybeProjectsFolder) {
-      new import_obsidian15.Notice("Set Someday-Maybe Projects Folder in plugin settings first.");
+      new import_obsidian16.Notice("Set Someday-Maybe Projects Folder in plugin settings first.");
       return;
     }
     const file = pickRandomFile(getSomedayMaybeProjectFiles(this.app, settings));
     if (!file) {
-      new import_obsidian15.Notice("No project files found in the Someday-Maybe Projects Folder.");
+      new import_obsidian16.Notice("No project files found in the Someday-Maybe Projects Folder.");
       return;
     }
     await this.app.workspace.getLeaf(true).openFile(file);
@@ -3247,8 +3401,11 @@ ${taskLine}`);
   getTaskFolderRoots() {
     return getTaskFolderRoots(this.settings);
   }
+  getKnownContexts() {
+    return parseContextList(this.settings.knownContexts);
+  }
 };
-var BaseTaskManagerSettingTab = class extends import_obsidian15.PluginSettingTab {
+var BaseTaskManagerSettingTab = class extends import_obsidian16.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.renderer = new TaskManagerSettingTabRenderer(this, plugin);

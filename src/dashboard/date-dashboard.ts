@@ -30,6 +30,7 @@ type DateDashboardControllerOptions = {
   getTaskFolderRoots: () => string[];
   getInboxFile: () => string;
   getHideKeywords: () => string;
+  getKnownContexts: () => string[];
 };
 
 export class DateDashboardController {
@@ -40,12 +41,15 @@ export class DateDashboardController {
   private refreshHandle: number | null = null;
   private readonly getInboxFile: () => string;
   private readonly getHideKeywords: () => string;
+  private readonly getKnownContexts: () => string[];
+  private selectedContext: string | null = null;
 
   constructor(options: DateDashboardControllerOptions) {
     this.app = options.app;
     this.getTaskFolderRoots = options.getTaskFolderRoots;
     this.getInboxFile = options.getInboxFile;
     this.getHideKeywords = options.getHideKeywords;
+    this.getKnownContexts = options.getKnownContexts;
   }
 
   async onload(plugin: Plugin): Promise<void> {
@@ -99,23 +103,69 @@ export class DateDashboardController {
     title.textContent = `Tasks for ${dateString}`;
     dashboard.appendChild(title);
 
+    this.appendContextFilter(dashboard);
+
     // Due tasks
     const inboxFile = this.getInboxFile();
     const tasks = await collectTasksForDate(this.app, this.getTaskFolderRoots(), inboxFile, dateString);
-    this.appendDueSection(dashboard, tasks.dueTasks, sourcePath);
+    this.appendDueSection(dashboard, this.filterByContext(tasks.dueTasks), sourcePath);
 
     const currentPageTasks = activeFile && getDateStringFromFileName(activeFile.name)
       ? await collectOpenTasksFromFile(this.app, activeFile)
       : [];
-    this.appendSimpleTaskListSection(dashboard, "Current Page", currentPageTasks);
+    this.appendSimpleTaskListSection(dashboard, "Current Page", this.filterByContext(currentPageTasks));
 
     // Inbox section (from inbox file)
     const inboxTasks = await collectInboxTasks(this.app, inboxFile);
-    this.appendInboxSection(dashboard, inboxFile, inboxTasks);
+    this.appendInboxSection(dashboard, inboxFile, this.filterByContext(inboxTasks));
     // Completed tasks
-    this.appendTaskTable(dashboard, "Completed", tasks.completedTasks, sourcePath, false);
+    this.appendTaskTable(dashboard, "Completed", this.filterByContext(tasks.completedTasks), sourcePath, false);
 
     container.appendChild(dashboard);
+  }
+
+  private appendContextFilter(container: HTMLElement): void {
+    const knownContexts = this.getKnownContexts();
+    if (knownContexts.length === 0) {
+      return;
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.style.marginBottom = "10px";
+
+    const label = document.createElement("label");
+    label.textContent = "Context: ";
+    wrapper.appendChild(label);
+
+    const select = document.createElement("select");
+    const allOption = document.createElement("option");
+    allOption.value = "";
+    allOption.textContent = "All";
+    select.appendChild(allOption);
+
+    for (const context of knownContexts) {
+      const option = document.createElement("option");
+      option.value = context;
+      option.textContent = context;
+      select.appendChild(option);
+    }
+
+    select.value = this.selectedContext ?? "";
+    select.addEventListener("change", () => {
+      this.selectedContext = select.value.length > 0 ? select.value : null;
+      this.refreshSoon();
+    });
+
+    label.appendChild(select);
+    container.appendChild(wrapper);
+  }
+
+  private filterByContext<T extends { contexts: string[] }>(rows: T[]): T[] {
+    if (!this.selectedContext) {
+      return rows;
+    }
+
+    return rows.filter((row) => row.contexts.includes(this.selectedContext!));
   }
 
   /**
@@ -148,7 +198,7 @@ export class DateDashboardController {
     const ul = document.createElement("ul");
     for (const row of inboxTasks) {
       const li = document.createElement("li");
-      li.textContent = row.task;
+      li.textContent = this.formatTaskListText(row);
       ul.appendChild(li);
     }
     container.appendChild(ul);
@@ -169,10 +219,14 @@ export class DateDashboardController {
     const ul = document.createElement("ul");
     for (const row of rows) {
       const li = document.createElement("li");
-      li.textContent = row.task;
+      li.textContent = this.formatTaskListText(row);
       ul.appendChild(li);
     }
     container.appendChild(ul);
+  }
+
+  private formatTaskListText(row: DashboardRow): string {
+    return row.contexts.length > 0 ? `${row.task} (${row.contexts.join(", ")})` : row.task;
   }
 
   private appendDueSection(container: HTMLElement, rows: DashboardRow[], sourcePath: string): void {
@@ -262,8 +316,8 @@ export class DateDashboardController {
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
     const labels = showDueDate
-      ? ["Folder", "Filename", "Task", "Priority", "Recurrence", "Due"]
-      : ["Folder", "Filename", "Task", "Priority", "Recurrence"];
+      ? ["Folder", "Filename", "Task", "Priority", "Recurrence", "Context", "Due"]
+      : ["Folder", "Filename", "Task", "Priority", "Recurrence", "Context"];
     for (const label of labels) {
       headerRow.appendChild(this.createTextElement("th", label));
     }
@@ -300,6 +354,7 @@ export class DateDashboardController {
           tableRow.appendChild(this.createTaskCell(row.task, row.priority));
           tableRow.appendChild(this.createTextElement("td", String(row.priority)));
           tableRow.appendChild(this.createTextElement("td", row.recurrence));
+          tableRow.appendChild(this.createTextElement("td", row.contexts.join(", ")));
           if (showDueDate) {
             tableRow.appendChild(this.createTextElement("td", formatMonthDay(row.dueDate)));
           }

@@ -21,6 +21,7 @@ Automates task lifecycle management in Obsidian: state transitions, completion m
    | Open Tasks Summary After Generation | Whether to open the generated project summary note automatically after generation | Off |
    | Completed Status Field | Frontmatter field name written on completion | `status` |
    | Dashboard Filename Hide Keywords | Comma-separated keywords stripped from dashboard display names | — |
+   | Known Contexts | Comma-separated task contexts (e.g. `@home, @calls, @errands`) powering the dashboard Context filter and `context::` editor autocomplete | — |
 
 ## Commands
 
@@ -53,6 +54,7 @@ For each file, the task summary includes the **first incomplete task** and rende
 - Task
 - Priority
 - Recurrence
+- Context
 - Due (`MM-DD`)
 
 Rows are ordered with priority 1 first, then due date, then file path. Folder and filename display use the same hide-keyword cleanup as the date dashboard. The recurrence column shows the repeat value or `none` for non-recurring tasks. Task text is rendered as **bold** for priority 1, *italic* for priority 2, and default styling for priority 3, using the file's frontmatter priority.
@@ -76,7 +78,7 @@ Opens a random project file from the configured **Someday-Maybe Projects Folder*
 ### Quick Capture Task
 Opens a single-line capture modal from anywhere in the vault — no need to open the Inbox File first. Also available as a list-plus-icon ribbon button in the left sidebar. Press Enter or click **Capture** to append the text as a new open task (`- [ ] ...`) to the configured **Inbox File**, creating that file first if it doesn't exist yet.
 
-End the input with `due:` followed by a date to attach a due date at capture time, e.g. `Call the dentist due:tomorrow` or `Renew passport due:2026-08-01` — accepts the same values as the `due::` editor autocomplete (ISO dates, `today`/`tomorrow`, weekday names). If the trailing `due:` token isn't a recognizable date, it's left in place as part of the task text instead of being dropped. If the Inbox File setting is empty, a notice explains why the modal didn't open.
+End the input with `due:` followed by a date to attach a due date at capture time, e.g. `Call the dentist due:tomorrow` or `Renew passport due:2026-08-01` — accepts the same values as the `due::` editor autocomplete (ISO dates, `today`/`tomorrow`, weekday names). Also end the input with one or more `@context` tags, in any order relative to `due:`, e.g. `Call the dentist due:tomorrow @calls` or `Water the plants @home`. Recognized trailing tokens are stripped from the task text and written as `[due:: ...]` / `[context:: ...]` inline fields; an unrecognized trailing `due:` token is left in place as part of the task text instead of being dropped. If the Inbox File setting is empty, a notice explains why the modal didn't open.
 
 ## Automatic Behavior (live editing)
 
@@ -154,6 +156,7 @@ Tasks use Dataview-style double-colon inline fields on the same line as the chec
 | `[completion-time:: HH:MM:SS]` | Stamped on task completion |
 | `[repeat:: X]` / `[repeats:: X]` | Recurring interval; supports aliases, numeric intervals, weekday names like `Monday`, and ordinal month-days like `5th` |
 | `[created:: YYYY-MM-DD]` | Creation date (editor suggest only) |
+| `[context:: @home]` / `[contexts:: @home, @calls]` | One or more task contexts, comma-separated. The `@` prefix is added automatically if omitted |
 
 Project priority is stored in file frontmatter as `priority: N`, where `1` is highest and missing/invalid values default to `3`.
 
@@ -161,24 +164,26 @@ Project priority is stored in file frontmatter as `priority: N`, where `1` is hi
 
 - Typing `due::` opens a suggestion list from today through +30 days, labeled Today / Tomorrow / weekday names. Matches on ISO date or natural-language label. Inserts ` YYYY-MM-DD`.
 - Typing `created::` suggests today's date. Inserts ` YYYY-MM-DD`.
+- Typing `context::` or `contexts::` suggests from the configured **Known Contexts** setting, filtered as you type. Inserts ` @context`.
 
 ## Date Dashboard
 
 When the active note is named `YYYY-MM-DD`, a live dashboard opens in the right sidebar with four sections:
 
-**Due** — open tasks with `[due:: YYYY-MM-DD]` where the due date is on or before the note date. Scanned from the configured Projects / Completed / Waiting / Someday-Maybe folders and the configured Inbox File. Rendered as a single table with columns Folder | Filename | Task | Priority | Recurrence | Due (`MM-DD`) and sorted by file priority, then due date.
+**Due** — open tasks with `[due:: YYYY-MM-DD]` where the due date is on or before the note date. Scanned from the configured Projects / Completed / Waiting / Someday-Maybe folders and the configured Inbox File. Rendered as a single table with columns Folder | Filename | Task | Priority | Recurrence | Context | Due (`MM-DD`) and sorted by file priority, then due date.
 
 **Current Page** — all open tasks written directly on the active date note itself. Rendered as an unordered list so tasks on the current page appear in the dashboard even when that note is outside the configured task folders.
 
 **Inbox** — all open tasks from the configured Inbox File, regardless of date. Rendered as a heading, a file link, and an unordered list.
 
-**Completed** — tasks with `[completion-date:: YYYY-MM-DD]` matching the note date from the configured Projects / Completed / Waiting / Someday-Maybe folders and the configured Inbox File. Columns: Folder | Filename | Task | Priority | Recurrence. Sorted by file priority, then file path.
+**Completed** — tasks with `[completion-date:: YYYY-MM-DD]` matching the note date from the configured Projects / Completed / Waiting / Someday-Maybe folders and the configured Inbox File. Columns: Folder | Filename | Task | Priority | Recurrence | Context. Sorted by file priority, then file path.
 
 Display notes:
 - Due and Completed tables are grouped by parent folder and filename using `rowspan`, preserving priority-first row ordering.
 - Task text strips all inline fields and hashtag tags and is rendered as **bold** for priority 1, *italic* for priority 2, and default styling for priority 3, using the file's frontmatter priority.
 - **Dashboard Filename Hide Keywords**: each keyword is removed case-insensitively from folder and filename display names.
 - On non-date notes, the dashboard defaults to today's date.
+- **Context filter**: when **Known Contexts** is configured, a dropdown appears above the sections. Selecting a context narrows Due, Current Page, Inbox, and Completed to tasks tagged with that context (via `[context:: ...]`); Current Page and Inbox list items also show their contexts in parentheses after the task text. The filter selection is per-session UI state, not saved to settings.
 
 ## Code Organization
 
@@ -208,6 +213,7 @@ Display notes:
 | `src/dashboard/dashboard-task-data.ts` | Task parsing/filtering/sorting for dashboard display |
 | `src/date/date-utils.ts` | Pure shared date formatting and ISO date helpers |
 | `src/editor/due-date-suggest.ts` | EditorSuggest providers for `due::` and `created::` inline fields |
+| `src/editor/context-suggest.ts` | EditorSuggest for `context::`/`contexts::`, sourced from the Known Contexts setting |
 | `src/date/date-suggestions.ts` | Canonical date suggestion list (ISO dates + human labels) |
 | `src/settings/settings-utils.ts` | `TaskManagerSettings` type, `DEFAULT_SETTINGS`, `normalizeSettings()` |
 | `src/settings/settings-ui.ts` | PluginSettingTab renderer |
@@ -225,6 +231,7 @@ graph TD
    D[date-dashboard.ts]
    DTD[dashboard-task-data.ts]
    E[due-date-suggest.ts]
+   CS[context-suggest.ts]
    DU[date-utils.ts]
    DS[date-suggestions.ts]
 
@@ -256,6 +263,7 @@ graph TD
 
     D --> M
     E --> M
+    CS --> M
     SU --> M
     SUI --> M
     RT --> M
@@ -265,6 +273,7 @@ graph TD
     PSUM --> M
     CMD --> M
     QC --> M
+    DS --> QC
 
      DTD --> D
      DU --> D

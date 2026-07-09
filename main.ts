@@ -19,9 +19,11 @@ import { App, Notice, Plugin, PluginSettingTab, TFile } from "obsidian";
 import { registerTaskCommands } from "./src/commands/register-task-commands";
 import { AddProjectModal, buildProjectFileContent, buildProjectFilePath } from "./src/projects/add-project-modal";
 import { DateDashboardController } from "./src/dashboard/date-dashboard";
+import { ContextEditorSuggest } from "./src/editor/context-suggest";
 import { CreatedDateEditorSuggest, DueDateEditorSuggest } from "./src/editor/due-date-suggest";
 import { getSomedayMaybeProjectFiles, pickRandomFile } from "./src/projects/random-project";
 import { normalizeSettings, TaskManagerSettings } from "./src/settings/settings-utils";
+import { parseContextList } from "./src/tasks/task-line-metadata";
 import { QuickCaptureModal } from "./src/tasks/quick-capture-modal";
 import { writeProjectSummary } from "./src/summary/project-summary";
 import { writeTasksSummary } from "./src/summary/tasks-summary";
@@ -34,6 +36,7 @@ export default class TaskManagerPlugin extends Plugin {
   private dateDashboard: DateDashboardController | null = null;
   private dueDateSuggest: DueDateEditorSuggest | null = null;
   private createdDateSuggest: CreatedDateEditorSuggest | null = null;
+  private contextSuggest: ContextEditorSuggest | null = null;
 
   private settings: TaskManagerSettings = normalizeSettings({});
 
@@ -63,11 +66,14 @@ export default class TaskManagerPlugin extends Plugin {
       getTaskFolderRoots: () => this.getTaskFolderRoots(),
       getInboxFile: () => this.settings.inboxFile,
       getHideKeywords: () => this.settings.dashboardHideKeywords,
+      getKnownContexts: () => this.getKnownContexts(),
     });
     this.dueDateSuggest = new DueDateEditorSuggest(this.app);
     this.createdDateSuggest = new CreatedDateEditorSuggest(this.app);
+    this.contextSuggest = new ContextEditorSuggest(this.app, () => this.getKnownContexts());
     this.registerEditorSuggest(this.dueDateSuggest);
     this.registerEditorSuggest(this.createdDateSuggest);
+    this.registerEditorSuggest(this.contextSuggest);
     this.addSettingTab(new BaseTaskManagerSettingTab(this.app, this));
     registerTaskCommands(this, {
       resetCurrentFileTasks: () => {
@@ -131,6 +137,7 @@ export default class TaskManagerPlugin extends Plugin {
     this.dateDashboard = null;
     this.dueDateSuggest = null;
     this.createdDateSuggest = null;
+    this.contextSuggest = null;
     console.log("Unloading Task Manager plugin");
   }
 
@@ -255,7 +262,8 @@ export default class TaskManagerPlugin extends Plugin {
       app: this.app,
       onSubmit: async (result) => {
         const dueSuffix = result.dueDate ? ` [due:: ${result.dueDate}]` : "";
-        const taskLine = `- [ ] ${result.text}${dueSuffix}`;
+        const contextSuffix = result.contexts.length > 0 ? ` [context:: ${result.contexts.join(", ")}]` : "";
+        const taskLine = `- [ ] ${result.text}${dueSuffix}${contextSuffix}`;
 
         const existingEntry = this.app.vault.getAbstractFileByPath(settings.inboxFile);
         if (existingEntry instanceof TFile) {
@@ -292,6 +300,10 @@ export default class TaskManagerPlugin extends Plugin {
 
   private getTaskFolderRoots(): string[] {
     return getTaskFolderRoots(this.settings);
+  }
+
+  private getKnownContexts(): string[] {
+    return parseContextList(this.settings.knownContexts);
   }
 }
 

@@ -47,6 +47,7 @@ src/
     dashboard-task-data.ts       ← Task parsing/filtering/sorting for dashboard display
   editor/
     due-date-suggest.ts          ← EditorSuggest for due:: and created:: inline fields
+    context-suggest.ts           ← EditorSuggest for context::/contexts::, sourced from settings.knownContexts
   date/
     date-utils.ts                ← Pure shared date formatting and ISO date helpers
     date-suggestions.ts          ← Canonical date suggestion list (ISO dates + human labels)
@@ -75,7 +76,7 @@ src/
 - **Tasks and Projects Summary** — creates or overwrites both generated summary files. The configured Tasks Summary File gets the task-table note with sections for Projects, Waiting, Someday-Maybe, and Inbox. The configured Project Summary File gets a depth-aware project table grouped by Projects, Waiting, Someday-Maybe, and Completed with each project's file priority; the active `Projects` section is further split into Priority 1, Priority 2, and Priority 3 subsections, with missing priorities treated as 3. Existing summary files are overwritten in place with no merge/replace prompt, both generated notes are excluded from automatic task routing/reconciliation, project status changes regenerate them silently, and DueDateModal submits regenerate them silently after due date/priority updates
 - **Add New Project** — opens a modal asking for Name, Folder, Priority, Status (`todo`, `waiting`, or `someday-maybe`), and optional starter tasks; the Folder field shows matching vault folders as you type; the command creates the project file, writes status/priority to frontmatter, creates missing parent folders, and opens the new file
 - **Open Random Someday-Maybe Project** — lists markdown files under the configured Someday-Maybe Projects Folder (excluding the Tasks Summary, Project Summary, and Inbox files, in case one is misconfigured into that folder), picks one uniformly at random via `getSomedayMaybeProjectFiles()`/`pickRandomFile()` in `src/projects/random-project.ts`, and opens it in a new leaf. Also bound to a `shuffle` ribbon icon (`main.ts` `addRibbonIcon`) calling the same handler. Shows a `Notice` instead of opening a file when the folder setting is empty or no candidate files exist.
-- **Quick Capture Task** — opens `QuickCaptureModal` (`src/tasks/quick-capture-modal.ts`), a single-input modal. Enter or the Capture button submits. `parseQuickCaptureShorthand()` splits a trailing `due:<value>` token off the input and resolves it via the shared `resolveDateInput()` (`src/date/date-suggestions.ts`); if the token doesn't resolve to a date, it's left in the task text unchanged rather than dropped. `main.ts`'s `runQuickCapture()` appends `- [ ] <text> [due:: ...]` (when a due date resolved) to the configured Inbox File via `app.vault.append()`, creating the file (and its parent folders via `ensureParentFoldersExist()`) if it doesn't exist yet. Also bound to a `list-plus` ribbon icon. Shows a `Notice` instead of opening the modal when the Inbox File setting is empty. Because the Inbox File is already tracked by `TaskProcessor.shouldTrackFile()` and the dashboard's `isRelevantFile()`, the plain append flows through the normal `vault.on("modify")` pipeline with no additional state-tracking or refresh code needed.
+- **Quick Capture Task** — opens `QuickCaptureModal` (`src/tasks/quick-capture-modal.ts`), a single-input modal. Enter or the Capture button submits. `parseQuickCaptureShorthand()` repeatedly peels recognized trailing tokens (a `due:<value>` token and/or one or more `@context` tokens, in any order) off the raw input — `due:` is resolved via the shared `resolveDateInput()` (`src/date/date-suggestions.ts`); an unresolvable `due:` token, or any token that isn't a recognized shorthand, stops the peel and is left in the task text unchanged rather than dropped. `main.ts`'s `runQuickCapture()` appends `- [ ] <text> [due:: ...] [context:: ...]` (fields included only when present) to the configured Inbox File via `app.vault.append()`, creating the file (and its parent folders via `ensureParentFoldersExist()`) if it doesn't exist yet. Also bound to a `list-plus` ribbon icon. Shows a `Notice` instead of opening the modal when the Inbox File setting is empty. Because the Inbox File is already tracked by `TaskProcessor.shouldTrackFile()` and the dashboard's `isRelevantFile()`, the plain append flows through the normal `vault.on("modify")` pipeline with no additional state-tracking or refresh code needed.
 
 ### Settings Persistence
 
@@ -83,7 +84,7 @@ Settings live in `data.json` (loaded/saved via `plugin.loadData()` / `plugin.sav
 
 Configurable paths: Projects Folder, Completed Projects Folder, Waiting Projects Folder, Someday-Maybe Projects Folder, Inbox File (file picker, not folder), Tasks Summary File (file picker), Project Summary File (file picker).
 
-Other settings: Completed Status Field (default `status`), Open Tasks Summary After Generation (default off; opens the generated Project Summary File first), Dashboard Filename Hide Keywords (comma-separated keywords stripped from dashboard display names).
+Other settings: Completed Status Field (default `status`), Open Tasks Summary After Generation (default off; opens the generated Project Summary File first), Dashboard Filename Hide Keywords (comma-separated keywords stripped from dashboard display names), Known Contexts (comma-separated, default empty; powers the dashboard Context filter dropdown and `context::`/`contexts::` editor autocomplete via `parseContextList()`).
 
 ### Status Routing
 
@@ -100,6 +101,7 @@ Tasks use standard markdown checkboxes. Inline fields use Dataview-style double-
 - `[completion-time:: HH:MM:SS]` — stamped on completion
 - `[repeat:: X]` / `[repeats:: X]` — recurring interval; accepts singular/plural aliases, adjective aliases (`daily`, `weekly`, `monthly`, `yearly`), numeric intervals like `2 weeks`, weekday names like `Monday`, and ordinal month-days like `5th`; `every` is optional for backward compatibility
 - `[created:: YYYY-MM-DD]` — creation date (editor suggest only; not used by reconciler)
+- `[context:: @home]` / `[contexts:: @home, @calls]` — one or more comma-separated task contexts, parsed by `getContexts()`/`parseContextList()` in `task-line-metadata.ts`; each token is lowercased and auto-prefixed with `@` if missing. Stripped from display text by the same generic `INLINE_FIELD_REGEX` that strips `due`/`repeat`/etc — no special-casing needed there.
 
 Project priority is stored in file frontmatter as `priority: N`, where `1` is highest and missing/invalid values default to `3`.
 
@@ -182,12 +184,16 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 
 ### Display Formatting
 
-- Due and Completed tables have columns: **Folder** | **Filename** | **Task** | **Priority** | **Recurrence** | (Due only) **Due** in `MM-DD` format
+- Due and Completed tables have columns: **Folder** | **Filename** | **Task** | **Priority** | **Recurrence** | **Context** | (Due only) **Due** in `MM-DD` format
 - Rows are grouped by parent folder and filename with `rowspan`, preserving priority-first row ordering
 - Folder display uses the immediate parent directory segment; Filename strips `.md`
 - **Dashboard Filename Hide Keywords**: each comma-separated keyword is removed case-insensitively from both folder and filename display. No automatic date/number stripping is applied.
 - Task text strips all inline fields and hashtag tags and is rendered as **bold** for priority 1, *italic* for priority 2, and default styling for priority 3 using the file's frontmatter priority
 - Styling relies on native Obsidian markdown/theme rendering — no plugin-specific dashboard CSS
+
+### Context Filter
+
+When **Known Contexts** is non-empty, `DateDashboardController.appendContextFilter()` renders a `<select>` above the sections (All + one option per known context). The selection is held in `DateDashboardController.selectedContext` — a controller-instance field, not a plugin setting — because there's a single shared controller instance for the plugin's lifetime (see `main.ts`'s `this.dateDashboard`), so this is simpler than threading state through the `ItemView`. Changing it calls `refreshSoon()` and `filterByContext()` narrows all four sections' rows (Due, Current Page, Inbox, Completed) to rows whose `contexts: string[]` includes the selected value. Current Page and Inbox render as plain lists, so their context is shown inline via `formatTaskListText()` (task text + `(@context, ...)`) rather than a table column.
 
 ## Tasks Summary
 
@@ -216,6 +222,7 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
   - Task
   - Priority
   - Recurrence
+  - Context
   - Due (`MM-DD`)
 - Rows are ordered by file priority ascending, then due date, then file path
 - The recurrence column shows the repeat value or `none` for non-recurring tasks
@@ -251,6 +258,8 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 - `due::` — suggests today through +30 days, labeled Today/Tomorrow/weekday names; matches on ISO date string or natural-language label
 - `created::` — suggests today only
 - Selected suggestion inserts ` YYYY-MM-DD` (single space prefix), normalizing fields as `due:: YYYY-MM-DD`
+
+`ContextEditorSuggest` (`src/editor/context-suggest.ts`) triggers on `context::`/`contexts::` and is a separate, independent `EditorSuggest` implementation (not built on `DateFieldEditorSuggest`, since its suggestion source is a string list rather than dates). It sources suggestions from `settings.knownContexts` (via `parseContextList()`), filters case-insensitively as you type, and inserts ` @context` on selection. It only re-triggers right after `::`, so it does not offer suggestions for a second, comma-separated context typed after the first — that's an accepted v1 limitation, not a bug.
 
 ## Key Conventions
 
@@ -337,4 +346,7 @@ Run after meaningful logic changes:
 22. Renaming or deleting a tracked file from Obsidian's file explorer (not via a plugin-driven move) keeps subsequent reconciliation correct — completing/uncompleting a task in the renamed file does not spuriously re-trigger recurring-task insertion from stale state
 23. If a Due Date Modal's target task line is edited (or the file is otherwise modified) while the modal is still open, submitting either still updates the correct line or shows a Notice explaining the due date wasn't saved — it never silently no-ops
 24. Routing a file onto an existing destination merges by content rather than duplicating: retrying an already-merged move does not re-append a second `---`-divided copy
-25. `Quick Capture Task` (command and ribbon icon) opens from any file, appends the entered text as an open task to the Inbox File (creating it if missing) without requiring the Inbox File to be open; a trailing `due:tomorrow`/`due:YYYY-MM-DD` token is converted to `[due:: YYYY-MM-DD]` and stripped from the task text; an unrecognized trailing `due:` token is left in the task text; shows a Notice instead of opening the modal when the Inbox File setting is empty
+25. `Quick Capture Task` (command and ribbon icon) opens from any file, appends the entered text as an open task to the Inbox File (creating it if missing) without requiring the Inbox File to be open; a trailing `due:tomorrow`/`due:YYYY-MM-DD` token is converted to `[due:: YYYY-MM-DD]` and stripped from the task text; a trailing `@context` token (in any order relative to `due:`) is converted to `[context:: @context]` and stripped; an unrecognized trailing `due:` token is left in the task text; shows a Notice instead of opening the modal when the Inbox File setting is empty
+26. `[context:: @home]`/`[contexts:: @a, @b]` on a task line is parsed into a Context column (Due/Completed tables, Tasks Summary) and inline in Current Page/Inbox list items; missing contexts render as an empty cell, not an error
+27. Dashboard Context filter dropdown only appears when Known Contexts is non-empty; selecting a context narrows all four dashboard sections to matching rows; selecting "All" restores the full list; the selection persists across dashboard refreshes within the session but is not saved to settings
+28. Typing `context::` or `contexts::` shows suggestions from Known Contexts, filtered as you type, and inserts ` @context`

@@ -27,6 +27,7 @@ export type TaskManagerSettings = {
   projectSummaryFile: string;
   openSummaryAfterGeneration: boolean;
   dashboardHideKeywords: string;
+  knownContexts: string;
 };
 
 export type FolderSettingKey = keyof Pick<
@@ -45,6 +46,7 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   projectSummaryFile: "Project Summary.md",
   openSummaryAfterGeneration: false,
   dashboardHideKeywords: "",
+  knownContexts: "",
 };
 
 function normalizeStatusField(field: string | null | undefined): string {
@@ -74,5 +76,6 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
     projectSummaryFile: normalizeFolder(rawSettings.projectSummaryFile) || DEFAULT_SETTINGS.projectSummaryFile,
     openSummaryAfterGeneration: normalizeBoolean(rawSettings.openSummaryAfterGeneration, DEFAULT_SETTINGS.openSummaryAfterGeneration),
     dashboardHideKeywords: String(rawSettings.dashboardHideKeywords ?? ""),
+    knownContexts: String(rawSettings.knownContexts ?? ""),
   };
 }

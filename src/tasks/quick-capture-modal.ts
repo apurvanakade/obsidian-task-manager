@@ -45,34 +45,51 @@ const SECONDARY_BUTTON_STYLES = {
   padding: "8px 16px",
 } as const;
 
-const DUE_SHORTHAND_REGEX = /\s+due:(\S+)$/i;
+const DUE_TOKEN_REGEX = /^due:(\S+)$/i;
+const CONTEXT_TOKEN_REGEX = /^@[^\s,]+$/;
 
 export type QuickCaptureResult = {
   text: string;
   dueDate: string | null;
+  contexts: string[];
 };
 
 /**
- * Splits a trailing `due:<value>` token off the raw input, if present, and resolves it
- * to an ISO date via the shared date-suggestion resolver. If the trailing token isn't a
- * recognizable date, it's left in place as ordinary task text instead of being dropped.
+ * Peels recognized trailing tokens (a `due:<value>` shorthand and/or one or more
+ * `@context` tokens, in any order) off the end of the raw input. Each `due:` token is
+ * resolved via the shared date-suggestion resolver; an unresolvable one is left in place
+ * as ordinary task text rather than being dropped. Stops at the first token that isn't
+ * a recognized shorthand.
  */
 export function parseQuickCaptureShorthand(rawInput: string): QuickCaptureResult {
-  const trimmed = rawInput.trim();
-  const match = trimmed.match(DUE_SHORTHAND_REGEX);
-  if (!match) {
-    return { text: trimmed, dueDate: null };
+  let remaining = rawInput.trim();
+  let dueDate: string | null = null;
+  const contexts: string[] = [];
+
+  while (remaining.length > 0) {
+    const lastSpaceIndex = remaining.lastIndexOf(" ");
+    const lastToken = lastSpaceIndex === -1 ? remaining : remaining.slice(lastSpaceIndex + 1);
+
+    const dueMatch = lastToken.match(DUE_TOKEN_REGEX);
+    if (dueMatch && dueDate === null) {
+      const resolvedDate = resolveDateInput(dueMatch[1]);
+      if (resolvedDate) {
+        dueDate = resolvedDate;
+        remaining = lastSpaceIndex === -1 ? "" : remaining.slice(0, lastSpaceIndex);
+        continue;
+      }
+    }
+
+    if (CONTEXT_TOKEN_REGEX.test(lastToken)) {
+      contexts.unshift(lastToken.toLowerCase());
+      remaining = lastSpaceIndex === -1 ? "" : remaining.slice(0, lastSpaceIndex);
+      continue;
+    }
+
+    break;
   }
 
-  const resolvedDate = resolveDateInput(match[1]);
-  if (!resolvedDate) {
-    return { text: trimmed, dueDate: null };
-  }
-
-  return {
-    text: trimmed.slice(0, match.index).trimEnd(),
-    dueDate: resolvedDate,
-  };
+  return { text: remaining.trim(), dueDate, contexts };
 }
 
 type QuickCaptureModalOptions = {
@@ -95,12 +112,12 @@ export class QuickCaptureModal extends Modal {
 
     contentEl.createEl("h2", { text: "Capture Task" });
     contentEl.createEl("p", {
-      text: "Added to your Inbox as an open task. Optionally end with due:tomorrow or due:2026-07-20.",
+      text: "Added to your Inbox as an open task. Optionally end with due:tomorrow / due:2026-07-20 and/or one or more @context tags.",
     });
 
     this.inputElement = contentEl.createEl("input", {
       type: "text",
-      placeholder: "e.g., Call the dentist due:tomorrow",
+      placeholder: "e.g., Call the dentist due:tomorrow @calls",
     });
     applyStyles(this.inputElement, INPUT_STYLES);
     this.inputElement.addEventListener("keydown", (event) => {

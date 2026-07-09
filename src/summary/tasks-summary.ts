@@ -17,7 +17,7 @@
 import { App, TAbstractFile, TFile } from "obsidian";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { readFilePriority } from "../tasks/file-priority";
-import { cleanTaskText, getRecurrenceLabel, parseTaskLine, readInlineFieldValue } from "../tasks/task-line-metadata";
+import { cleanTaskText, getContexts, getRecurrenceLabel, parseTaskLine, readInlineFieldValue } from "../tasks/task-line-metadata";
 import { buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
 import { isInFolder, overwriteSummaryFile, resolveSummaryFile } from "./summary-file-io";
 
@@ -33,12 +33,14 @@ type SummaryRow = {
   dueDate: string | null;
   priority: number;
   recurrence: string;
+  contexts: string[];
 };
 
 type ParsedFirstIncompleteRow = {
   task: string;
   dueDate: string | null;
   recurrence: string;
+  contexts: string[];
 };
 
 export async function writeTasksSummary(
@@ -121,6 +123,7 @@ async function findFirstIncompleteRow(app: App, file: TFile): Promise<SummaryRow
       dueDate: parsed.dueDate,
       priority,
       recurrence: parsed.recurrence,
+      contexts: parsed.contexts,
     };
   }
 
@@ -137,6 +140,7 @@ function parseFirstIncompleteTaskLine(line: string): ParsedFirstIncompleteRow | 
     task: cleanTaskText(parsedTask.taskBody),
     dueDate: readInlineFieldValue(parsedTask.taskBody, DUE_FIELD_REGEX),
     recurrence: getRecurrenceLabel(parsedTask.taskBody),
+    contexts: getContexts(parsedTask.taskBody),
   };
 }
 
@@ -175,15 +179,15 @@ function appendSectionTable(lines: string[], rows: SummaryRow[], hideKeywords: s
   }
 
   const folderGroups = buildGroupedTaskTable(rows, hideKeywords);
-  lines.push("| Folder | Filename | Task | Priority | Recurrence | Due |");
-  lines.push("| --- | --- | --- | --- | --- | --- |");
+  lines.push("| Folder | Filename | Task | Priority | Recurrence | Context | Due |");
+  lines.push("| --- | --- | --- | --- | --- | --- | --- |");
 
   for (const folderGroup of folderGroups) {
     let displayFolder = folderGroup.displayFolderName;
     for (const fileGroup of folderGroup.files) {
       for (const row of fileGroup.rows) {
         lines.push(
-          `| ${escapePipes(displayFolder)} | ${buildFileLink(fileGroup.displayFileName, row.file.path)} | ${buildWeightedTaskText(row.task, row.priority)} | ${row.priority} | ${escapePipes(row.recurrence)} | ${formatMonthDay(row.dueDate)} |`,
+          `| ${escapePipes(displayFolder)} | ${buildFileLink(fileGroup.displayFileName, row.file.path)} | ${buildWeightedTaskText(row.task, row.priority)} | ${row.priority} | ${escapePipes(row.recurrence)} | ${escapePipes(row.contexts.join(", "))} | ${formatMonthDay(row.dueDate)} |`,
         );
         displayFolder = "";
       }
