@@ -29,6 +29,8 @@ export type TaskManagerSettings = {
   dashboardHideKeywords: string;
   knownContexts: string;
   enableMultipleNextActions: boolean;
+  somedayMaybeReviewCadenceDays: string;
+  waitingStalenessThresholdDays: string;
 };
 
 export type FolderSettingKey = keyof Pick<
@@ -49,6 +51,8 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   dashboardHideKeywords: "",
   knownContexts: "",
   enableMultipleNextActions: false,
+  somedayMaybeReviewCadenceDays: "30",
+  waitingStalenessThresholdDays: "7",
 };
 
 function normalizeStatusField(field: string | null | undefined): string {
@@ -62,6 +66,11 @@ function normalizeFolder(folder: string | null | undefined): string {
 
 function normalizeBoolean(value: boolean | null | undefined, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
+}
+
+function normalizePositiveIntegerString(value: string | null | undefined, fallback: string): string {
+  const parsed = Number.parseInt(String(value ?? "").trim(), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? String(parsed) : fallback;
 }
 
 export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): TaskManagerSettings {
@@ -80,5 +89,7 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
     dashboardHideKeywords: String(rawSettings.dashboardHideKeywords ?? ""),
     knownContexts: String(rawSettings.knownContexts ?? ""),
     enableMultipleNextActions: normalizeBoolean(rawSettings.enableMultipleNextActions, DEFAULT_SETTINGS.enableMultipleNextActions),
+    somedayMaybeReviewCadenceDays: normalizePositiveIntegerString(rawSettings.somedayMaybeReviewCadenceDays, DEFAULT_SETTINGS.somedayMaybeReviewCadenceDays),
+    waitingStalenessThresholdDays: normalizePositiveIntegerString(rawSettings.waitingStalenessThresholdDays, DEFAULT_SETTINGS.waitingStalenessThresholdDays),
   };
 }

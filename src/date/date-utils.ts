@@ -49,3 +49,29 @@ export function parseIsoDate(value: string): Date | null {
   const parsed = new Date(`${value}T00:00:00`);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
+
+/**
+ * True when `startDateString + thresholdDays` falls between today and the end of the
+ * current (Sunday-ending) week, inclusive — i.e. the item is about to (or just did)
+ * cross its staleness threshold "this week." Used by the Weekly Review to flag items
+ * worth surfacing now rather than items merely somewhere in the stale backlog.
+ */
+export function crossesThresholdWithinCurrentWeek(
+  startDateString: string,
+  thresholdDays: number,
+  referenceDate: Date = new Date(),
+): boolean {
+  const startDate = parseIsoDate(startDateString);
+  if (!startDate) {
+    return false;
+  }
+
+  const thresholdDate = new Date(startDate);
+  thresholdDate.setDate(thresholdDate.getDate() + thresholdDays);
+
+  const startOfToday = new Date(referenceDate);
+  startOfToday.setHours(0, 0, 0, 0);
+  const endOfWeek = getEndOfWeek(referenceDate);
+
+  return thresholdDate >= startOfToday && thresholdDate <= endOfWeek;
+}

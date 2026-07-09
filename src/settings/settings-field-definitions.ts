@@ -31,7 +31,7 @@ export type TextSettingConfig = {
   name: string;
   description: string;
   placeholder: string;
-  key: keyof Pick<TaskManagerSettings, "statusField" | "dashboardHideKeywords" | "knownContexts">;
+  key: keyof Pick<TaskManagerSettings, "statusField" | "dashboardHideKeywords" | "knownContexts" | "somedayMaybeReviewCadenceDays" | "waitingStalenessThresholdDays">;
   value: string;
   multiLine?: boolean;
 };
@@ -120,6 +120,22 @@ export function getTextSettingConfigs(settings: TaskManagerSettings): TextSettin
       placeholder: "e.g. @home, @calls, @errands, @computer",
       key: "knownContexts",
       value: settings.knownContexts,
+      multiLine: false,
+    },
+    {
+      name: "Someday-Maybe Review Cadence (days)",
+      description: "How many days a Someday-Maybe project can go without being reviewed before the Weekly Review flags it. Invalid or non-positive values fall back to 30.",
+      placeholder: "30",
+      key: "somedayMaybeReviewCadenceDays",
+      value: settings.somedayMaybeReviewCadenceDays,
+      multiLine: false,
+    },
+    {
+      name: "Waiting Staleness Threshold (days)",
+      description: "How many days a project can stay in Waiting before the Weekly Review flags it as stale. Invalid or non-positive values fall back to 7.",
+      placeholder: "7",
+      key: "waitingStalenessThresholdDays",
+      value: settings.waitingStalenessThresholdDays,
       multiLine: false,
     },
   ];

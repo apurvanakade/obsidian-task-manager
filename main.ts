@@ -22,6 +22,8 @@ import { DateDashboardController } from "./src/dashboard/date-dashboard";
 import { ContextEditorSuggest } from "./src/editor/context-suggest";
 import { CreatedDateEditorSuggest, DueDateEditorSuggest } from "./src/editor/due-date-suggest";
 import { getSomedayMaybeProjectFiles, pickRandomFile } from "./src/projects/random-project";
+import { WeeklyReviewController } from "./src/review/weekly-review-view";
+import { stampReviewedDate } from "./src/review/weekly-review-data";
 import { normalizeSettings, TaskManagerSettings } from "./src/settings/settings-utils";
 import { parseContextList } from "./src/tasks/task-line-metadata";
 import { QuickCaptureModal } from "./src/tasks/quick-capture-modal";
@@ -34,6 +36,7 @@ import { TaskProcessor } from "./src/tasks/task-processor";
 export default class TaskManagerPlugin extends Plugin {
   private taskProcessor: TaskProcessor | null = null;
   private dateDashboard: DateDashboardController | null = null;
+  private weeklyReview: WeeklyReviewController | null = null;
   private dueDateSuggest: DueDateEditorSuggest | null = null;
   private createdDateSuggest: CreatedDateEditorSuggest | null = null;
   private contextSuggest: ContextEditorSuggest | null = null;
@@ -68,6 +71,10 @@ export default class TaskManagerPlugin extends Plugin {
       getHideKeywords: () => this.settings.dashboardHideKeywords,
       getKnownContexts: () => this.getKnownContexts(),
     });
+    this.weeklyReview = new WeeklyReviewController({
+      app: this.app,
+      getSettings: () => this.getSettings(),
+    });
     this.dueDateSuggest = new DueDateEditorSuggest(this.app);
     this.createdDateSuggest = new CreatedDateEditorSuggest(this.app);
     this.contextSuggest = new ContextEditorSuggest(this.app, () => this.getKnownContexts());
@@ -90,6 +97,12 @@ export default class TaskManagerPlugin extends Plugin {
       },
       quickCapture: () => {
         this.runQuickCapture();
+      },
+      openWeeklyReview: () => {
+        void this.weeklyReview?.openView();
+      },
+      backfillWaitingSince: () => {
+        void this.runBackfillWaitingSince();
       },
     });
     this.addRibbonIcon("shuffle", "Open Random Someday-Maybe Project", () => {
@@ -126,6 +139,7 @@ export default class TaskManagerPlugin extends Plugin {
 
       this.taskProcessor?.handleFileDelete(file);
     }));
+    this.weeklyReview.onload(this);
     await this.taskProcessor.primeState();
     await this.dateDashboard.onload(this);
   }
@@ -135,6 +149,7 @@ export default class TaskManagerPlugin extends Plugin {
     this.taskProcessor = null;
     this.dateDashboard?.onunload();
     this.dateDashboard = null;
+    this.weeklyReview = null;
     this.dueDateSuggest = null;
     this.createdDateSuggest = null;
     this.contextSuggest = null;
@@ -295,7 +310,19 @@ export default class TaskManagerPlugin extends Plugin {
       return;
     }
 
+    // Opening a random someday-maybe project doubles as a casual review: stamp it
+    // reviewed so the Weekly Review's staleness tracking reflects this glance at it.
+    await stampReviewedDate(this.app, file);
     await this.app.workspace.getLeaf(true).openFile(file);
+  }
+
+  private async runBackfillWaitingSince(): Promise<void> {
+    try {
+      const result = await this.taskProcessor!.backfillWaitingSince();
+      new Notice(result);
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : "Failed to stamp waiting-since.");
+    }
   }
 
   private getTaskFolderRoots(): string[] {

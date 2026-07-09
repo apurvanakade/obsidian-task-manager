@@ -23,6 +23,8 @@ Automates task lifecycle management in Obsidian: state transitions, completion m
    | Dashboard Filename Hide Keywords | Comma-separated keywords stripped from dashboard display names | — |
    | Known Contexts | Comma-separated task contexts (e.g. `@home, @calls, @errands`) powering the dashboard Context filter and `context::` editor autocomplete | — |
    | Enable Multiple Next Actions | Let a project surface one actionable task per context, instead of only ever the file's first open task | Off |
+   | Someday-Maybe Review Cadence (days) | Days a Someday-Maybe project can go unreviewed before the Weekly Review flags it | `30` |
+   | Waiting Staleness Threshold (days) | Days a project can stay in Waiting before the Weekly Review flags it as stale | `7` |
 
 ## Commands
 
@@ -74,12 +76,23 @@ Opens a modal to create a new project file. The form collects:
 The command creates the project note, creates missing parent folders, and opens the new file.
 
 ### Open Random Someday-Maybe Project
-Opens a random project file from the configured **Someday-Maybe Projects Folder** in a new tab. Also available as a shuffle-icon ribbon button in the left sidebar. If the folder setting is empty, or the folder contains no project files, a notice explains why nothing opened instead of failing silently.
+Opens a random project file from the configured **Someday-Maybe Projects Folder** in a new tab, stamping `reviewed: YYYY-MM-DD` on it first (see [Open Weekly Review](#open-weekly-review)) — a casual glance still counts as a review. Also available as a shuffle-icon ribbon button in the left sidebar. If the folder setting is empty, or the folder contains no project files, a notice explains why nothing opened instead of failing silently.
 
 ### Quick Capture Task
 Opens a single-line capture modal from anywhere in the vault — no need to open the Inbox File first. Also available as a list-plus-icon ribbon button in the left sidebar. Press Enter or click **Capture** to append the text as a new open task (`- [ ] ...`) to the configured **Inbox File**, creating that file first if it doesn't exist yet.
 
 End the input with `due:` followed by a date to attach a due date at capture time, e.g. `Call the dentist due:tomorrow` or `Renew passport due:2026-08-01` — accepts the same values as the `due::` editor autocomplete (ISO dates, `today`/`tomorrow`, weekday names). Also end the input with one or more `@context` tags, in any order relative to `due:`, e.g. `Call the dentist due:tomorrow @calls` or `Water the plants @home`. Recognized trailing tokens are stripped from the task text and written as `[due:: ...]` / `[context:: ...]` inline fields; an unrecognized trailing `due:` token is left in place as part of the task text instead of being dropped. If the Inbox File setting is empty, a notice explains why the modal didn't open.
+
+### Open Weekly Review
+Opens a **Weekly Review** tab (a full main-panel tab, not a generated note or sidebar panel) with two sections:
+
+- **Waiting** — every project in the configured **Waiting Projects Folder**, with Days Waiting and Waiting Since columns, sorted most-stale-first. Projects with no `waiting-since` stamp yet (e.g. from before this feature existed) sort first; run **Stamp Waiting-Since For Existing Waiting Projects** (below) to backfill them. A project is marked **Newly stale** when it crosses the **Waiting Staleness Threshold** setting within the current week (Monday through Sunday).
+- **Someday-Maybe** — every project in the configured **Someday-Maybe Projects Folder**, with Days Since Review and Last Reviewed columns, sorted most-overdue-first. Never-reviewed projects sort first. A project is marked **Needs Review** when it's never been reviewed or has gone longer than the **Someday-Maybe Review Cadence** setting. Each row has a **Mark Reviewed** button that stamps today's date and refreshes the table in place.
+
+`waiting-since` is stamped automatically the moment a project's status changes to `waiting`, and cleared when it leaves `waiting` — no manual action needed for projects routed after this feature shipped. `reviewed` is stamped by clicking **Mark Reviewed** in this view, or by opening a project via **Open Random Someday-Maybe Project**, which doubles as a casual review at no extra effort.
+
+### Stamp Waiting-Since For Existing Waiting Projects
+A one-time backfill command: stamps today's date on any file in the Waiting Projects Folder that doesn't already have a `waiting-since` field (from before the Weekly Review feature existed). Safe to re-run — files that already have the field are skipped.
 
 ## Automatic Behavior (live editing)
 
@@ -137,6 +150,7 @@ Recurring tasks skip the Due Date Modal on the new copy.
 When a file's status field changes to a routable value, the file is automatically moved to the matching destination folder.
 The configured Inbox File is never moved by status routing, even if all of its tasks are completed.
 When the plugin edits a project file's frontmatter metadata during this flow, it also writes `priority: 3` if the file does not already have a priority field.
+When a file's status changes to `waiting`, `waiting-since: YYYY-MM-DD` is also stamped into its frontmatter (today's date); when it changes away from `waiting`, that field is removed. This powers the Weekly Review's staleness tracking — see [Open Weekly Review](#open-weekly-review).
 That same status change also regenerates the Tasks Summary and Project Summary files silently in the background.
 
 ## Due Date Modal
@@ -220,7 +234,7 @@ Display notes:
 | `src/routing/task-routing.ts` | File movement: destination resolution, folder creation, merge handling |
 | `src/dashboard/date-dashboard.ts` | Right-sidebar ItemView controller and renderer |
 | `src/dashboard/dashboard-task-data.ts` | Task parsing/filtering/sorting for dashboard display |
-| `src/date/date-utils.ts` | Pure shared date formatting and ISO date helpers |
+| `src/date/date-utils.ts` | Pure shared date formatting, ISO date helpers, and end-of-week/threshold-crossing helpers used by the Weekly Review |
 | `src/editor/due-date-suggest.ts` | EditorSuggest providers for `due::` and `created::` inline fields |
 | `src/editor/context-suggest.ts` | EditorSuggest for `context::`/`contexts::`, sourced from the Known Contexts setting |
 | `src/date/date-suggestions.ts` | Canonical date suggestion list (ISO dates + human labels) |
@@ -228,7 +242,9 @@ Display notes:
 | `src/settings/settings-ui.ts` | PluginSettingTab renderer |
 | `src/settings/settings-field-definitions.ts` | Declarative metadata for settings controls |
 | `src/settings/folder-picker.ts` | FuzzySuggestModal wrappers for vault folder/file pickers |
-| `src/commands/register-task-commands.ts` | Registers Reset Tasks, Tasks and Projects Summary, Add New Project, Open Random Someday-Maybe Project, and Quick Capture Task commands |
+| `src/commands/register-task-commands.ts` | Registers Reset Tasks, Tasks and Projects Summary, Add New Project, Open Random Someday-Maybe Project, Quick Capture Task, Open Weekly Review, and Stamp Waiting-Since commands |
+| `src/review/weekly-review-view.ts` | On-demand main-panel ItemView controller/renderer for the Weekly Review tab |
+| `src/review/weekly-review-data.ts` | Collects Waiting/Someday-Maybe staleness rows and stamps the `reviewed` field |
 | `manifest.json` | Obsidian plugin metadata |
 
 ## Dependency Graph
@@ -270,6 +286,8 @@ graph TD
    PSUM[project-summary.ts]
    SFIO[summary-file-io.ts]
    CMD[register-task-commands.ts]
+   WRV[weekly-review-view.ts]
+   WRD[weekly-review-data.ts]
 
     D --> M
     E --> M
@@ -284,6 +302,16 @@ graph TD
     CMD --> M
     QC --> M
     DS --> QC
+    WRV --> M
+
+    WRD --> WRV
+    DU --> WRV
+    SU --> WRV
+    SFIO --> WRD
+    FMU --> WRD
+    DU --> WRD
+    TP --> WRD
+    SU --> WRD
 
      DTD --> D
      DU --> D

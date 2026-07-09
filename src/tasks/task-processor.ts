@@ -15,6 +15,8 @@
  * - reads/writes files, updates routing destinations, and emits notices
  */
 import { App, Notice, TFile, TFolder } from "obsidian";
+import { getCurrentDateString } from "../date/date-utils";
+import { readFrontmatterField } from "./frontmatter-utils";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { DEFAULT_PRIORITY, FilePriority, PRIORITY_FRONTMATTER_FIELD } from "./file-priority";
 import {
@@ -47,6 +49,9 @@ import {
   readStatusValue
 } from "../routing/status-routing";
 import { TaskStateStore } from "./task-state-store";
+
+/** Stamped onto a project's frontmatter while its status is `waiting`; cleared otherwise. */
+export const WAITING_SINCE_FRONTMATTER_FIELD = "waiting-since";
 
 type TaskProcessorOptions = {
   app: App;
@@ -213,6 +218,8 @@ export class TaskProcessor {
       return;
     }
 
+    await this.updateWaitingSinceStamp(file, latestStatus, previousStatus);
+
     try {
       assertConfiguredDestinationForStatus(latestStatus, settings);
       await this.routeFileByStatus(file, settings, latestStatus);
@@ -225,6 +232,60 @@ export class TaskProcessor {
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Failed to update summary files after status change.");
     }
+  }
+
+  /**
+   * Stamps `waiting-since` on transition into `waiting`, clears it on transition out.
+   * Powers the Weekly Review's waiting-staleness calculation.
+   */
+  private async updateWaitingSinceStamp(file: TFile, latestStatus: string | null, previousStatus: string | null): Promise<void> {
+    const enteringWaiting = latestStatus === "waiting" && previousStatus !== "waiting";
+    const leavingWaiting = latestStatus !== "waiting" && previousStatus === "waiting";
+    if (!enteringWaiting && !leavingWaiting) {
+      return;
+    }
+
+    await this.runWithPendingPaths([file.path], async () => {
+      await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, string>) => {
+        if (enteringWaiting) {
+          frontmatter[WAITING_SINCE_FRONTMATTER_FIELD] = getCurrentDateString();
+        } else {
+          delete frontmatter[WAITING_SINCE_FRONTMATTER_FIELD];
+        }
+      });
+    });
+  }
+
+  /**
+   * One-time backfill for files already in the Waiting folder before this feature
+   * shipped: stamps today's date on any waiting file missing `waiting-since`, so it
+   * isn't stuck without staleness data until its next status change.
+   */
+  async backfillWaitingSince(): Promise<string> {
+    const settings = this.getSettings();
+    const folderPath = settings.waitingProjectsFolder;
+    if (!folderPath) {
+      throw new Error("Set Waiting Projects Folder in plugin settings first.");
+    }
+
+    const files = this.app.vault.getMarkdownFiles().filter((file) => file.path.startsWith(`${folderPath}/`));
+    let stampedCount = 0;
+
+    for (const file of files) {
+      const content = await this.app.vault.read(file);
+      if (readFrontmatterField(content, WAITING_SINCE_FRONTMATTER_FIELD) !== null) {
+        continue;
+      }
+
+      await this.runWithPendingPaths([file.path], async () => {
+        await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, string>) => {
+          frontmatter[WAITING_SINCE_FRONTMATTER_FIELD] = getCurrentDateString();
+        });
+      });
+      stampedCount += 1;
+    }
+
+    return `Stamped waiting-since on ${stampedCount} file${stampedCount === 1 ? "" : "s"}.`;
   }
 
   private async routeFileByStatus(file: TFile, settings: TaskManagerSettings, statusOverride?: string | null): Promise<string | null> {

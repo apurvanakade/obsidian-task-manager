@@ -23,6 +23,8 @@ type TaskCommandHandlers = {
   addNewProject: () => void;
   openRandomSomedayMaybeProject: () => void;
   quickCapture: () => void;
+  openWeeklyReview: () => void;
+  backfillWaitingSince: () => void;
 };
 
 export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandlers): void {
@@ -54,5 +56,17 @@ export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandle
     id: "quick-capture-task",
     name: "Quick Capture Task",
     callback: handlers.quickCapture,
+  });
+
+  plugin.addCommand({
+    id: "open-weekly-review",
+    name: "Open Weekly Review",
+    callback: handlers.openWeeklyReview,
+  });
+
+  plugin.addCommand({
+    id: "backfill-waiting-since",
+    name: "Stamp Waiting-Since For Existing Waiting Projects",
+    callback: handlers.backfillWaitingSince,
   });
 }

@@ -1,0 +1,243 @@
+/**
+ * Purpose:
+ * - render the on-demand Weekly Review tab: stale Waiting items and Someday-Maybe
+ *   items due for review.
+ *
+ * Responsibilities:
+ * - registers and opens a main-panel ItemView (not a persistent sidebar leaf)
+ * - renders two flat, staleness-sorted tables (Waiting, Someday-Maybe)
+ * - offers a per-row "Mark Reviewed" action for Someday-Maybe items, writing
+ *   frontmatter directly and refreshing in place
+ *
+ * Dependencies:
+ * - depends on weekly-review-data.ts for data collection and the reviewed-date write
+ * - Obsidian ItemView/workspace APIs
+ *
+ * Side Effects:
+ * - manipulates view DOM; "Mark Reviewed" writes frontmatter via stampReviewedDate()
+ */
+import { App, ItemView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { getEndOfWeek } from "../date/date-utils";
+import { TaskManagerSettings } from "../settings/settings-utils";
+import {
+  collectSomedayReviewRows,
+  collectWaitingReviewRows,
+  SomedayReviewRow,
+  stampReviewedDate,
+  WaitingReviewRow,
+} from "./weekly-review-data";
+
+type WeeklyReviewControllerOptions = {
+  app: App;
+  getSettings: () => TaskManagerSettings;
+};
+
+export class WeeklyReviewController {
+  static readonly VIEW_TYPE = "task-manager-weekly-review";
+
+  private readonly app: App;
+  private readonly getSettings: () => TaskManagerSettings;
+
+  constructor(options: WeeklyReviewControllerOptions) {
+    this.app = options.app;
+    this.getSettings = options.getSettings;
+  }
+
+  onload(plugin: Plugin): void {
+    plugin.registerView(WeeklyReviewController.VIEW_TYPE, (leaf) => new WeeklyReviewView(leaf, this));
+  }
+
+  /** Opens the Weekly Review tab, reusing an existing one if already open. */
+  async openView(): Promise<void> {
+    const existingLeaf = this.app.workspace.getLeavesOfType(WeeklyReviewController.VIEW_TYPE)[0];
+    if (existingLeaf) {
+      this.app.workspace.revealLeaf(existingLeaf);
+      if (existingLeaf.view instanceof WeeklyReviewView) {
+        await existingLeaf.view.refresh();
+      }
+      return;
+    }
+
+    const leaf = this.app.workspace.getLeaf(true);
+    await leaf.setViewState({ type: WeeklyReviewController.VIEW_TYPE, active: true });
+  }
+
+  async renderContent(container: HTMLElement, onNeedsRefresh: () => void): Promise<void> {
+    container.innerHTML = "";
+    container.classList.add("markdown-rendered");
+
+    const settings = this.getSettings();
+    const section = document.createElement("section");
+
+    const title = document.createElement("h2");
+    title.textContent = "Weekly Review";
+    section.appendChild(title);
+
+    const weekLabel = document.createElement("p");
+    weekLabel.textContent = `Week ending ${formatDate(getEndOfWeek(new Date()))}`;
+    section.appendChild(weekLabel);
+
+    const waitingRows = await collectWaitingReviewRows(this.app, settings);
+    this.appendWaitingSection(section, waitingRows, settings);
+
+    const somedayRows = await collectSomedayReviewRows(this.app, settings);
+    this.appendSomedaySection(section, somedayRows, settings, onNeedsRefresh);
+
+    container.appendChild(section);
+  }
+
+  private appendWaitingSection(container: HTMLElement, rows: WaitingReviewRow[], settings: TaskManagerSettings): void {
+    const heading = document.createElement("h3");
+    heading.textContent = "Waiting";
+    container.appendChild(heading);
+
+    if (!settings.waitingProjectsFolder) {
+      container.appendChild(this.createParagraph("Set Waiting Projects Folder in plugin settings to see waiting items here."));
+      return;
+    }
+
+    if (rows.length === 0) {
+      container.appendChild(this.createParagraph("No waiting projects."));
+      return;
+    }
+
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    thead.appendChild(this.createRow(["Project", "Days Waiting", "Waiting Since", ""], "th"));
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    for (const row of rows) {
+      const tr = this.createRow([
+        this.createFileLinkCell(row.file),
+        row.daysWaiting === null ? "—" : String(row.daysWaiting),
+        row.waitingSince ?? "—",
+        row.isNewlyStale ? "Newly stale" : "",
+      ], "td");
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    container.appendChild(table);
+  }
+
+  private appendSomedaySection(
+    container: HTMLElement,
+    rows: SomedayReviewRow[],
+    settings: TaskManagerSettings,
+    onNeedsRefresh: () => void,
+  ): void {
+    const heading = document.createElement("h3");
+    heading.textContent = "Someday-Maybe";
+    container.appendChild(heading);
+
+    if (!settings.somedayMaybeProjectsFolder) {
+      container.appendChild(this.createParagraph("Set Someday-Maybe Projects Folder in plugin settings to see items here."));
+      return;
+    }
+
+    if (rows.length === 0) {
+      container.appendChild(this.createParagraph("No someday-maybe projects."));
+      return;
+    }
+
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    thead.appendChild(this.createRow(["Project", "Days Since Review", "Last Reviewed", "Needs Review", ""], "th"));
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    for (const row of rows) {
+      const tr = document.createElement("tr");
+      tr.appendChild(this.createCell(this.createFileLinkCell(row.file), "td"));
+      tr.appendChild(this.createCell(row.daysSinceReview === null ? "—" : String(row.daysSinceReview), "td"));
+      tr.appendChild(this.createCell(row.reviewed ?? "Never", "td"));
+      tr.appendChild(this.createCell(row.needsReview ? "Yes" : "", "td"));
+
+      const actionCell = document.createElement("td");
+      const button = document.createElement("button");
+      button.textContent = "Mark Reviewed";
+      button.addEventListener("click", () => {
+        void (async () => {
+          await stampReviewedDate(this.app, row.file);
+          onNeedsRefresh();
+        })();
+      });
+      actionCell.appendChild(button);
+      tr.appendChild(actionCell);
+
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    container.appendChild(table);
+  }
+
+  private createFileLinkCell(file: TFile): HTMLAnchorElement {
+    const link = document.createElement("a");
+    link.href = "#";
+    link.textContent = file.basename;
+    link.classList.add("internal-link");
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      void this.app.workspace.openLinkText(file.path, "");
+    });
+    return link;
+  }
+
+  private createRow(cells: Array<string | HTMLElement>, tag: "th" | "td"): HTMLTableRowElement {
+    const tr = document.createElement("tr");
+    for (const cell of cells) {
+      tr.appendChild(this.createCell(cell, tag));
+    }
+    return tr;
+  }
+
+  private createCell(content: string | HTMLElement, tag: "th" | "td"): HTMLTableCellElement {
+    const cell = document.createElement(tag);
+    if (typeof content === "string") {
+      cell.textContent = content;
+    } else {
+      cell.appendChild(content);
+    }
+    return cell;
+  }
+
+  private createParagraph(text: string): HTMLParagraphElement {
+    const paragraph = document.createElement("p");
+    paragraph.textContent = text;
+    return paragraph;
+  }
+}
+
+function formatDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+class WeeklyReviewView extends ItemView {
+  private readonly controller: WeeklyReviewController;
+
+  constructor(leaf: WorkspaceLeaf, controller: WeeklyReviewController) {
+    super(leaf);
+    this.controller = controller;
+  }
+
+  getViewType(): string {
+    return WeeklyReviewController.VIEW_TYPE;
+  }
+
+  getDisplayText(): string {
+    return "Weekly Review";
+  }
+
+  async onOpen(): Promise<void> {
+    await this.refresh();
+  }
+
+  async refresh(): Promise<void> {
+    await this.controller.renderContent(this.contentEl, () => {
+      void this.refresh();
+    });
+  }
+}
