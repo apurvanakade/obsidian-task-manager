@@ -28,6 +28,7 @@ src/
     frontmatter-utils.ts         ← Pure single-field frontmatter parser over a content string (shared by status-routing.ts and file-priority.ts; deliberately NOT metadataCache-based, see Obsidian API Usage below)
     repeat-rules.ts              ← Pure recurring-rule parser, alias normalizer, and due-date calculator
     task-utils.ts                ← Pure parsing/diffing utilities (no side effects); task-line parsing delegates to task-line-metadata.ts
+    next-actions.ts              ← Pure findActionableTaskLines(): single first-open-line by default, or one line per context group when settings.enableMultipleNextActions is on
     task-state-store.ts          ← In-memory snapshot cache (tasks + status per file)
     due-date-modal.ts            ← Modal for collecting due date + file priority for the first incomplete task; submit is keyed by the captured task-line index, not string equality
   summary/
@@ -84,7 +85,7 @@ Settings live in `data.json` (loaded/saved via `plugin.loadData()` / `plugin.sav
 
 Configurable paths: Projects Folder, Completed Projects Folder, Waiting Projects Folder, Someday-Maybe Projects Folder, Inbox File (file picker, not folder), Tasks Summary File (file picker), Project Summary File (file picker).
 
-Other settings: Completed Status Field (default `status`), Open Tasks Summary After Generation (default off; opens the generated Project Summary File first), Dashboard Filename Hide Keywords (comma-separated keywords stripped from dashboard display names), Known Contexts (comma-separated, default empty; powers the dashboard Context filter dropdown and `context::`/`contexts::` editor autocomplete via `parseContextList()`).
+Other settings: Completed Status Field (default `status`), Open Tasks Summary After Generation (default off; opens the generated Project Summary File first), Dashboard Filename Hide Keywords (comma-separated keywords stripped from dashboard display names), Known Contexts (comma-separated, default empty; powers the dashboard Context filter dropdown and `context::`/`contexts::` editor autocomplete via `parseContextList()`), Enable Multiple Next Actions (boolean, default off; gates `findActionableTaskLines()`'s plural per-context behavior — see Multiple Next Actions above).
 
 ### Status Routing
 
@@ -105,7 +106,7 @@ Tasks use standard markdown checkboxes. Inline fields use Dataview-style double-
 
 Project priority is stored in file frontmatter as `priority: N`, where `1` is highest and missing/invalid values default to `3`.
 
-The first incomplete task in a file is treated as the current actionable task.
+By default, the first incomplete task in a file is treated as the current actionable task — `findActionableTaskLines()` in `src/tasks/next-actions.ts` returns exactly this single line when `settings.enableMultipleNextActions` is off (the default), so this remains the observed behavior unless that setting is explicitly turned on. See **Multiple Next Actions** below for the per-context variant.
 
 ### Completion (`[ ]` → `[x]`)
 
@@ -116,8 +117,17 @@ The first incomplete task in a file is treated as the current actionable task.
 
 ### Uncompletion (`[x]` → `[ ]`)
 
-- If the reopened task is the first open task, it becomes the current actionable task implicitly
+- If the reopened task is actionable per `findActionableTaskLines()` (the first open task overall, or — with Multiple Next Actions on — the first open task in its context group), it becomes the current actionable task implicitly
 - Reconciliation also strips stale `[completion-date:: ...]` and `[completion-time:: ...]` from open tasks
+
+### Multiple Next Actions
+
+`settings.enableMultipleNextActions` (default `false`) gates `findActionableTaskLines()`'s plural behavior in both `reconciler.ts` and `tasks-summary.ts`. Off, the function always returns at most one line (the first open line) — byte-identical to pre-Phase-3 behavior. On, it returns the first open line plus the first open line for each distinct `[context:: ...]` value found among the file's open tasks.
+
+- **`reconciler.ts`'s `applyCompletionRules`**: before mutating anything, it reconstructs the pre-completion actionable set by taking the current content with the just-completed line temporarily forced back open (`forceLineOpen()`), and diffs that against the post-completion actionable set (matched by task **body text**, not line index, since `moveTaskToCompletedSection`/recurring-task insertion shift indices). The modal only opens if (a) the just-completed task was itself actionable before completion, and (b) completion promoted a task that wasn't already actionable. If more than one task is newly promoted at once (e.g. completing a task that anchored two context groups), only the first is shown — no modal queue.
+- **`reconciler.ts`'s `applyUncompletionRules`**: simplified to a single flow — reopens the task, then checks whether the reopened line is now in `findActionableTaskLines(workingLines, enableMultipleNextActions)`; if so, shows the modal. With the setting off this is exactly equivalent to the old "is it the first open task" check.
+- **`tasks-summary.ts`**: `findActionableRows()` (formerly `findFirstIncompleteRow()`, singular) now returns `SummaryRow[]` — one row per actionable line — via `collectActionableRowsForFolder()`/`collectActionableRowsForInbox()`. With the setting off, each file still contributes at most one row.
+- **`task-processor.ts`**: no longer threads a `previousFirstIncompleteLine` through `applyCompletionRules` — `findFirstIncompleteTaskStateLine()` was removed from `task-utils.ts` as dead code once the reconciler started reconstructing the previous actionable set from `content` itself instead of from `TaskStateStore`'s line+status-only snapshots (which can't carry per-task context, so they were never sufficient for this diff in the first place).
 
 ### Recurring Tasks
 
@@ -147,7 +157,7 @@ Weekday and ordinal repeats resolve to the **next future occurrence**. So `Monda
 
 ### First-Incomplete Assignment & DueDateModal
 
-When a different task becomes the file's first incomplete task after completion or uncompletion, a `DueDateModal` is shown offering:
+When a task newly becomes actionable after completion or uncompletion (see **Multiple Next Actions** above), a `DueDateModal` is shown offering:
 
 - A preview of the task text
 - A project priority dropdown (values 1–3, default 3)
@@ -160,7 +170,7 @@ When a different task becomes the file's first incomplete task after completion 
 Modal submit writes `[due:: YYYY-MM-DD]` to the task line, adds `[repeat:: X]` when provided, and writes `priority: N` to the file frontmatter.
 That submit also triggers a silent Tasks Summary and Project Summary regeneration.
 
-**Modal is skipped when**: the first incomplete task was unchanged or the task is recurring.
+**Modal is skipped when**: the actionable task set was unchanged by this completion/uncompletion, or the newly actionable task is recurring.
 
 ## Date Dashboard
 
@@ -209,7 +219,7 @@ When **Known Contexts** is non-empty, `DateDashboardController.appendContextFilt
 
 ### Selection Rules
 
-- Includes the **first incomplete task** per file
+- Includes the **first incomplete task** per file (or, with Enable Multiple Next Actions on, one row per actionable task per file — see Multiple Next Actions above)
 - Files without an incomplete task are omitted
 
 ### Output Format
@@ -350,3 +360,5 @@ Run after meaningful logic changes:
 26. `[context:: @home]`/`[contexts:: @a, @b]` on a task line is parsed into a Context column (Due/Completed tables, Tasks Summary) and inline in Current Page/Inbox list items; missing contexts render as an empty cell, not an error
 27. Dashboard Context filter dropdown only appears when Known Contexts is non-empty; selecting a context narrows all four dashboard sections to matching rows; selecting "All" restores the full list; the selection persists across dashboard refreshes within the session but is not saved to settings
 28. Typing `context::` or `contexts::` shows suggestions from Known Contexts, filtered as you type, and inserts ` @context`
+29. With Enable Multiple Next Actions **off**: completion/uncompletion modal triggering and Tasks Summary rows are byte-identical to pre-Phase-3 behavior (exactly one actionable task per file)
+30. With Enable Multiple Next Actions **on**: a project with open tasks in two different contexts surfaces one row per context in Tasks Summary; completing the file's only task in one context pops the Due Date Modal for the next task in that same context (not an unrelated task in a different context that was already actionable); completing a task that isn't currently actionable does not pop the modal

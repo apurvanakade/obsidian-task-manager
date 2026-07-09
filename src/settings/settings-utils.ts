@@ -28,6 +28,7 @@ export type TaskManagerSettings = {
   openSummaryAfterGeneration: boolean;
   dashboardHideKeywords: string;
   knownContexts: string;
+  enableMultipleNextActions: boolean;
 };
 
 export type FolderSettingKey = keyof Pick<
@@ -47,6 +48,7 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   openSummaryAfterGeneration: false,
   dashboardHideKeywords: "",
   knownContexts: "",
+  enableMultipleNextActions: false,
 };
 
 function normalizeStatusField(field: string | null | undefined): string {
@@ -77,5 +79,6 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
     openSummaryAfterGeneration: normalizeBoolean(rawSettings.openSummaryAfterGeneration, DEFAULT_SETTINGS.openSummaryAfterGeneration),
     dashboardHideKeywords: String(rawSettings.dashboardHideKeywords ?? ""),
     knownContexts: String(rawSettings.knownContexts ?? ""),
+    enableMultipleNextActions: normalizeBoolean(rawSettings.enableMultipleNextActions, DEFAULT_SETTINGS.enableMultipleNextActions),
   };
 }

@@ -39,7 +39,7 @@ export type TextSettingConfig = {
 export type ToggleSettingConfig = {
   name: string;
   description: string;
-  key: keyof Pick<TaskManagerSettings, "openSummaryAfterGeneration">;
+  key: keyof Pick<TaskManagerSettings, "openSummaryAfterGeneration" | "enableMultipleNextActions">;
   value: boolean;
 };
 
@@ -132,6 +132,12 @@ export function getToggleSettingConfigs(settings: TaskManagerSettings): ToggleSe
       description: "Open the generated Project Summary file after the Tasks Summary command finishes (falls back to Tasks Summary File when needed).",
       key: "openSummaryAfterGeneration",
       value: settings.openSummaryAfterGeneration,
+    },
+    {
+      name: "Enable Multiple Next Actions",
+      description: "Let a project surface one actionable task per context (in addition to the file's first open task) instead of only ever one actionable task per file. Affects the Due Date Modal trigger and the Tasks Summary table. Off by default to preserve existing single-next-action behavior.",
+      key: "enableMultipleNextActions",
+      value: settings.enableMultipleNextActions,
     },
   ];
 }

@@ -19,7 +19,6 @@ import { TaskManagerSettings } from "../settings/settings-utils";
 import { DEFAULT_PRIORITY, FilePriority, PRIORITY_FRONTMATTER_FIELD } from "./file-priority";
 import {
   extractTaskState,
-  findFirstIncompleteTaskStateLine,
   findNewlyCompletedTask,
   findNewlyUncompletedTask,
   normalizeForComparison,
@@ -141,13 +140,7 @@ export class TaskProcessor {
     this.stateStore.setStatus(file.path, currentStatus);
 
     if (completion !== null) {
-      await this.applyCompletionRules(
-        file,
-        content,
-        completion,
-        findFirstIncompleteTaskStateLine(previousState),
-        settings,
-      );
+      await this.applyCompletionRules(file, content, completion, settings);
       await this.routeAfterStatusChange(file, previousStatus, settings);
       return;
     }
@@ -300,14 +293,12 @@ export class TaskProcessor {
     file: TFile,
     content: string,
     completedLine: number,
-    previousFirstIncompleteLine: number | null,
     settings: TaskManagerSettings,
   ): Promise<void> {
     await applyCompletionRules({
       file,
       content,
       completedLine,
-      previousFirstIncompleteLine,
       ...this.createReconcilerServices(settings),
     });
   }

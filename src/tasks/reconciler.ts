@@ -18,6 +18,7 @@ import { App, Notice, TFile } from "obsidian";
 import { getCurrentDateString, getCurrentTimeString } from "../date/date-utils";
 import { FilePriority, readFilePriority } from "./file-priority";
 import { parseTaskLine, parseTaskLineStructured } from "./task-line-metadata";
+import { findActionableTaskLines } from "./next-actions";
 import {
   extractTaskState,
   findFirstIncompleteTaskLine,
@@ -44,7 +45,6 @@ type ReconcilerContext = {
 type CompletionContext = ReconcilerContext & {
   content: string;
   completedLine: number;
-  previousFirstIncompleteLine: number | null;
 };
 
 type UncompletionContext = ReconcilerContext & {
@@ -138,11 +138,25 @@ async function showDueDateModalForFirstIncompleteTask(
 }
 
 export async function applyCompletionRules(context: CompletionContext): Promise<void> {
-  const { file, content, completedLine, previousFirstIncompleteLine, writeFileContent, setFileStatus, setTaskState } = context;
+  const { file, content, completedLine, writeFileContent, setFileStatus, setTaskState, settings } = context;
+  const enableMultipleNextActions = settings.enableMultipleNextActions === true;
   const lines = content.split(/\r?\n/);
   const nextLines = [...lines];
   const sourceTaskLine = lines[completedLine];
   let completedLineIndex = completedLine;
+
+  // Snapshot what was actionable immediately before this completion (the completed
+  // line is still "x" in `lines` at this point, so temporarily force it back open to
+  // reconstruct the pre-completion view) — used below to find newly-promoted tasks.
+  const previousLines = [...lines];
+  previousLines[completedLine] = forceLineOpen(previousLines[completedLine]);
+  const previousActionableLines = findActionableTaskLines(previousLines, enableMultipleNextActions);
+  const wasCompletedLineActionable = previousActionableLines.includes(completedLine);
+  const previousActionableBodies = new Set(
+    previousActionableLines
+      .filter((index) => index !== completedLine)
+      .map((index) => getLineBody(previousLines[index])),
+  );
 
   const repeatRule = parseRepeatRule(sourceTaskLine);
   if (repeatRule !== null) {
@@ -157,8 +171,7 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
   nextLines[completedLineIndex] = addCompletionFields(nextLines[completedLineIndex]);
 
   let workingLines = nextLines;
-  const nextTaskLine = findFirstIncompleteTaskLine(workingLines);
-  const newStatus = nextTaskLine === null ? "completed" : "todo";
+  const newStatus = findFirstIncompleteTaskLine(workingLines) === null ? "completed" : "todo";
 
   // Move the stamped completed task into the "## Completed Tasks" section.
   // completedLineIndex may have shifted if a recurring task was inserted above it,
@@ -178,35 +191,33 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
   await setFileStatus(file, newStatus);
   setTaskState(file.path, extractTaskState(updatedContent));
 
-  if (previousFirstIncompleteLine === completedLine && nextTaskLine !== null) {
-    const nextTaskLineInFinal = findFirstIncompleteTaskLine(workingLines);
-    if (nextTaskLineInFinal !== null) {
-      await showDueDateModalForFirstIncompleteTask(file, nextTaskLineInFinal, updatedContent, context);
+  // Only pop the modal when completing this task actually promoted a new actionable
+  // task (i.e. the completed task was itself actionable, and some task that wasn't
+  // actionable before now is). If completing it promotes more than one line at once
+  // (possible when it anchors more than one context group), show the modal for the
+  // first newly-actionable line only — an accepted v1 simplification over a modal queue.
+  if (wasCompletedLineActionable) {
+    const finalActionableLines = findActionableTaskLines(workingLines, enableMultipleNextActions);
+    const newlyActionableLine = finalActionableLines.find(
+      (index) => !previousActionableBodies.has(getLineBody(workingLines[index])),
+    );
+
+    if (newlyActionableLine !== undefined) {
+      await showDueDateModalForFirstIncompleteTask(file, newlyActionableLine, updatedContent, context);
     }
   }
 }
 
 export async function applyUncompletionRules(context: UncompletionContext): Promise<void> {
-  const { file, content, uncompletedLine, writeFileContent, setFileStatus, setTaskState } = context;
+  const { file, content, uncompletedLine, writeFileContent, setFileStatus, setTaskState, settings } = context;
+  const enableMultipleNextActions = settings.enableMultipleNextActions === true;
   const lines = content.split(/\r?\n/);
   // Reopened tasks must lose completion metadata.
   lines[uncompletedLine] = stripCompletionFields(lines[uncompletedLine]);
   const workingLines = lines;
-  const firstIncompleteTaskLine = findFirstIncompleteTaskLine(workingLines);
-
-  if (firstIncompleteTaskLine !== uncompletedLine) {
-    const updatedContent = workingLines.join("\n");
-    if (updatedContent !== content) {
-      await writeFileContent(file, updatedContent);
-    }
-
-    await setFileStatus(file, "todo");
-    setTaskState(file.path, extractTaskState(updatedContent));
-    return;
-  }
+  const isActionable = findActionableTaskLines(workingLines, enableMultipleNextActions).includes(uncompletedLine);
 
   const updatedContent = workingLines.join("\n");
-
   if (updatedContent !== content) {
     await writeFileContent(file, updatedContent);
   }
@@ -214,7 +225,9 @@ export async function applyUncompletionRules(context: UncompletionContext): Prom
   await setFileStatus(file, "todo");
   setTaskState(file.path, extractTaskState(updatedContent));
 
-  await showDueDateModalForFirstIncompleteTask(file, uncompletedLine, updatedContent, context);
+  if (isActionable) {
+    await showDueDateModalForFirstIncompleteTask(file, uncompletedLine, updatedContent, context);
+  }
 }
 
 export async function reconcileFile(context: ReconcilerContext): Promise<void> {
@@ -267,6 +280,21 @@ function stripCompletionFields(line: string): string {
   return line
     .replace(/\s*\[completion-date::[^\]]*\]/g, "")
     .replace(/\s*\[completion-time::[^\]]*\]/g, "");
+}
+
+/** Forces a checkbox line back to its open ("[ ]") form, preserving prefix/body. */
+function forceLineOpen(line: string): string {
+  const structured = parseTaskLineStructured(line);
+  if (!structured || structured.status === "open") {
+    return line;
+  }
+
+  return `${structured.prefix} ${structured.bracketSuffix}${structured.body}`;
+}
+
+/** Task body (post-checkbox text), used to compare task identity across line-index shifts. */
+function getLineBody(line: string): string {
+  return parseTaskLineStructured(line)?.body ?? line;
 }
 
 function buildRepeatedTaskLine(completedLine: string, repeatRule: RepeatRule): string | null {

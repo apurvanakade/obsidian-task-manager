@@ -4,7 +4,8 @@
  *
  * Responsibilities:
  * - scans Projects, Waiting, Someday-Maybe, and Inbox sources
- * - selects the first incomplete task per file
+ * - selects the actionable task(s) per file (first incomplete task, or one per context
+ *   group when Enable Multiple Next Actions is on)
  * - renders grouped summary tables with due date, recurrence, and file-priority columns
  * - creates or overwrites the destination markdown file without merge prompts
  *
@@ -18,6 +19,7 @@ import { App, TAbstractFile, TFile } from "obsidian";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { readFilePriority } from "../tasks/file-priority";
 import { cleanTaskText, getContexts, getRecurrenceLabel, parseTaskLine, readInlineFieldValue } from "../tasks/task-line-metadata";
+import { findActionableTaskLines } from "../tasks/next-actions";
 import { buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
 import { isInFolder, overwriteSummaryFile, resolveSummaryFile } from "./summary-file-io";
 
@@ -57,10 +59,10 @@ export async function writeTasksSummary(
 
 async function buildSummarySections(app: App, settings: TaskManagerSettings): Promise<SummarySection[]> {
   const sectionSources = [
-    { title: "Projects", collectRows: () => collectFirstIncompleteRowsForFolder(app, settings.projectsFolder) },
-    { title: "Waiting", collectRows: () => collectFirstIncompleteRowsForFolder(app, settings.waitingProjectsFolder) },
-    { title: "Someday-Maybe", collectRows: () => collectFirstIncompleteRowsForFolder(app, settings.somedayMaybeProjectsFolder) },
-    { title: "Inbox", collectRows: () => collectFirstIncompleteRowsForInbox(app, settings.inboxFile) },
+    { title: "Projects", collectRows: () => collectActionableRowsForFolder(app, settings.projectsFolder, settings) },
+    { title: "Waiting", collectRows: () => collectActionableRowsForFolder(app, settings.waitingProjectsFolder, settings) },
+    { title: "Someday-Maybe", collectRows: () => collectActionableRowsForFolder(app, settings.somedayMaybeProjectsFolder, settings) },
+    { title: "Inbox", collectRows: () => collectActionableRowsForInbox(app, settings.inboxFile, settings) },
   ];
 
   const sections: SummarySection[] = [];
@@ -74,7 +76,7 @@ async function buildSummarySections(app: App, settings: TaskManagerSettings): Pr
   return sections;
 }
 
-async function collectFirstIncompleteRowsForFolder(app: App, folderPath: string): Promise<SummaryRow[]> {
+async function collectActionableRowsForFolder(app: App, folderPath: string, settings: TaskManagerSettings): Promise<SummaryRow[]> {
   if (!folderPath) {
     return [];
   }
@@ -83,16 +85,13 @@ async function collectFirstIncompleteRowsForFolder(app: App, folderPath: string)
   const rows: SummaryRow[] = [];
 
   for (const file of files) {
-    const row = await findFirstIncompleteRow(app, file);
-    if (row) {
-      rows.push(row);
-    }
+    rows.push(...await findActionableRows(app, file, settings));
   }
 
   return rows.sort(compareSummaryRows);
 }
 
-async function collectFirstIncompleteRowsForInbox(app: App, inboxFilePath: string): Promise<SummaryRow[]> {
+async function collectActionableRowsForInbox(app: App, inboxFilePath: string, settings: TaskManagerSettings): Promise<SummaryRow[]> {
   if (!inboxFilePath) {
     return [];
   }
@@ -102,32 +101,33 @@ async function collectFirstIncompleteRowsForInbox(app: App, inboxFilePath: strin
     return [];
   }
 
-  const row = await findFirstIncompleteRow(app, inboxFile);
-  return row ? [row] : [];
+  return findActionableRows(app, inboxFile, settings);
 }
 
-async function findFirstIncompleteRow(app: App, file: TFile): Promise<SummaryRow | null> {
+async function findActionableRows(app: App, file: TFile, settings: TaskManagerSettings): Promise<SummaryRow[]> {
   const content = await app.vault.read(file);
   const priority = readFilePriority(content);
   const lines = content.split(/\r?\n/);
+  const actionableLineIndices = findActionableTaskLines(lines, settings.enableMultipleNextActions);
 
-  for (const line of lines) {
-    const parsed = parseFirstIncompleteTaskLine(line);
+  const rows: SummaryRow[] = [];
+  for (const index of actionableLineIndices) {
+    const parsed = parseFirstIncompleteTaskLine(lines[index]);
     if (!parsed) {
       continue;
     }
 
-    return {
+    rows.push({
       file,
       task: parsed.task,
       dueDate: parsed.dueDate,
       priority,
       recurrence: parsed.recurrence,
       contexts: parsed.contexts,
-    };
+    });
   }
 
-  return null;
+  return rows;
 }
 
 function parseFirstIncompleteTaskLine(line: string): ParsedFirstIncompleteRow | null {

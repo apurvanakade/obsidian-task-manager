@@ -22,6 +22,7 @@ Automates task lifecycle management in Obsidian: state transitions, completion m
    | Completed Status Field | Frontmatter field name written on completion | `status` |
    | Dashboard Filename Hide Keywords | Comma-separated keywords stripped from dashboard display names | — |
    | Known Contexts | Comma-separated task contexts (e.g. `@home, @calls, @errands`) powering the dashboard Context filter and `context::` editor autocomplete | — |
+   | Enable Multiple Next Actions | Let a project surface one actionable task per context, instead of only ever the file's first open task | Off |
 
 ## Commands
 
@@ -48,7 +49,7 @@ Each generated summary note also stamps frontmatter metadata:
 - `creation-date: YYYY-MM-DD`
 - `creation-time: HH:MM:SS`
 
-For each file, the task summary includes the **first incomplete task** and renders a grouped table with:
+For each file, the task summary includes the **first incomplete task** (or, with **Enable Multiple Next Actions** on, one row per actionable task — see [Multiple Next Actions](#multiple-next-actions)) and renders a grouped table with:
 - Folder
 - Filename
 - Task
@@ -88,12 +89,19 @@ The plugin reacts to checkbox changes as you edit, but only for markdown files i
 - Appends `[completion-date:: YYYY-MM-DD]` and `[completion-time:: HH:MM:SS]` to the completed task line.
 - Moves the completed task line into the `## Completed Tasks` section of the same file (creates the section at the end if absent).
 - The first remaining open task becomes the current actionable task implicitly. If none remain, the file status becomes `completed` and `completion-date` / `completion-time` are also stamped into the **file frontmatter**.
-- Prompts with a **Due Date Modal** to assign a due date and set the file priority for the newly exposed first incomplete task (see below).
+- Prompts with a **Due Date Modal** to assign a due date and set the file priority for the newly exposed actionable task (see below).
 
 ### Task Uncompleted (`[x]` → `[ ]`)
-- If the reopened task is now the first open task, it becomes the current actionable task implicitly. Status resets to `todo`.
+- If the reopened task is now actionable (see below), it becomes the current actionable task implicitly. Status resets to `todo`.
 
-The plugin uses the first incomplete task in the file as the current actionable task.
+By default, the plugin uses the first incomplete task in the file as the current actionable task. See **Multiple Next Actions** below for the optional per-context variant.
+
+### Multiple Next Actions
+Enable **Enable Multiple Next Actions** in plugin settings to let a project surface more than one actionable task at once — one per distinct `[context:: ...]` value among its open tasks, in addition to the file's first open task. This affects:
+- Which task(s) trigger the Due Date Modal on completion/uncompletion
+- Which task(s) appear as rows in the **Tasks Summary** table (one row per actionable task instead of one row per file)
+
+With the setting off (the default), behavior is unchanged: exactly one actionable task per file, same as before contexts existed. With it on, completing a task only pops the Due Date Modal if that completion actually promotes a *new* actionable task (e.g. finishing the file's only `@home` task exposes the next `@home` task); if more than one task becomes newly actionable at once, the modal opens for the first one only.
 
 ### Recurring Tasks
 If a completed task has `[repeat:: X]` or `[repeats:: X]`, a new open copy is inserted above the completed task with a computed due date:
@@ -133,7 +141,7 @@ That same status change also regenerates the Tasks Summary and Project Summary f
 
 ## Due Date Modal
 
-When a different task becomes the file's first incomplete task after completion or uncompletion (and that task is not recurring), a modal appears offering:
+When a task newly becomes actionable after completion or uncompletion (and that task is not recurring), a modal appears offering:
 
 - A preview of the task text.
 - A **project priority** dropdown (1–3, default 3; 1 is highest).
@@ -197,8 +205,9 @@ Display notes:
 | `src/tasks/task-line-metadata.ts` | Pure shared task-line parsing and display-text helpers |
 | `src/tasks/repeat-rules.ts` | Pure recurring-rule parser, alias normalizer, and next-due-date calculator |
 | `src/tasks/task-utils.ts` | Pure parsing/diffing utilities (no side effects) |
+| `src/tasks/next-actions.ts` | Pure actionable-task-line finder; single first-open-task by default, or one per context when Enable Multiple Next Actions is on |
 | `src/tasks/task-state-store.ts` | In-memory per-file task/status snapshot cache and pending-write guards |
-| `src/tasks/due-date-modal.ts` | Modal for collecting due date and file priority for the first incomplete task |
+| `src/tasks/due-date-modal.ts` | Modal for collecting due date and file priority for a newly actionable task |
 | `src/tasks/quick-capture-modal.ts` | Single-input modal for capturing a task into the Inbox File, with `due:` shorthand parsing |
 | `src/tasks/frontmatter-utils.ts` | Shared single-field frontmatter parser over a content string |
 | `src/projects/add-project-modal.ts` | Modal and helpers for creating a new project note from command input |
@@ -256,6 +265,7 @@ graph TD
    QC[quick-capture-modal.ts]
    TS[task-state-store.ts]
    TU[task-utils.ts]
+   NA[next-actions.ts]
    SUM[tasks-summary.ts]
    PSUM[project-summary.ts]
    SFIO[summary-file-io.ts]
@@ -319,10 +329,13 @@ graph TD
     RS --> RC
     DDM --> RC
     TLM --> RC
+    NA --> RC
     DS --> DDM
     DS --> QC
     TLM --> SUM
     TLM --> TU
+    TLM --> NA
+    NA --> SUM
 
     TU --> TS
     RT --> SUM

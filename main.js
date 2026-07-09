@@ -1395,7 +1395,8 @@ var DEFAULT_SETTINGS = {
   projectSummaryFile: "Project Summary.md",
   openSummaryAfterGeneration: false,
   dashboardHideKeywords: "",
-  knownContexts: ""
+  knownContexts: "",
+  enableMultipleNextActions: false
 };
 function normalizeStatusField(field) {
   const trimmedField = String(field || "").trim();
@@ -1422,7 +1423,8 @@ function normalizeSettings(rawSettings) {
     projectSummaryFile: normalizeFolder(rawSettings.projectSummaryFile) || DEFAULT_SETTINGS.projectSummaryFile,
     openSummaryAfterGeneration: normalizeBoolean(rawSettings.openSummaryAfterGeneration, DEFAULT_SETTINGS.openSummaryAfterGeneration),
     dashboardHideKeywords: String((_a = rawSettings.dashboardHideKeywords) != null ? _a : ""),
-    knownContexts: String((_b = rawSettings.knownContexts) != null ? _b : "")
+    knownContexts: String((_b = rawSettings.knownContexts) != null ? _b : ""),
+    enableMultipleNextActions: normalizeBoolean(rawSettings.enableMultipleNextActions, DEFAULT_SETTINGS.enableMultipleNextActions)
   };
 }
 
@@ -1743,6 +1745,39 @@ function escapeHtml(value) {
 
 // src/summary/tasks-summary.ts
 var import_obsidian10 = require("obsidian");
+
+// src/tasks/next-actions.ts
+function findActionableTaskLines(lines, enableMultipleNextActions) {
+  const openLines = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const structured = parseTaskLineStructured(lines[index]);
+    if (!structured || structured.status !== "open") {
+      continue;
+    }
+    openLines.push({ index, contexts: getContexts(structured.body) });
+  }
+  if (openLines.length === 0) {
+    return [];
+  }
+  if (!enableMultipleNextActions) {
+    return [openLines[0].index];
+  }
+  const actionableIndices = /* @__PURE__ */ new Set([openLines[0].index]);
+  const firstIndexByContext = /* @__PURE__ */ new Map();
+  for (const openLine of openLines) {
+    for (const context of openLine.contexts) {
+      if (!firstIndexByContext.has(context)) {
+        firstIndexByContext.set(context, openLine.index);
+      }
+    }
+  }
+  for (const index of firstIndexByContext.values()) {
+    actionableIndices.add(index);
+  }
+  return [...actionableIndices].sort((a, b) => a - b);
+}
+
+// src/summary/tasks-summary.ts
 var DUE_FIELD_REGEX2 = /\[due::\s*([^\]]+?)\s*\]/i;
 async function writeTasksSummary(app, settings, summaryFilePath) {
   const sections = await buildSummarySections(app, settings);
@@ -1753,10 +1788,10 @@ async function writeTasksSummary(app, settings, summaryFilePath) {
 }
 async function buildSummarySections(app, settings) {
   const sectionSources = [
-    { title: "Projects", collectRows: () => collectFirstIncompleteRowsForFolder(app, settings.projectsFolder) },
-    { title: "Waiting", collectRows: () => collectFirstIncompleteRowsForFolder(app, settings.waitingProjectsFolder) },
-    { title: "Someday-Maybe", collectRows: () => collectFirstIncompleteRowsForFolder(app, settings.somedayMaybeProjectsFolder) },
-    { title: "Inbox", collectRows: () => collectFirstIncompleteRowsForInbox(app, settings.inboxFile) }
+    { title: "Projects", collectRows: () => collectActionableRowsForFolder(app, settings.projectsFolder, settings) },
+    { title: "Waiting", collectRows: () => collectActionableRowsForFolder(app, settings.waitingProjectsFolder, settings) },
+    { title: "Someday-Maybe", collectRows: () => collectActionableRowsForFolder(app, settings.somedayMaybeProjectsFolder, settings) },
+    { title: "Inbox", collectRows: () => collectActionableRowsForInbox(app, settings.inboxFile, settings) }
   ];
   const sections = [];
   for (const source of sectionSources) {
@@ -1767,21 +1802,18 @@ async function buildSummarySections(app, settings) {
   }
   return sections;
 }
-async function collectFirstIncompleteRowsForFolder(app, folderPath) {
+async function collectActionableRowsForFolder(app, folderPath, settings) {
   if (!folderPath) {
     return [];
   }
   const files = app.vault.getMarkdownFiles().filter((file) => isInFolder(file.path, folderPath));
   const rows = [];
   for (const file of files) {
-    const row = await findFirstIncompleteRow(app, file);
-    if (row) {
-      rows.push(row);
-    }
+    rows.push(...await findActionableRows(app, file, settings));
   }
   return rows.sort(compareSummaryRows);
 }
-async function collectFirstIncompleteRowsForInbox(app, inboxFilePath) {
+async function collectActionableRowsForInbox(app, inboxFilePath, settings) {
   if (!inboxFilePath) {
     return [];
   }
@@ -1789,28 +1821,29 @@ async function collectFirstIncompleteRowsForInbox(app, inboxFilePath) {
   if (!(inboxFile instanceof import_obsidian10.TFile)) {
     return [];
   }
-  const row = await findFirstIncompleteRow(app, inboxFile);
-  return row ? [row] : [];
+  return findActionableRows(app, inboxFile, settings);
 }
-async function findFirstIncompleteRow(app, file) {
+async function findActionableRows(app, file, settings) {
   const content = await app.vault.read(file);
   const priority = readFilePriority(content);
   const lines = content.split(/\r?\n/);
-  for (const line of lines) {
-    const parsed = parseFirstIncompleteTaskLine(line);
+  const actionableLineIndices = findActionableTaskLines(lines, settings.enableMultipleNextActions);
+  const rows = [];
+  for (const index of actionableLineIndices) {
+    const parsed = parseFirstIncompleteTaskLine(lines[index]);
     if (!parsed) {
       continue;
     }
-    return {
+    rows.push({
       file,
       task: parsed.task,
       dueDate: parsed.dueDate,
       priority,
       recurrence: parsed.recurrence,
       contexts: parsed.contexts
-    };
+    });
   }
-  return null;
+  return rows;
 }
 function parseFirstIncompleteTaskLine(line) {
   const parsedTask = parseTaskLine(line);
@@ -2029,6 +2062,12 @@ function getToggleSettingConfigs(settings) {
       description: "Open the generated Project Summary file after the Tasks Summary command finishes (falls back to Tasks Summary File when needed).",
       key: "openSummaryAfterGeneration",
       value: settings.openSummaryAfterGeneration
+    },
+    {
+      name: "Enable Multiple Next Actions",
+      description: "Let a project surface one actionable task per context (in addition to the file's first open task) instead of only ever one actionable task per file. Affects the Due Date Modal trigger and the Tasks Summary table. Off by default to preserve existing single-next-action behavior.",
+      key: "enableMultipleNextActions",
+      value: settings.enableMultipleNextActions
     }
   ];
 }
@@ -2142,10 +2181,6 @@ function findNewlyUncompletedTask(previousState, nextState) {
     }
   }
   return null;
-}
-function findFirstIncompleteTaskStateLine(taskState) {
-  const firstOpenTask = taskState.find((task) => task.status === "open");
-  return firstOpenTask ? firstOpenTask.line : null;
 }
 function findFirstIncompleteTaskLine(lines) {
   for (let index = 0; index < lines.length; index += 1) {
@@ -2691,11 +2726,19 @@ async function showDueDateModalForFirstIncompleteTask(file, taskLineIndex, updat
   modal.open();
 }
 async function applyCompletionRules(context) {
-  const { file, content, completedLine, previousFirstIncompleteLine, writeFileContent, setFileStatus, setTaskState } = context;
+  const { file, content, completedLine, writeFileContent, setFileStatus, setTaskState, settings } = context;
+  const enableMultipleNextActions = settings.enableMultipleNextActions === true;
   const lines = content.split(/\r?\n/);
   const nextLines = [...lines];
   const sourceTaskLine = lines[completedLine];
   let completedLineIndex = completedLine;
+  const previousLines = [...lines];
+  previousLines[completedLine] = forceLineOpen(previousLines[completedLine]);
+  const previousActionableLines = findActionableTaskLines(previousLines, enableMultipleNextActions);
+  const wasCompletedLineActionable = previousActionableLines.includes(completedLine);
+  const previousActionableBodies = new Set(
+    previousActionableLines.filter((index) => index !== completedLine).map((index) => getLineBody(previousLines[index]))
+  );
   const repeatRule = parseRepeatRule(sourceTaskLine);
   if (repeatRule !== null) {
     const repeatedTaskLine = buildRepeatedTaskLine(sourceTaskLine, repeatRule);
@@ -2706,8 +2749,7 @@ async function applyCompletionRules(context) {
   }
   nextLines[completedLineIndex] = addCompletionFields(nextLines[completedLineIndex]);
   let workingLines = nextLines;
-  const nextTaskLine = findFirstIncompleteTaskLine(workingLines);
-  const newStatus = nextTaskLine === null ? "completed" : "todo";
+  const newStatus = findFirstIncompleteTaskLine(workingLines) === null ? "completed" : "todo";
   const stampedLine = workingLines[completedLineIndex];
   const actualCompletedLineIndex = workingLines.indexOf(stampedLine, completedLineIndex);
   if (actualCompletedLineIndex !== -1) {
@@ -2719,35 +2761,32 @@ async function applyCompletionRules(context) {
   }
   await setFileStatus(file, newStatus);
   setTaskState(file.path, extractTaskState(updatedContent));
-  if (previousFirstIncompleteLine === completedLine && nextTaskLine !== null) {
-    const nextTaskLineInFinal = findFirstIncompleteTaskLine(workingLines);
-    if (nextTaskLineInFinal !== null) {
-      await showDueDateModalForFirstIncompleteTask(file, nextTaskLineInFinal, updatedContent, context);
+  if (wasCompletedLineActionable) {
+    const finalActionableLines = findActionableTaskLines(workingLines, enableMultipleNextActions);
+    const newlyActionableLine = finalActionableLines.find(
+      (index) => !previousActionableBodies.has(getLineBody(workingLines[index]))
+    );
+    if (newlyActionableLine !== void 0) {
+      await showDueDateModalForFirstIncompleteTask(file, newlyActionableLine, updatedContent, context);
     }
   }
 }
 async function applyUncompletionRules(context) {
-  const { file, content, uncompletedLine, writeFileContent, setFileStatus, setTaskState } = context;
+  const { file, content, uncompletedLine, writeFileContent, setFileStatus, setTaskState, settings } = context;
+  const enableMultipleNextActions = settings.enableMultipleNextActions === true;
   const lines = content.split(/\r?\n/);
   lines[uncompletedLine] = stripCompletionFields(lines[uncompletedLine]);
   const workingLines = lines;
-  const firstIncompleteTaskLine = findFirstIncompleteTaskLine(workingLines);
-  if (firstIncompleteTaskLine !== uncompletedLine) {
-    const updatedContent2 = workingLines.join("\n");
-    if (updatedContent2 !== content) {
-      await writeFileContent(file, updatedContent2);
-    }
-    await setFileStatus(file, "todo");
-    setTaskState(file.path, extractTaskState(updatedContent2));
-    return;
-  }
+  const isActionable = findActionableTaskLines(workingLines, enableMultipleNextActions).includes(uncompletedLine);
   const updatedContent = workingLines.join("\n");
   if (updatedContent !== content) {
     await writeFileContent(file, updatedContent);
   }
   await setFileStatus(file, "todo");
   setTaskState(file.path, extractTaskState(updatedContent));
-  await showDueDateModalForFirstIncompleteTask(file, uncompletedLine, updatedContent, context);
+  if (isActionable) {
+    await showDueDateModalForFirstIncompleteTask(file, uncompletedLine, updatedContent, context);
+  }
 }
 async function reconcileFile(context) {
   const { file, settings, readFile, writeFileContent, setFileStatus, setTaskState } = context;
@@ -2786,6 +2825,17 @@ function addCompletionFields(line) {
 }
 function stripCompletionFields(line) {
   return line.replace(/\s*\[completion-date::[^\]]*\]/g, "").replace(/\s*\[completion-time::[^\]]*\]/g, "");
+}
+function forceLineOpen(line) {
+  const structured = parseTaskLineStructured(line);
+  if (!structured || structured.status === "open") {
+    return line;
+  }
+  return `${structured.prefix} ${structured.bracketSuffix}${structured.body}`;
+}
+function getLineBody(line) {
+  var _a, _b;
+  return (_b = (_a = parseTaskLineStructured(line)) == null ? void 0 : _a.body) != null ? _b : line;
 }
 function buildRepeatedTaskLine(completedLine, repeatRule) {
   const cleaned = stripCompletionFields(completedLine);
@@ -2930,13 +2980,7 @@ var TaskProcessor = class {
     this.stateStore.setTaskState(file.path, nextState);
     this.stateStore.setStatus(file.path, currentStatus);
     if (completion !== null) {
-      await this.applyCompletionRules(
-        file,
-        content,
-        completion,
-        findFirstIncompleteTaskStateLine(previousState),
-        settings
-      );
+      await this.applyCompletionRules(file, content, completion, settings);
       await this.routeAfterStatusChange(file, previousStatus, settings);
       return;
     }
@@ -3058,12 +3102,11 @@ ${sourceContent}`;
       await deleteEmptyParentFolders(this.app, getTaskFolderRoots(settings), sourcePath);
     });
   }
-  async applyCompletionRules(file, content, completedLine, previousFirstIncompleteLine, settings) {
+  async applyCompletionRules(file, content, completedLine, settings) {
     await applyCompletionRules({
       file,
       content,
       completedLine,
-      previousFirstIncompleteLine,
       ...this.createReconcilerServices(settings)
     });
   }
