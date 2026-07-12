@@ -400,10 +400,6 @@ export class TaskProcessor {
       return false;
     }
 
-    if (settings.projectSummaryFile && file.path === settings.projectSummaryFile) {
-      return false;
-    }
-
     if (this.isInboxFile(file, settings)) {
       return true;
     }

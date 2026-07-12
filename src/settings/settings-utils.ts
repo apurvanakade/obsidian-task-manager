@@ -14,7 +14,7 @@
  * - none (pure normalization helpers)
  *
  * Notes:
- * - Supports file-path settings for Inbox File, Tasks Summary File, and Project Summary File.
+ * - Supports file-path settings for Inbox File and Tasks Summary File.
  */
 export type TaskManagerSettings = {
   statusField: string;
@@ -24,7 +24,6 @@ export type TaskManagerSettings = {
   somedayMaybeProjectsFolder: string;
   inboxFile: string;
   tasksSummaryFile: string;
-  projectSummaryFile: string;
   openSummaryAfterGeneration: boolean;
   dashboardHideKeywords: string;
   knownContexts: string;
@@ -35,7 +34,7 @@ export type TaskManagerSettings = {
 
 export type FolderSettingKey = keyof Pick<
   TaskManagerSettings,
-  "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder" | "inboxFile" | "tasksSummaryFile" | "projectSummaryFile"
+  "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder" | "inboxFile" | "tasksSummaryFile"
 >;
 
 export const DEFAULT_SETTINGS: TaskManagerSettings = {
@@ -46,7 +45,6 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   somedayMaybeProjectsFolder: "",
   inboxFile: "",
   tasksSummaryFile: "Tasks Summary.md",
-  projectSummaryFile: "Project Summary.md",
   openSummaryAfterGeneration: false,
   dashboardHideKeywords: "",
   knownContexts: "",
@@ -84,7 +82,6 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
     somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder),
     inboxFile: normalizeFolder(rawSettings.inboxFile),
     tasksSummaryFile: normalizeFolder(rawSettings.tasksSummaryFile) || DEFAULT_SETTINGS.tasksSummaryFile,
-    projectSummaryFile: normalizeFolder(rawSettings.projectSummaryFile) || DEFAULT_SETTINGS.projectSummaryFile,
     openSummaryAfterGeneration: normalizeBoolean(rawSettings.openSummaryAfterGeneration, DEFAULT_SETTINGS.openSummaryAfterGeneration),
     dashboardHideKeywords: String(rawSettings.dashboardHideKeywords ?? ""),
     knownContexts: String(rawSettings.knownContexts ?? ""),

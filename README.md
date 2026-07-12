@@ -1,6 +1,6 @@
 # Task Manager Plugin
 
-Automates task lifecycle management in Obsidian: state transitions, completion metadata stamping, recurring task creation, file routing by status, editor autocomplete for date fields, a right-sidebar date dashboard, and generated task/project summary notes.
+Automates task lifecycle management in Obsidian: state transitions, completion metadata stamping, recurring task creation, file routing by status, editor autocomplete for date fields, a right-sidebar date dashboard, and a generated task summary note.
 
 > For developer/agent architecture reference, see [`CLAUDE.md`](CLAUDE.md).
 
@@ -17,8 +17,7 @@ Automates task lifecycle management in Obsidian: state transitions, completion m
    | Someday-Maybe Projects Folder | Destination for someday-maybe projects | — |
    | Inbox File | File whose tasks appear in the dashboard Inbox section | — |
    | Tasks Summary File | File written for the task-table summary output | `Tasks Summary.md` |
-   | Project Summary File | File written for the hierarchical project summary output | `Project Summary.md` |
-   | Open Tasks Summary After Generation | Whether to open the generated project summary note automatically after generation | Off |
+   | Open Tasks Summary After Generation | Whether to open the generated Tasks Summary note automatically after generation | Off |
    | Completed Status Field | Frontmatter field name written on completion | `status` |
    | Dashboard Filename Hide Keywords | Comma-separated keywords stripped from dashboard display names | — |
    | Known Contexts | Comma-separated task contexts (e.g. `@home, @calls, @errands`) powering the dashboard Context filter and `context::` editor autocomplete | — |
@@ -34,24 +33,21 @@ In the active file:
 - Removes `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, and `[created:: ...]` from task lines.
 - Then re-runs the same task reconciliation and routing flow for the file.
 
-### Tasks and Projects Summary
-Creates or overwrites both generated summary notes:
+### Tasks Summary
+Creates or overwrites the generated **Tasks Summary File** with task tables for **Projects**, **Waiting**, **Someday-Maybe**, and **Inbox**.
 
-- **Tasks Summary File** — task tables for **Projects**, **Waiting**, **Someday-Maybe**, and **Inbox**
-- **Project Summary File** — a depth-aware project table grouped by **Projects**, **Waiting**, **Someday-Maybe**, and **Completed**, with each project's file priority
+If the summary file already exists, the command overwrites it directly in place. It does not prompt to merge, append, or confirm replacement.
+The generated summary note is excluded from automatic task routing and reconciliation.
+The summary is also regenerated automatically whenever a project's file status changes.
+It is also regenerated after the Due Date modal updates the newly exposed task's due date or file priority.
 
-If either summary file already exists, the command overwrites it directly in place. It does not prompt to merge, append, or confirm replacement.
-Both generated summary notes are excluded from automatic task routing and reconciliation.
-Both summaries are also regenerated automatically whenever a project's file status changes.
-They are also regenerated after the Due Date modal updates the newly exposed task's due date or file priority.
+By default, generating the summary does **not** open a note. Enable **Open Tasks Summary After Generation** in plugin settings if you want the generated file opened automatically after the command runs.
 
-By default, generating summaries does **not** open a note. Enable **Open Tasks Summary After Generation** in plugin settings if you want the generated **Project Summary File** opened automatically after the command runs (falling back to **Tasks Summary File** when needed).
-
-Each generated summary note also stamps frontmatter metadata:
+The generated summary note also stamps frontmatter metadata:
 - `creation-date: YYYY-MM-DD`
 - `creation-time: HH:MM:SS`
 
-For each file, the task summary includes the **first incomplete task** (or, with **Enable Multiple Next Actions** on, one row per actionable task — see [Multiple Next Actions](#multiple-next-actions)) and renders a grouped table with:
+For each file, the summary includes the **first incomplete task** (or, with **Enable Multiple Next Actions** on, one row per actionable task — see [Multiple Next Actions](#multiple-next-actions)) and renders a grouped table with:
 - Folder
 - Filename
 - Task
@@ -61,8 +57,6 @@ For each file, the task summary includes the **first incomplete task** (or, with
 - Due (`MM-DD`)
 
 Rows are ordered with priority 1 first, then due date, then file path. Folder and filename display use the same hide-keyword cleanup as the date dashboard. The recurrence column shows the repeat value or `none` for non-recurring tasks. Task text is rendered as **bold** for priority 1, *italic* for priority 2, and default styling for priority 3, using the file's frontmatter priority.
-
-For active projects only, the **Project Summary File** splits the `Projects` section into **Priority 1**, **Priority 2**, and **Priority 3** subsections, where missing priorities default to 3. Each subsection renders an HTML table with one folder column per nesting level, plus **Project** and **Priority** columns. Folder cells use row spans so repeated folder names appear once across their descendant project rows. The remaining sections (`Waiting`, `Someday-Maybe`, `Completed`) use the same table format without priority subsections, and **Completed** appears last.
 
 ### Add New Project
 Opens a modal to create a new project file. The form collects:
@@ -152,7 +146,7 @@ When a file's status field changes to a routable value, the file is automaticall
 The configured Inbox File is never moved by status routing, even if all of its tasks are completed.
 When the plugin edits a project file's frontmatter metadata during this flow, it also writes `priority: 3` if the file does not already have a priority field.
 When a file's status changes to `waiting`, `waiting-since: YYYY-MM-DD` is also stamped into its frontmatter (today's date); when it changes away from `waiting`, that field is removed. This powers the Weekly Review's staleness tracking — see [Open Weekly Review](#open-weekly-review).
-That same status change also regenerates the Tasks Summary and Project Summary files silently in the background.
+That same status change also regenerates the Tasks Summary file silently in the background.
 
 ## Due Date Modal
 
@@ -166,7 +160,7 @@ When a task newly becomes actionable after completion or uncompletion (and that 
 - A **Skip** button to dismiss without adding a due date.
 
 On submit, `[due:: YYYY-MM-DD]` is written to the task line, an optional `[repeat:: X]` is added when provided, and `priority: N` is written to the file frontmatter.
-That update also regenerates the Tasks Summary and Project Summary files silently in the background.
+That update also regenerates the Tasks Summary file silently in the background.
 
 ## Inline Field Format
 
@@ -229,8 +223,7 @@ Display notes:
 | `src/projects/random-project.ts` | Lists Someday-Maybe project files and picks one at random |
 | `src/tables/grouped-task-table.ts` | Pure grouped task-table model and shared display formatting for dashboard/summary tables |
 | `src/summary/tasks-summary.ts` | Builds and writes the Tasks Summary note from configured sources |
-| `src/summary/project-summary.ts` | Builds and writes the hierarchical Project Summary note with priorities |
-| `src/summary/summary-file-io.ts` | Shared folder-scan and summary-file resolve/overwrite helpers used by both summary notes and the random-project picker |
+| `src/summary/summary-file-io.ts` | Shared folder-scan and summary-file resolve/overwrite helpers used by the Tasks Summary note and the random-project picker |
 | `src/routing/status-routing.ts` | Status extraction, validation, routable-status constants |
 | `src/routing/task-routing.ts` | File movement: destination resolution, folder creation, merge handling |
 | `src/dashboard/date-dashboard.ts` | Right-sidebar ItemView controller and renderer |
@@ -284,7 +277,6 @@ graph TD
    TU[task-utils.ts]
    NA[next-actions.ts]
    SUM[tasks-summary.ts]
-   PSUM[project-summary.ts]
    SFIO[summary-file-io.ts]
    CMD[register-task-commands.ts]
    WRV[weekly-review-view.ts]
@@ -299,7 +291,6 @@ graph TD
     AP --> M
     TP --> M
     SUM --> M
-    PSUM --> M
     CMD --> M
     QC --> M
     DS --> QC
@@ -370,12 +361,8 @@ graph TD
     RT --> SUM
     PRI --> SUM
     SU --> SUM
-    PRI --> PSUM
-    SU --> PSUM
-    RT --> PSUM
 
     FMU --> RS
     FMU --> PRI
     SFIO --> SUM
-    SFIO --> PSUM
 ```

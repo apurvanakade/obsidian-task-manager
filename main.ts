@@ -27,7 +27,6 @@ import { stampReviewedDate } from "./src/review/weekly-review-data";
 import { normalizeSettings, TaskManagerSettings } from "./src/settings/settings-utils";
 import { parseContextList } from "./src/tasks/task-line-metadata";
 import { QuickCaptureModal } from "./src/tasks/quick-capture-modal";
-import { writeProjectSummary } from "./src/summary/project-summary";
 import { writeTasksSummary } from "./src/summary/tasks-summary";
 import { TaskManagerSettingTabRenderer } from "./src/settings/settings-ui";
 import { ensureParentFoldersExist, getTaskFolderRoots } from "./src/routing/task-routing";
@@ -50,17 +49,15 @@ export default class TaskManagerPlugin extends Plugin {
       app: this.app,
       getSettings: () => this.getSettings(),
       onFileStatusChanged: async () => {
-        await this.writeSummaries({
+        await this.writeTasksSummaryFile({
           openAfterGeneration: false,
           showNotice: false,
-          includeProjectSummary: true,
         });
       },
       onTaskPropertiesChanged: async () => {
-        await this.writeSummaries({
+        await this.writeTasksSummaryFile({
           openAfterGeneration: false,
           showNotice: false,
-          includeProjectSummary: true,
         });
       },
     });
@@ -188,58 +185,41 @@ export default class TaskManagerPlugin extends Plugin {
 
   private async runCreateTasksSummary(): Promise<void> {
     try {
-      await this.writeSummaries({
+      await this.writeTasksSummaryFile({
         openAfterGeneration: true,
         showNotice: true,
-        includeProjectSummary: true,
       });
     } catch (error) {
-      new Notice(error instanceof Error ? error.message : "Failed to create Tasks and Projects Summary.");
+      new Notice(error instanceof Error ? error.message : "Failed to create Tasks Summary.");
     }
   }
 
-  private async writeSummaries(options: {
+  private async writeTasksSummaryFile(options: {
     openAfterGeneration: boolean;
     showNotice: boolean;
-    includeProjectSummary: boolean;
-  }): Promise<{ tasksSummaryPath: string | null; projectSummaryPath: string | null } | null> {
+  }): Promise<string | null> {
     const settings = this.getSettings();
-    const shouldWriteTasksSummary = settings.tasksSummaryFile.length > 0;
-    const shouldWriteProjectSummary = options.includeProjectSummary && settings.projectSummaryFile.length > 0;
-
-    if (!shouldWriteTasksSummary && !shouldWriteProjectSummary) {
+    if (!settings.tasksSummaryFile) {
       if (options.showNotice) {
-        new Notice("Set Tasks Summary File or Project Summary File in plugin settings before running Tasks Summary.");
+        new Notice("Set Tasks Summary File in plugin settings before running Tasks Summary.");
       }
       return null;
     }
 
-    const tasksSummaryPath = shouldWriteTasksSummary
-      ? await writeTasksSummary(this.app, settings, settings.tasksSummaryFile)
-      : null;
-    const projectSummaryPath = shouldWriteProjectSummary
-      ? await writeProjectSummary(this.app, settings, settings.projectSummaryFile)
-      : null;
+    const tasksSummaryPath = await writeTasksSummary(this.app, settings, settings.tasksSummaryFile);
 
     if (options.openAfterGeneration && settings.openSummaryAfterGeneration) {
-      const preferredOpenPath = projectSummaryPath ?? tasksSummaryPath;
-      const summaryFile = preferredOpenPath
-        ? this.app.vault.getAbstractFileByPath(preferredOpenPath)
-        : null;
+      const summaryFile = this.app.vault.getAbstractFileByPath(tasksSummaryPath);
       if (summaryFile instanceof TFile) {
         await this.app.workspace.getLeaf(true).openFile(summaryFile);
       }
     }
 
     if (options.showNotice) {
-      const writtenFiles = [
-        tasksSummaryPath ? `Tasks Summary: ${tasksSummaryPath}` : null,
-        projectSummaryPath ? `Project Summary: ${projectSummaryPath}` : null,
-      ].filter((value): value is string => value !== null);
-      new Notice(`Summary files written. ${writtenFiles.join(" | ")}`);
+      new Notice(`Tasks Summary written: ${tasksSummaryPath}`);
     }
 
-    return { tasksSummaryPath, projectSummaryPath };
+    return tasksSummaryPath;
   }
 
   private runAddNewProject(): void {

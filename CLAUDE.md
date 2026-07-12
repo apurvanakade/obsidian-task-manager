@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-An Obsidian plugin (Task Manager) that automates task lifecycle management: state transitions, completion metadata stamping, recurring task creation, file routing by status, editor autocomplete for date fields, a right-sidebar date dashboard, and generated task/project summary notes.
+An Obsidian plugin (Task Manager) that automates task lifecycle management: state transitions, completion metadata stamping, recurring task creation, file routing by status, editor autocomplete for date fields, a right-sidebar date dashboard, and a generated task summary note.
 
 ## Commands
 
@@ -37,7 +37,6 @@ src/
     due-date-modal.ts            ← Modal for collecting due date + file priority for the first incomplete task; submit is keyed by the captured task-line index, not string equality
   summary/
     tasks-summary.ts             ← Builds and writes the Tasks Summary markdown note
-    project-summary.ts           ← Builds and writes the Project Summary markdown note
     summary-file-io.ts           ← Shared isInFolder/isExcludedSummaryFile/resolveSummaryFile/overwriteSummaryFile, used by both summary generators and random-project.ts
   routing/
     status-routing.ts            ← Pure status extraction, validation, routable-status constants
@@ -62,7 +61,7 @@ src/
     settings-field-definitions.ts← Declarative metadata for settings controls
     folder-picker.ts             ← FuzzySuggestModal wrappers for vault folder/file pickers
   commands/
-    register-task-commands.ts    ← Registers "Reset Tasks", "Tasks and Projects Summary", "Add New Project", "Open Random Someday-Maybe Project", "Quick Capture Task", "Open Weekly Review", "Stamp Waiting-Since For Existing Waiting Projects"
+    register-task-commands.ts    ← Registers "Reset Tasks", "Tasks Summary", "Add New Project", "Open Random Someday-Maybe Project", "Quick Capture Task", "Open Weekly Review", "Stamp Waiting-Since For Existing Waiting Projects"
   review/
     weekly-review-view.ts        ← On-demand main-panel ItemView controller/renderer for the Weekly Review tab
     weekly-review-data.ts        ← Collects Active Projects/Waiting/Someday-Maybe staleness rows; stamps the `reviewed` frontmatter field
@@ -70,20 +69,20 @@ src/
 
 ### Key Data Flow
 
-1. **vault `modify` event** → `TaskProcessor.handleFileModify()` processes only markdown files inside the configured task roots or the configured Inbox File (and excludes the Tasks Summary and Project Summary notes), reads file fresh (non-cached) via `vault.read`, diffs against state-store snapshot, calls `reconciler` to apply transition rules, calls `task-routing` if status changed → writes back → state-store updated/rekeyed
+1. **vault `modify` event** → `TaskProcessor.handleFileModify()` processes only markdown files inside the configured task roots or the configured Inbox File (and excludes the Tasks Summary note), reads file fresh (non-cached) via `vault.read`, diffs against state-store snapshot, calls `reconciler` to apply transition rules, calls `task-routing` if status changed → writes back → state-store updated/rekeyed
 2. **Pending-path guards** in `TaskStateStore` prevent re-triggering the modify handler on self-writes
 3. **vault `rename`/`delete` events** → `main.ts` also calls `TaskProcessor.handleFileRename()`/`handleFileDelete()`, which rekey/delete the corresponding `TaskStateStore` entries. This exists specifically so external renames/deletes (file explorer, sync, other plugins) don't leave a stale snapshot under the old path — internal moves driven by routing already call `stateStore.rekey()` directly, but external ones previously had no path to keep the store in sync.
-4. **Commands** call `TaskProcessor.resetCurrentFileTasks()` directly; **Tasks and Projects Summary** separately writes both generated summary notes
-5. **Status changes** trigger a silent Tasks Summary and Project Summary regeneration after routing
-6. **DueDateModal submit** triggers a silent Tasks Summary and Project Summary regeneration after due date/priority updates
+4. **Commands** call `TaskProcessor.resetCurrentFileTasks()` directly; **Tasks Summary** separately writes the generated summary note
+5. **Status changes** trigger a silent Tasks Summary regeneration after routing
+6. **DueDateModal submit** triggers a silent Tasks Summary regeneration after due date/priority updates
 7. **Dashboard** is refreshed on `file-open`, `layout-change`, vault `rename`/`delete` events, and after settings changes
 
 ### Commands
 
 - **Reset Tasks** — in the active file, marks all tasks open (`[ ]`), strips `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, and `[created:: ...]` from task lines, then re-runs the normal task reconciliation and routing flow for that file
-- **Tasks and Projects Summary** — creates or overwrites both generated summary files. The configured Tasks Summary File gets the task-table note with sections for Projects, Waiting, Someday-Maybe, and Inbox. The configured Project Summary File gets a depth-aware project table grouped by Projects, Waiting, Someday-Maybe, and Completed with each project's file priority; the active `Projects` section is further split into Priority 1, Priority 2, and Priority 3 subsections, with missing priorities treated as 3. Existing summary files are overwritten in place with no merge/replace prompt, both generated notes are excluded from automatic task routing/reconciliation, project status changes regenerate them silently, and DueDateModal submits regenerate them silently after due date/priority updates
+- **Tasks Summary** — creates or overwrites the configured Tasks Summary File: a task-table note with sections for Projects, Waiting, Someday-Maybe, and Inbox. Existing content is overwritten in place with no merge/replace prompt, the generated note is excluded from automatic task routing/reconciliation, project status changes regenerate it silently, and DueDateModal submits regenerate it silently after due date/priority updates
 - **Add New Project** — opens a modal asking for Name, Folder, Priority, Status (`todo`, `waiting`, or `someday-maybe`), and optional starter tasks; the Folder field shows matching vault folders as you type; the command creates the project file, writes status/priority to frontmatter, creates missing parent folders, and opens the new file
-- **Open Random Someday-Maybe Project** — lists markdown files under the configured Someday-Maybe Projects Folder (excluding the Tasks Summary, Project Summary, and Inbox files, in case one is misconfigured into that folder), picks one uniformly at random via `getSomedayMaybeProjectFiles()`/`pickRandomFile()` in `src/projects/random-project.ts`, and opens it in a new leaf. Also bound to a `shuffle` ribbon icon (`main.ts` `addRibbonIcon`) calling the same handler. Shows a `Notice` instead of opening a file when the folder setting is empty or no candidate files exist.
+- **Open Random Someday-Maybe Project** — lists markdown files under the configured Someday-Maybe Projects Folder (excluding the Tasks Summary and Inbox files, in case one is misconfigured into that folder), picks one uniformly at random via `getSomedayMaybeProjectFiles()`/`pickRandomFile()` in `src/projects/random-project.ts`, and opens it in a new leaf. Also bound to a `shuffle` ribbon icon (`main.ts` `addRibbonIcon`) calling the same handler. Shows a `Notice` instead of opening a file when the folder setting is empty or no candidate files exist.
 - **Quick Capture Task** — opens `QuickCaptureModal` (`src/tasks/quick-capture-modal.ts`), a single-input modal. Enter or the Capture button submits. `parseQuickCaptureShorthand()` repeatedly peels recognized trailing tokens (a `due:<value>` token and/or one or more `@context` tokens, in any order) off the raw input — `due:` is resolved via the shared `resolveDateInput()` (`src/date/date-suggestions.ts`); an unresolvable `due:` token, or any token that isn't a recognized shorthand, stops the peel and is left in the task text unchanged rather than dropped. `main.ts`'s `runQuickCapture()` inserts `- [ ] <text> [due:: ...] [context:: ...]` (fields included only when present) as the **first task line** in the configured Inbox File — via the module-level `prependTaskLine()` helper, which inserts right after the frontmatter block if the file has one, otherwise at byte 0 — creating the file (and its parent folders via `ensureParentFoldersExist()`) if it doesn't exist yet. Uses `vault.read()` + `vault.modify()` rather than `vault.append()`, since Obsidian's `Vault.append()` can only add to the end of a file. Also bound to a `list-plus` ribbon icon. Shows a `Notice` instead of opening the modal when the Inbox File setting is empty. Because the Inbox File is already tracked by `TaskProcessor.shouldTrackFile()` and the dashboard's `isRelevantFile()`, the write flows through the normal `vault.on("modify")` pipeline with no additional state-tracking or refresh code needed.
 - **Open Weekly Review** — opens (or reveals, if already open) a `WeeklyReviewController`-registered `ItemView` in a full main-panel tab via `workspace.getLeaf(true)`, not a sidebar leaf or generated note — see Weekly Review below.
 - **Stamp Waiting-Since For Existing Waiting Projects** — one-time backfill via `TaskProcessor.backfillWaitingSince()`: scans `settings.waitingProjectsFolder` and stamps `waiting-since` (today's date) on any file missing it. Idempotent — already-stamped files are skipped.
@@ -92,9 +91,9 @@ src/
 
 Settings live in `data.json` (loaded/saved via `plugin.loadData()` / `plugin.saveData()`). After a settings change, call `plugin.updateSetting()` — it persists, re-primes task state, and refreshes the dashboard. Settings are normalized on load/save via `normalizeSettings()`.
 
-Configurable paths: Projects Folder, Completed Projects Folder, Waiting Projects Folder, Someday-Maybe Projects Folder, Inbox File (file picker, not folder), Tasks Summary File (file picker), Project Summary File (file picker).
+Configurable paths: Projects Folder, Completed Projects Folder, Waiting Projects Folder, Someday-Maybe Projects Folder, Inbox File (file picker, not folder), Tasks Summary File (file picker).
 
-Other settings: Completed Status Field (default `status`), Open Tasks Summary After Generation (default off; opens the generated Project Summary File first), Dashboard Filename Hide Keywords (comma-separated keywords stripped from dashboard display names), Known Contexts (comma-separated, default empty; powers the dashboard Context filter dropdown and `context::`/`contexts::` editor autocomplete via `parseContextList()`), Enable Multiple Next Actions (boolean, default off; gates `findActionableTaskLines()`'s plural per-context behavior — see Multiple Next Actions above), Someday-Maybe Review Cadence Days and Waiting Staleness Threshold Days (both stored as strings, default `"30"`/`"7"`, normalized via `normalizePositiveIntegerString()` and parsed at the Weekly Review's point of use — see Weekly Review below).
+Other settings: Completed Status Field (default `status`), Open Tasks Summary After Generation (default off), Dashboard Filename Hide Keywords (comma-separated keywords stripped from dashboard display names), Known Contexts (comma-separated, default empty; powers the dashboard Context filter dropdown and `context::`/`contexts::` editor autocomplete via `parseContextList()`), Enable Multiple Next Actions (boolean, default off; gates `findActionableTaskLines()`'s plural per-context behavior — see Multiple Next Actions above), Someday-Maybe Review Cadence Days and Waiting Staleness Threshold Days (both stored as strings, default `"30"`/`"7"`, normalized via `normalizePositiveIntegerString()` and parsed at the Weekly Review's point of use — see Weekly Review below).
 
 ### Status Routing
 
@@ -194,7 +193,7 @@ When a task newly becomes actionable after completion or uncompletion (see **Mul
 - A Skip option to dismiss without adding a due date
 
 Modal submit writes `[due:: YYYY-MM-DD]` to the task line, adds `[repeat:: X]` when provided, and writes `priority: N` to the file frontmatter.
-That submit also triggers a silent Tasks Summary and Project Summary regeneration.
+That submit also triggers a silent Tasks Summary regeneration.
 
 **Modal is skipped when**: the actionable task set was unchanged by this completion/uncompletion, or the newly actionable task is recurring.
 
@@ -236,7 +235,7 @@ When **Known Contexts** is non-empty, `DateDashboardController.appendContextFilt
 ### Inputs
 
 - Uses the configured **Tasks Summary File** setting as the destination path
-- Opens the generated **Project Summary File** after generation only when **Open Tasks Summary After Generation** is enabled (falling back to **Tasks Summary File** when needed)
+- Opens the generated file after generation only when **Open Tasks Summary After Generation** is enabled
 - Scans:
   - Projects Folder
   - Waiting Projects Folder
@@ -264,27 +263,6 @@ When **Known Contexts** is non-empty, `DateDashboardController.appendContextFilt
 - The recurrence column shows the repeat value or `none` for non-recurring tasks
 - Folder and filename display reuse the same hide-keyword cleanup behavior as the dashboard
 - Task text is rendered as **bold** for priority 1, *italic* for priority 2, and default styling for priority 3 using the file's frontmatter priority
-- Existing summary file content is overwritten
-
-## Project Summary
-
-### Inputs
-
-- Uses the configured **Project Summary File** setting as the destination path
-- Scans:
-  - Projects Folder
-  - Completed Projects Folder
-  - Waiting Projects Folder
-  - Someday-Maybe Projects Folder
-
-### Output Format
-
-- Writes a markdown note with sections: **Projects**, **Waiting**, **Someday-Maybe**, **Completed**
-- Stamps `creation-date` and `creation-time` into the summary file frontmatter
-- Renders an HTML table with one folder column per nesting level, plus **Project** and **Priority** columns
-- Uses row spans so repeated folder names appear once across adjacent descendant project rows
-- Splits the active **Projects** section into **Priority 1**, **Priority 2**, and **Priority 3** subsections, with missing priorities treated as `3`
-- Places **Completed** last rather than near the top of the summary
 - Existing summary file content is overwritten
 
 ## Editor Autocomplete
@@ -376,7 +354,7 @@ Run after meaningful logic changes:
 16. Typing `due::` shows suggestions from today, matches ISO and weekday labels, inserts ` YYYY-MM-DD`
 17. Typing `created::` shows today suggestion and inserts ` YYYY-MM-DD`
 18. `Reset Tasks` reopens all tasks, removes due/completion/created inline fields, then re-runs file reconciliation and routing
-19. `Tasks and Projects Summary` writes the configured Tasks Summary File and Project Summary File, stamps `creation-date`/`creation-time` frontmatter in both, renders the task summary tables, and renders the project hierarchy list with priorities
+19. `Tasks Summary` writes the configured Tasks Summary File, stamps `creation-date`/`creation-time` frontmatter, and renders the task summary tables
 20. `Add New Project` creates a new file at the chosen folder path, writes status/priority frontmatter, and converts each task textarea line into an open task
 21. `Open Random Someday-Maybe Project` (command and ribbon icon) opens a file from the configured Someday-Maybe Projects Folder; shows a Notice instead of opening a file when the folder is unset or empty
 22. Renaming or deleting a tracked file from Obsidian's file explorer (not via a plugin-driven move) keeps subsequent reconciliation correct — completing/uncompleting a task in the renamed file does not spuriously re-trigger recurring-task insertion from stale state

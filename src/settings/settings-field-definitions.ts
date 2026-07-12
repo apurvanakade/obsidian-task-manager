@@ -14,7 +14,7 @@
  * - none (pure data definitions)
  *
  * Notes:
- * - Inbox File, Tasks Summary File, and Project Summary File use file pickers, not folder pickers, in settings UI.
+ * - Inbox File and Tasks Summary File use file pickers, not folder pickers, in settings UI.
  */
 import { FolderSettingKey, TaskManagerSettings } from "./settings-utils";
 
@@ -87,13 +87,6 @@ export function getFolderSettingConfigs(settings: TaskManagerSettings): FolderSe
       value: settings.tasksSummaryFile,
       placeholder: "Tasks Summary.md",
     },
-    {
-      name: "Project Summary File",
-      description: "Path to the markdown file written by the project hierarchy summary output.",
-      key: "projectSummaryFile",
-      value: settings.projectSummaryFile,
-      placeholder: "Project Summary.md",
-    },
   ];
 }
 
@@ -145,7 +138,7 @@ export function getToggleSettingConfigs(settings: TaskManagerSettings): ToggleSe
   return [
     {
       name: "Open Tasks Summary After Generation",
-      description: "Open the generated Project Summary file after the Tasks Summary command finishes (falls back to Tasks Summary File when needed).",
+      description: "Open the generated Tasks Summary file after the Tasks Summary command finishes.",
       key: "openSummaryAfterGeneration",
       value: settings.openSummaryAfterGeneration,
     },

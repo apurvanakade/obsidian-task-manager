@@ -25,7 +25,6 @@ export function isInFolder(filePath: string, folderPath: string): boolean {
 
 export function isExcludedSummaryFile(filePath: string, settings: TaskManagerSettings): boolean {
   return filePath === settings.tasksSummaryFile
-    || filePath === settings.projectSummaryFile
     || filePath === settings.inboxFile;
 }
 

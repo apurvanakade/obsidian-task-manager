@@ -34,7 +34,7 @@ function registerTaskCommands(plugin, handlers) {
   });
   plugin.addCommand({
     id: "create-tasks-summary",
-    name: "Tasks and Projects Summary",
+    name: "Tasks Summary",
     callback: handlers.createTasksSummary
   });
   plugin.addCommand({
@@ -1381,7 +1381,7 @@ function isInFolder(filePath, folderPath) {
   return filePath.startsWith(`${folderPath}/`);
 }
 function isExcludedSummaryFile(filePath, settings) {
-  return filePath === settings.tasksSummaryFile || filePath === settings.projectSummaryFile || filePath === settings.inboxFile;
+  return filePath === settings.tasksSummaryFile || filePath === settings.inboxFile;
 }
 async function resolveSummaryFile(app, summaryFilePath) {
   await ensureParentFoldersExist(app, summaryFilePath);
@@ -2504,9 +2504,6 @@ ${sourceContent}`;
     if (settings.tasksSummaryFile && file.path === settings.tasksSummaryFile) {
       return false;
     }
-    if (settings.projectSummaryFile && file.path === settings.projectSummaryFile) {
-      return false;
-    }
     if (this.isInboxFile(file, settings)) {
       return true;
     }
@@ -2862,7 +2859,6 @@ var DEFAULT_SETTINGS = {
   somedayMaybeProjectsFolder: "",
   inboxFile: "",
   tasksSummaryFile: "Tasks Summary.md",
-  projectSummaryFile: "Project Summary.md",
   openSummaryAfterGeneration: false,
   dashboardHideKeywords: "",
   knownContexts: "",
@@ -2896,7 +2892,6 @@ function normalizeSettings(rawSettings) {
     somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder),
     inboxFile: normalizeFolder(rawSettings.inboxFile),
     tasksSummaryFile: normalizeFolder(rawSettings.tasksSummaryFile) || DEFAULT_SETTINGS.tasksSummaryFile,
-    projectSummaryFile: normalizeFolder(rawSettings.projectSummaryFile) || DEFAULT_SETTINGS.projectSummaryFile,
     openSummaryAfterGeneration: normalizeBoolean(rawSettings.openSummaryAfterGeneration, DEFAULT_SETTINGS.openSummaryAfterGeneration),
     dashboardHideKeywords: String((_a = rawSettings.dashboardHideKeywords) != null ? _a : ""),
     knownContexts: String((_b = rawSettings.knownContexts) != null ? _b : ""),
@@ -3024,203 +3019,6 @@ function applyStyles3(element, styles) {
   Object.assign(element.style, styles);
 }
 
-// src/summary/project-summary.ts
-var MARKDOWN_EXTENSION_REGEX4 = /\.md$/i;
-async function writeProjectSummary(app, settings, summaryFilePath) {
-  const sections = await buildProjectSummarySections(app, settings);
-  const summaryContent = renderProjectSummary(sections, settings.dashboardHideKeywords);
-  const summaryFile = await resolveSummaryFile(app, summaryFilePath);
-  await overwriteSummaryFile(app, summaryFile, summaryContent);
-  return summaryFilePath;
-}
-async function buildProjectSummarySections(app, settings) {
-  const sectionSources = [
-    { title: "Projects", rootPath: settings.projectsFolder },
-    { title: "Waiting", rootPath: settings.waitingProjectsFolder },
-    { title: "Someday-Maybe", rootPath: settings.somedayMaybeProjectsFolder },
-    { title: "Completed", rootPath: settings.completedProjectsFolder }
-  ];
-  const sections = [];
-  for (const source of sectionSources) {
-    sections.push({
-      title: source.title,
-      projects: await collectProjectsForFolder(app, source.rootPath, settings)
-    });
-  }
-  return sections;
-}
-async function collectProjectsForFolder(app, folderPath, settings) {
-  if (!folderPath) {
-    return [];
-  }
-  const files = app.vault.getMarkdownFiles().filter(
-    (file) => isInFolder(file.path, folderPath) && !isExcludedSummaryFile(file.path, settings)
-  );
-  const entries = [];
-  for (const file of files) {
-    const content = await app.vault.read(file);
-    const relativePath = file.path.slice(folderPath.length + 1);
-    const relativeSegments = relativePath.split("/");
-    entries.push({
-      file,
-      priority: readFilePriority(content),
-      folderSegments: relativeSegments.slice(0, -1)
-    });
-  }
-  return entries.sort((left, right) => left.file.path.localeCompare(right.file.path));
-}
-function renderProjectSummary(sections, hideKeywords) {
-  const lines = ["# Project Summary", ""];
-  for (const section of sections) {
-    lines.push(`## ${section.title}`, "");
-    if (section.projects.length === 0) {
-      lines.push("No projects.", "");
-      continue;
-    }
-    if (section.title === "Projects") {
-      appendPriorityProjectSections(lines, section.projects, hideKeywords);
-    } else {
-      appendProjectTable(lines, section.projects, hideKeywords);
-    }
-    lines.push("");
-  }
-  return lines.join("\n").trimEnd();
-}
-function appendPriorityProjectSections(lines, projects, hideKeywords) {
-  const buckets = splitProjectsByPriority(projects);
-  appendPrioritySection(lines, "Priority 1", buckets.priority1, hideKeywords);
-  appendPrioritySection(lines, "Priority 2", buckets.priority2, hideKeywords);
-  appendPrioritySection(lines, "Priority 3", buckets.priority3, hideKeywords);
-}
-function appendPrioritySection(lines, title, projects, hideKeywords) {
-  lines.push(`### ${title}`, "");
-  if (projects.length === 0) {
-    lines.push("No projects.", "");
-    return;
-  }
-  appendProjectTable(lines, projects, hideKeywords);
-  lines.push("");
-}
-function splitProjectsByPriority(projects) {
-  const buckets = {
-    priority1: [],
-    priority2: [],
-    priority3: []
-  };
-  for (const project of projects) {
-    if (project.priority === 1) {
-      buckets.priority1.push(project);
-      continue;
-    }
-    if (project.priority === 2) {
-      buckets.priority2.push(project);
-      continue;
-    }
-    buckets.priority3.push(project);
-  }
-  return buckets;
-}
-function appendProjectTable(lines, projects, hideKeywords) {
-  const rows = projects.map((project) => ({
-    folderSegments: project.folderSegments.map((segment) => formatDisplayName(segment, hideKeywords)),
-    projectDisplayName: formatDisplayName(project.file.name.replace(MARKDOWN_EXTENSION_REGEX4, ""), hideKeywords),
-    projectPath: project.file.path,
-    priority: project.priority
-  }));
-  const maxDepth = Math.max(0, ...rows.map((row) => row.folderSegments.length));
-  const folderCellsByRow = buildFolderCells(rows, maxDepth);
-  lines.push("<table>");
-  lines.push("  <thead>");
-  lines.push("    <tr>");
-  for (let depth = 0; depth < maxDepth; depth += 1) {
-    lines.push(`      <th>Folder ${depth + 1}</th>`);
-  }
-  lines.push("      <th>Project</th>");
-  lines.push("      <th>Priority</th>");
-  lines.push("    </tr>");
-  lines.push("  </thead>");
-  lines.push("  <tbody>");
-  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-    const row = rows[rowIndex];
-    lines.push("    <tr>");
-    for (let depth = 0; depth < maxDepth; depth += 1) {
-      const cell = folderCellsByRow[rowIndex][depth];
-      if (cell === null) {
-        continue;
-      }
-      if (cell.rowSpan > 1) {
-        lines.push(`      <td rowspan="${cell.rowSpan}">${escapeHtml(cell.value)}</td>`);
-      } else {
-        lines.push(`      <td>${escapeHtml(cell.value)}</td>`);
-      }
-    }
-    lines.push(`      <td>${buildInternalLinkHtml(row.projectDisplayName, row.projectPath)}</td>`);
-    lines.push(`      <td>${row.priority}</td>`);
-    lines.push("    </tr>");
-  }
-  lines.push("  </tbody>");
-  lines.push("</table>");
-}
-function buildFolderCells(rows, maxDepth) {
-  const cells = rows.map(() => Array(maxDepth).fill(null));
-  for (let depth = 0; depth < maxDepth; depth += 1) {
-    let rowIndex = 0;
-    while (rowIndex < rows.length) {
-      const value = rows[rowIndex].folderSegments[depth];
-      if (value === void 0) {
-        cells[rowIndex][depth] = { value: "", rowSpan: 1 };
-        rowIndex += 1;
-        continue;
-      }
-      const prefix = rows[rowIndex].folderSegments.slice(0, depth + 1);
-      let rowSpan = 1;
-      let nextIndex = rowIndex + 1;
-      while (nextIndex < rows.length && prefixesEqual(rows[nextIndex].folderSegments, prefix, depth + 1)) {
-        rowSpan += 1;
-        nextIndex += 1;
-      }
-      cells[rowIndex][depth] = { value, rowSpan };
-      for (let skipIndex = rowIndex + 1; skipIndex < nextIndex; skipIndex += 1) {
-        cells[skipIndex][depth] = null;
-      }
-      rowIndex = nextIndex;
-    }
-  }
-  return cells;
-}
-function prefixesEqual(segments, prefix, length) {
-  if (segments.length < length) {
-    return false;
-  }
-  for (let index = 0; index < length; index += 1) {
-    if (segments[index] !== prefix[index]) {
-      return false;
-    }
-  }
-  return true;
-}
-function formatDisplayName(name, hideKeywords) {
-  const keywords = hideKeywords.split(",").map((keyword) => keyword.trim()).filter((keyword) => keyword.length > 0);
-  if (keywords.length === 0) {
-    return name;
-  }
-  let result = name;
-  for (const keyword of keywords) {
-    const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    result = result.replace(new RegExp(escapedKeyword, "gi"), "");
-  }
-  result = result.replace(/\s+/g, " ").trim();
-  return result || name;
-}
-function buildInternalLinkHtml(displayName, filePath) {
-  const escapedPath = escapeHtml(filePath);
-  const escapedName = escapeHtml(displayName);
-  return `<a class="internal-link" data-href="${escapedPath}" href="${escapedPath}">${escapedName}</a>`;
-}
-function escapeHtml(value) {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-}
-
 // src/summary/tasks-summary.ts
 var import_obsidian14 = require("obsidian");
 var DUE_FIELD_REGEX2 = /\[due::\s*([^\]]+?)\s*\]/i;
@@ -3275,7 +3073,7 @@ async function findActionableRows(app, file, settings) {
   const actionableLineIndices = findActionableTaskLines(lines, settings.enableMultipleNextActions);
   const rows = [];
   for (const index of actionableLineIndices) {
-    const parsed = parseFirstIncompleteTaskLine(lines[index]);
+    const parsed = parseActionableTaskLine(lines[index]);
     if (!parsed) {
       continue;
     }
@@ -3290,7 +3088,7 @@ async function findActionableRows(app, file, settings) {
   }
   return rows;
 }
-function parseFirstIncompleteTaskLine(line) {
+function parseActionableTaskLine(line) {
   const parsedTask = parseTaskLine(line);
   if (!parsedTask || parsedTask.status !== "open") {
     return null;
@@ -3463,13 +3261,6 @@ function getFolderSettingConfigs(settings) {
       key: "tasksSummaryFile",
       value: settings.tasksSummaryFile,
       placeholder: "Tasks Summary.md"
-    },
-    {
-      name: "Project Summary File",
-      description: "Path to the markdown file written by the project hierarchy summary output.",
-      key: "projectSummaryFile",
-      value: settings.projectSummaryFile,
-      placeholder: "Project Summary.md"
     }
   ];
 }
@@ -3520,7 +3311,7 @@ function getToggleSettingConfigs(settings) {
   return [
     {
       name: "Open Tasks Summary After Generation",
-      description: "Open the generated Project Summary file after the Tasks Summary command finishes (falls back to Tasks Summary File when needed).",
+      description: "Open the generated Tasks Summary file after the Tasks Summary command finishes.",
       key: "openSummaryAfterGeneration",
       value: settings.openSummaryAfterGeneration
     },
@@ -3554,7 +3345,7 @@ var TaskManagerSettingTabRenderer = class {
     }
   }
   addFolderSetting(containerEl, config) {
-    const isFilePathSetting = config.key === "inboxFile" || config.key === "tasksSummaryFile" || config.key === "projectSummaryFile";
+    const isFilePathSetting = config.key === "inboxFile" || config.key === "tasksSummaryFile";
     new import_obsidian16.Setting(containerEl).setName(config.name).setDesc(`${config.description} Use Browse to pick a vault ${isFilePathSetting ? "file" : "path"}.`).addText((text) => {
       this.configureFolderTextInput(text, config.key, config.value, config.placeholder);
     }).addButton((button) => {
@@ -3622,17 +3413,15 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
       app: this.app,
       getSettings: () => this.getSettings(),
       onFileStatusChanged: async () => {
-        await this.writeSummaries({
+        await this.writeTasksSummaryFile({
           openAfterGeneration: false,
-          showNotice: false,
-          includeProjectSummary: true
+          showNotice: false
         });
       },
       onTaskPropertiesChanged: async () => {
-        await this.writeSummaries({
+        await this.writeTasksSummaryFile({
           openAfterGeneration: false,
-          showNotice: false,
-          includeProjectSummary: true
+          showNotice: false
         });
       }
     });
@@ -3756,42 +3545,33 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
   }
   async runCreateTasksSummary() {
     try {
-      await this.writeSummaries({
+      await this.writeTasksSummaryFile({
         openAfterGeneration: true,
-        showNotice: true,
-        includeProjectSummary: true
+        showNotice: true
       });
     } catch (error) {
-      new import_obsidian17.Notice(error instanceof Error ? error.message : "Failed to create Tasks and Projects Summary.");
+      new import_obsidian17.Notice(error instanceof Error ? error.message : "Failed to create Tasks Summary.");
     }
   }
-  async writeSummaries(options) {
+  async writeTasksSummaryFile(options) {
     const settings = this.getSettings();
-    const shouldWriteTasksSummary = settings.tasksSummaryFile.length > 0;
-    const shouldWriteProjectSummary = options.includeProjectSummary && settings.projectSummaryFile.length > 0;
-    if (!shouldWriteTasksSummary && !shouldWriteProjectSummary) {
+    if (!settings.tasksSummaryFile) {
       if (options.showNotice) {
-        new import_obsidian17.Notice("Set Tasks Summary File or Project Summary File in plugin settings before running Tasks Summary.");
+        new import_obsidian17.Notice("Set Tasks Summary File in plugin settings before running Tasks Summary.");
       }
       return null;
     }
-    const tasksSummaryPath = shouldWriteTasksSummary ? await writeTasksSummary(this.app, settings, settings.tasksSummaryFile) : null;
-    const projectSummaryPath = shouldWriteProjectSummary ? await writeProjectSummary(this.app, settings, settings.projectSummaryFile) : null;
+    const tasksSummaryPath = await writeTasksSummary(this.app, settings, settings.tasksSummaryFile);
     if (options.openAfterGeneration && settings.openSummaryAfterGeneration) {
-      const preferredOpenPath = projectSummaryPath != null ? projectSummaryPath : tasksSummaryPath;
-      const summaryFile = preferredOpenPath ? this.app.vault.getAbstractFileByPath(preferredOpenPath) : null;
+      const summaryFile = this.app.vault.getAbstractFileByPath(tasksSummaryPath);
       if (summaryFile instanceof import_obsidian17.TFile) {
         await this.app.workspace.getLeaf(true).openFile(summaryFile);
       }
     }
     if (options.showNotice) {
-      const writtenFiles = [
-        tasksSummaryPath ? `Tasks Summary: ${tasksSummaryPath}` : null,
-        projectSummaryPath ? `Project Summary: ${projectSummaryPath}` : null
-      ].filter((value) => value !== null);
-      new import_obsidian17.Notice(`Summary files written. ${writtenFiles.join(" | ")}`);
+      new import_obsidian17.Notice(`Tasks Summary written: ${tasksSummaryPath}`);
     }
-    return { tasksSummaryPath, projectSummaryPath };
+    return tasksSummaryPath;
   }
   runAddNewProject() {
     const settings = this.getSettings();

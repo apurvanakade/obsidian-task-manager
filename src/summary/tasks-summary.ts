@@ -38,7 +38,7 @@ type SummaryRow = {
   contexts: string[];
 };
 
-type ParsedFirstIncompleteRow = {
+type ParsedActionableTaskLine = {
   task: string;
   dueDate: string | null;
   recurrence: string;
@@ -112,7 +112,7 @@ async function findActionableRows(app: App, file: TFile, settings: TaskManagerSe
 
   const rows: SummaryRow[] = [];
   for (const index of actionableLineIndices) {
-    const parsed = parseFirstIncompleteTaskLine(lines[index]);
+    const parsed = parseActionableTaskLine(lines[index]);
     if (!parsed) {
       continue;
     }
@@ -130,7 +130,7 @@ async function findActionableRows(app: App, file: TFile, settings: TaskManagerSe
   return rows;
 }
 
-function parseFirstIncompleteTaskLine(line: string): ParsedFirstIncompleteRow | null {
+function parseActionableTaskLine(line: string): ParsedActionableTaskLine | null {
   const parsedTask = parseTaskLine(line);
   if (!parsedTask || parsedTask.status !== "open") {
     return null;
