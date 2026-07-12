@@ -2,7 +2,7 @@
 
 Automates task lifecycle management in Obsidian: state transitions, completion metadata stamping, recurring task creation, file routing by status, editor autocomplete for date fields, a right-sidebar date dashboard, and generated task/project summary notes.
 
-> For developer/agent architecture reference, see [`.github/copilot-instructions.md`](.github/copilot-instructions.md).
+> For developer/agent architecture reference, see [`CLAUDE.md`](CLAUDE.md).
 
 ## Setup
 
