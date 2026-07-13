@@ -18,11 +18,13 @@ import { TaskState } from "./task-utils";
 
 export class TaskStateStore {
   private readonly taskStateByPath = new Map<string, TaskState[]>();
+  private readonly lineCountByPath = new Map<string, number>();
   private readonly statusByPath = new Map<string, string | null>();
   private readonly pendingPaths = new Set<string>();
 
   clear(): void {
     this.taskStateByPath.clear();
+    this.lineCountByPath.clear();
     this.statusByPath.clear();
     this.pendingPaths.clear();
   }
@@ -35,6 +37,20 @@ export class TaskStateStore {
     this.taskStateByPath.set(filePath, taskState);
   }
 
+  /**
+   * Total document line count as of the last snapshot. Used to guard line-index-based
+   * completion/uncompletion diffing: an insertion or deletion shifts every subsequent
+   * line's index, which can make an unrelated, already-completed line look like it
+   * just transitioned. Null means no snapshot exists yet for this path.
+   */
+  getLineCount(filePath: string): number | null {
+    return this.lineCountByPath.get(filePath) ?? null;
+  }
+
+  setLineCount(filePath: string, lineCount: number): void {
+    this.lineCountByPath.set(filePath, lineCount);
+  }
+
   getStatus(filePath: string): string | null {
     return this.statusByPath.get(filePath) ?? null;
   }
@@ -45,6 +61,7 @@ export class TaskStateStore {
 
   delete(filePath: string): void {
     this.taskStateByPath.delete(filePath);
+    this.lineCountByPath.delete(filePath);
     this.statusByPath.delete(filePath);
     this.pendingPaths.delete(filePath);
   }
@@ -54,6 +71,12 @@ export class TaskStateStore {
     this.taskStateByPath.delete(oldPath);
     if (existingTaskState) {
       this.taskStateByPath.set(newPath, existingTaskState);
+    }
+
+    const existingLineCount = this.lineCountByPath.get(oldPath);
+    this.lineCountByPath.delete(oldPath);
+    if (existingLineCount !== undefined) {
+      this.lineCountByPath.set(newPath, existingLineCount);
     }
 
     const existingStatus = this.statusByPath.get(oldPath) ?? null;

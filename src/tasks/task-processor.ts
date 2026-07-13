@@ -25,7 +25,6 @@ import {
   findNewlyUncompletedTask,
   normalizeForComparison,
   resetTaskContent,
-  TaskState,
 } from "./task-utils";
 import {
   applyCompletionRules,
@@ -135,13 +134,24 @@ export class TaskProcessor {
 
     const content = await this.app.vault.read(file);
     const nextState = extractTaskState(content);
+    const nextLineCount = this.countLines(content);
     const previousState = this.stateStore.getTaskState(file.path);
+    const previousLineCount = this.stateStore.getLineCount(file.path);
     const previousStatus = this.stateStore.getStatus(file.path);
     const currentStatus = readStatusValue(content, settings.statusField);
-    const completion = findNewlyCompletedTask(previousState, nextState);
-    const uncompleted = findNewlyUncompletedTask(previousState, nextState);
+
+    // Line-index-based completion/uncompletion diffing is only trustworthy when the
+    // document's line count hasn't changed since the last snapshot. An insertion or
+    // deletion shifts every subsequent line's index, which can make an unrelated,
+    // already-completed line look like it just transitioned — e.g. a completed
+    // recurring task's historical entry (which keeps its [repeat:: ...] field forever)
+    // can appear "newly completed" after a deletion above it, spawning another clone.
+    const lineCountUnchanged = previousLineCount !== null && previousLineCount === nextLineCount;
+    const completion = lineCountUnchanged ? findNewlyCompletedTask(previousState, nextState) : null;
+    const uncompleted = lineCountUnchanged ? findNewlyUncompletedTask(previousState, nextState) : null;
 
     this.stateStore.setTaskState(file.path, nextState);
+    this.stateStore.setLineCount(file.path, nextLineCount);
     this.stateStore.setStatus(file.path, currentStatus);
 
     if (completion !== null) {
@@ -381,8 +391,8 @@ export class TaskProcessor {
       writeFileContent: (target: TFile, nextContent: string) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target: TFile, status: string) => this.setFileStatus(target, status, settings),
       setFilePriority: (target: TFile, priority: FilePriority) => this.setFilePriority(target, priority),
-      setTaskState: (filePath: string, nextState: TaskState[]) => {
-        this.stateStore.setTaskState(filePath, nextState);
+      setTaskState: (filePath: string, content: string) => {
+        this.snapshotTaskState(filePath, content);
       },
       onTaskPropertiesChanged: async () => {
         await this.onTaskPropertiesChanged?.();
@@ -390,8 +400,18 @@ export class TaskProcessor {
     };
   }
 
-  private updateFileSnapshot(filePath: string, content: string, settings: TaskManagerSettings): void {
+  /** Always update task-state and line-count together — never one without the other. */
+  private snapshotTaskState(filePath: string, content: string): void {
     this.stateStore.setTaskState(filePath, extractTaskState(content));
+    this.stateStore.setLineCount(filePath, this.countLines(content));
+  }
+
+  private countLines(content: string): number {
+    return content.split(/\r?\n/).length;
+  }
+
+  private updateFileSnapshot(filePath: string, content: string, settings: TaskManagerSettings): void {
+    this.snapshotTaskState(filePath, content);
     this.stateStore.setStatus(filePath, readStatusValue(content, settings.statusField));
   }
 

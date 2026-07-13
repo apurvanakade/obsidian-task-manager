@@ -20,10 +20,8 @@ import { FilePriority, readFilePriority } from "./file-priority";
 import { parseTaskLine, parseTaskLineStructured } from "./task-line-metadata";
 import { findActionableTaskLines } from "./next-actions";
 import {
-  extractTaskState,
   findFirstIncompleteTaskLine,
-  moveTaskToCompletedSection,
-  TaskState
+  moveTaskToCompletedSection
 } from "./task-utils";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { readStatusValue } from "../routing/status-routing";
@@ -37,7 +35,7 @@ type ReconcilerContext = {
   writeFileContent: (file: TFile, content: string) => Promise<void>;
   setFileStatus: (file: TFile, status: string) => Promise<void>;
   setFilePriority: (file: TFile, priority: FilePriority) => Promise<void>;
-  setTaskState: (filePath: string, state: TaskState[]) => void;
+  setTaskState: (filePath: string, content: string) => void;
   onTaskPropertiesChanged?: () => Promise<void>;
   app?: App;
 };
@@ -130,7 +128,7 @@ async function showDueDateModalForFirstIncompleteTask(
       const nextContent = updatedLines.join("\n");
       await writeFileContent(file, nextContent);
       await context.setFilePriority(file, Number.parseInt(priority, 10) as FilePriority);
-      setTaskState(file.path, extractTaskState(nextContent));
+      setTaskState(file.path, nextContent);
       await context.onTaskPropertiesChanged?.();
     },
   });
@@ -189,7 +187,7 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
   }
 
   await setFileStatus(file, newStatus);
-  setTaskState(file.path, extractTaskState(updatedContent));
+  setTaskState(file.path, updatedContent);
 
   // Only pop the modal when completing this task actually promoted a new actionable
   // task (i.e. the completed task was itself actionable, and some task that wasn't
@@ -223,7 +221,7 @@ export async function applyUncompletionRules(context: UncompletionContext): Prom
   }
 
   await setFileStatus(file, "todo");
-  setTaskState(file.path, extractTaskState(updatedContent));
+  setTaskState(file.path, updatedContent);
 
   if (isActionable) {
     await showDueDateModalForFirstIncompleteTask(file, uncompletedLine, updatedContent, context);
@@ -260,7 +258,7 @@ export async function reconcileFile(context: ReconcilerContext): Promise<void> {
   if (nextStatus !== null) {
     await setFileStatus(file, nextStatus);
   }
-  setTaskState(file.path, extractTaskState(updatedContent));
+  setTaskState(file.path, updatedContent);
 }
 
 export function getCompletionDateString(): string {

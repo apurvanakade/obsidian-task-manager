@@ -2031,7 +2031,7 @@ async function showDueDateModalForFirstIncompleteTask(file, taskLineIndex, updat
       const nextContent = updatedLines.join("\n");
       await writeFileContent(file, nextContent);
       await context.setFilePriority(file, Number.parseInt(priority, 10));
-      setTaskState(file.path, extractTaskState(nextContent));
+      setTaskState(file.path, nextContent);
       await ((_b = context.onTaskPropertiesChanged) == null ? void 0 : _b.call(context));
     }
   });
@@ -2072,7 +2072,7 @@ async function applyCompletionRules(context) {
     await writeFileContent(file, updatedContent);
   }
   await setFileStatus(file, newStatus);
-  setTaskState(file.path, extractTaskState(updatedContent));
+  setTaskState(file.path, updatedContent);
   if (wasCompletedLineActionable) {
     const finalActionableLines = findActionableTaskLines(workingLines, enableMultipleNextActions);
     const newlyActionableLine = finalActionableLines.find(
@@ -2095,7 +2095,7 @@ async function applyUncompletionRules(context) {
     await writeFileContent(file, updatedContent);
   }
   await setFileStatus(file, "todo");
-  setTaskState(file.path, extractTaskState(updatedContent));
+  setTaskState(file.path, updatedContent);
   if (isActionable) {
     await showDueDateModalForFirstIncompleteTask(file, uncompletedLine, updatedContent, context);
   }
@@ -2123,7 +2123,7 @@ async function reconcileFile(context) {
   if (nextStatus !== null) {
     await setFileStatus(file, nextStatus);
   }
-  setTaskState(file.path, extractTaskState(updatedContent));
+  setTaskState(file.path, updatedContent);
 }
 function getCompletionDateString() {
   return getCurrentDateString();
@@ -2174,11 +2174,13 @@ function isValidDateFormat(dateStr) {
 var TaskStateStore = class {
   constructor() {
     this.taskStateByPath = /* @__PURE__ */ new Map();
+    this.lineCountByPath = /* @__PURE__ */ new Map();
     this.statusByPath = /* @__PURE__ */ new Map();
     this.pendingPaths = /* @__PURE__ */ new Set();
   }
   clear() {
     this.taskStateByPath.clear();
+    this.lineCountByPath.clear();
     this.statusByPath.clear();
     this.pendingPaths.clear();
   }
@@ -2189,6 +2191,19 @@ var TaskStateStore = class {
   setTaskState(filePath, taskState) {
     this.taskStateByPath.set(filePath, taskState);
   }
+  /**
+   * Total document line count as of the last snapshot. Used to guard line-index-based
+   * completion/uncompletion diffing: an insertion or deletion shifts every subsequent
+   * line's index, which can make an unrelated, already-completed line look like it
+   * just transitioned. Null means no snapshot exists yet for this path.
+   */
+  getLineCount(filePath) {
+    var _a;
+    return (_a = this.lineCountByPath.get(filePath)) != null ? _a : null;
+  }
+  setLineCount(filePath, lineCount) {
+    this.lineCountByPath.set(filePath, lineCount);
+  }
   getStatus(filePath) {
     var _a;
     return (_a = this.statusByPath.get(filePath)) != null ? _a : null;
@@ -2198,6 +2213,7 @@ var TaskStateStore = class {
   }
   delete(filePath) {
     this.taskStateByPath.delete(filePath);
+    this.lineCountByPath.delete(filePath);
     this.statusByPath.delete(filePath);
     this.pendingPaths.delete(filePath);
   }
@@ -2207,6 +2223,11 @@ var TaskStateStore = class {
     this.taskStateByPath.delete(oldPath);
     if (existingTaskState) {
       this.taskStateByPath.set(newPath, existingTaskState);
+    }
+    const existingLineCount = this.lineCountByPath.get(oldPath);
+    this.lineCountByPath.delete(oldPath);
+    if (existingLineCount !== void 0) {
+      this.lineCountByPath.set(newPath, existingLineCount);
     }
     const existingStatus = (_a = this.statusByPath.get(oldPath)) != null ? _a : null;
     this.statusByPath.delete(oldPath);
@@ -2285,12 +2306,16 @@ var TaskProcessor = class {
     }
     const content = await this.app.vault.read(file);
     const nextState = extractTaskState(content);
+    const nextLineCount = this.countLines(content);
     const previousState = this.stateStore.getTaskState(file.path);
+    const previousLineCount = this.stateStore.getLineCount(file.path);
     const previousStatus = this.stateStore.getStatus(file.path);
     const currentStatus = readStatusValue(content, settings.statusField);
-    const completion = findNewlyCompletedTask(previousState, nextState);
-    const uncompleted = findNewlyUncompletedTask(previousState, nextState);
+    const lineCountUnchanged = previousLineCount !== null && previousLineCount === nextLineCount;
+    const completion = lineCountUnchanged ? findNewlyCompletedTask(previousState, nextState) : null;
+    const uncompleted = lineCountUnchanged ? findNewlyUncompletedTask(previousState, nextState) : null;
     this.stateStore.setTaskState(file.path, nextState);
+    this.stateStore.setLineCount(file.path, nextLineCount);
     this.stateStore.setStatus(file.path, currentStatus);
     if (completion !== null) {
       await this.applyCompletionRules(file, content, completion, settings);
@@ -2487,8 +2512,8 @@ ${sourceContent}`;
       writeFileContent: (target, nextContent) => this.writeFileContent(target, nextContent, settings),
       setFileStatus: (target, status) => this.setFileStatus(target, status, settings),
       setFilePriority: (target, priority) => this.setFilePriority(target, priority),
-      setTaskState: (filePath, nextState) => {
-        this.stateStore.setTaskState(filePath, nextState);
+      setTaskState: (filePath, content) => {
+        this.snapshotTaskState(filePath, content);
       },
       onTaskPropertiesChanged: async () => {
         var _a;
@@ -2496,8 +2521,16 @@ ${sourceContent}`;
       }
     };
   }
-  updateFileSnapshot(filePath, content, settings) {
+  /** Always update task-state and line-count together — never one without the other. */
+  snapshotTaskState(filePath, content) {
     this.stateStore.setTaskState(filePath, extractTaskState(content));
+    this.stateStore.setLineCount(filePath, this.countLines(content));
+  }
+  countLines(content) {
+    return content.split(/\r?\n/).length;
+  }
+  updateFileSnapshot(filePath, content, settings) {
+    this.snapshotTaskState(filePath, content);
     this.stateStore.setStatus(filePath, readStatusValue(content, settings.statusField));
   }
   shouldTrackFile(file, settings) {
