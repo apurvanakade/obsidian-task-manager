@@ -236,9 +236,9 @@ Display notes:
 | `src/settings/settings-ui.ts` | PluginSettingTab renderer |
 | `src/settings/settings-field-definitions.ts` | Declarative metadata for settings controls |
 | `src/settings/folder-picker.ts` | FuzzySuggestModal wrappers for vault folder/file pickers |
-| `src/commands/register-task-commands.ts` | Registers Reset Tasks, Tasks and Projects Summary, Add New Project, Open Random Someday-Maybe Project, Quick Capture Task, Open Weekly Review, and Stamp Waiting-Since commands |
+| `src/commands/register-task-commands.ts` | Registers Reset Tasks, Tasks Summary, Add New Project, Open Random Someday-Maybe Project, Quick Capture Task, Open Weekly Review, and Stamp Waiting-Since commands |
 | `src/review/weekly-review-view.ts` | On-demand main-panel ItemView controller/renderer for the Weekly Review tab |
-| `src/review/weekly-review-data.ts` | Collects Waiting/Someday-Maybe staleness rows and stamps the `reviewed` field |
+| `src/review/weekly-review-data.ts` | Collects Active Projects/Waiting/Someday-Maybe staleness rows and stamps the `reviewed` field |
 | `manifest.json` | Obsidian plugin metadata |
 
 ## Dependency Graph
