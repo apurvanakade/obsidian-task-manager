@@ -27,7 +27,7 @@ import { stampReviewedDate } from "./src/review/weekly-review-data";
 import { normalizeSettings, TaskManagerSettings } from "./src/settings/settings-utils";
 import { parseContextList } from "./src/tasks/task-line-metadata";
 import { QuickCaptureModal } from "./src/tasks/quick-capture-modal";
-import { writeTasksSummary } from "./src/summary/tasks-summary";
+import { TasksSummaryController } from "./src/summary/tasks-summary-view";
 import { TaskManagerSettingTabRenderer } from "./src/settings/settings-ui";
 import { ensureParentFoldersExist, getTaskFolderRoots } from "./src/routing/task-routing";
 import { TaskProcessor } from "./src/tasks/task-processor";
@@ -36,6 +36,7 @@ export default class TaskManagerPlugin extends Plugin {
   private taskProcessor: TaskProcessor | null = null;
   private dateDashboard: DateDashboardController | null = null;
   private weeklyReview: WeeklyReviewController | null = null;
+  private tasksSummary: TasksSummaryController | null = null;
   private dueDateSuggest: DueDateEditorSuggest | null = null;
   private createdDateSuggest: CreatedDateEditorSuggest | null = null;
   private contextSuggest: ContextEditorSuggest | null = null;
@@ -49,16 +50,10 @@ export default class TaskManagerPlugin extends Plugin {
       app: this.app,
       getSettings: () => this.getSettings(),
       onFileStatusChanged: async () => {
-        await this.writeTasksSummaryFile({
-          openAfterGeneration: false,
-          showNotice: false,
-        });
+        this.tasksSummary?.refreshSoon();
       },
       onTaskPropertiesChanged: async () => {
-        await this.writeTasksSummaryFile({
-          openAfterGeneration: false,
-          showNotice: false,
-        });
+        this.tasksSummary?.refreshSoon();
       },
     });
     this.dateDashboard = new DateDashboardController({
@@ -66,6 +61,11 @@ export default class TaskManagerPlugin extends Plugin {
       getTaskFolderRoots: () => this.getTaskFolderRoots(),
       getInboxFile: () => this.settings.inboxFile,
       getHideKeywords: () => this.settings.dashboardHideKeywords,
+      getKnownContexts: () => this.getKnownContexts(),
+    });
+    this.tasksSummary = new TasksSummaryController({
+      app: this.app,
+      getSettings: () => this.getSettings(),
       getKnownContexts: () => this.getKnownContexts(),
     });
     this.weeklyReview = new WeeklyReviewController({
@@ -83,8 +83,8 @@ export default class TaskManagerPlugin extends Plugin {
       resetCurrentFileTasks: () => {
         void this.runResetCurrentFileTasks();
       },
-      createTasksSummary: () => {
-        this.runCreateTasksSummary();
+      openTasksSummary: () => {
+        void this.tasksSummary?.openView();
       },
       addNewProject: () => {
         this.runAddNewProject();
@@ -137,6 +137,7 @@ export default class TaskManagerPlugin extends Plugin {
       this.taskProcessor?.handleFileDelete(file);
     }));
     this.weeklyReview.onload(this);
+    this.tasksSummary.onload(this);
     await this.taskProcessor.primeState();
     await this.dateDashboard.onload(this);
   }
@@ -146,7 +147,10 @@ export default class TaskManagerPlugin extends Plugin {
     this.taskProcessor = null;
     this.dateDashboard?.onunload();
     this.dateDashboard = null;
+    this.weeklyReview?.onunload();
     this.weeklyReview = null;
+    this.tasksSummary?.onunload();
+    this.tasksSummary = null;
     this.dueDateSuggest = null;
     this.createdDateSuggest = null;
     this.contextSuggest = null;
@@ -181,45 +185,6 @@ export default class TaskManagerPlugin extends Plugin {
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Failed to reset tasks.");
     }
-  }
-
-  private async runCreateTasksSummary(): Promise<void> {
-    try {
-      await this.writeTasksSummaryFile({
-        openAfterGeneration: true,
-        showNotice: true,
-      });
-    } catch (error) {
-      new Notice(error instanceof Error ? error.message : "Failed to create Tasks Summary.");
-    }
-  }
-
-  private async writeTasksSummaryFile(options: {
-    openAfterGeneration: boolean;
-    showNotice: boolean;
-  }): Promise<string | null> {
-    const settings = this.getSettings();
-    if (!settings.tasksSummaryFile) {
-      if (options.showNotice) {
-        new Notice("Set Tasks Summary File in plugin settings before running Tasks Summary.");
-      }
-      return null;
-    }
-
-    const tasksSummaryPath = await writeTasksSummary(this.app, settings, settings.tasksSummaryFile);
-
-    if (options.openAfterGeneration && settings.openSummaryAfterGeneration) {
-      const summaryFile = this.app.vault.getAbstractFileByPath(tasksSummaryPath);
-      if (summaryFile instanceof TFile) {
-        await this.app.workspace.getLeaf(true).openFile(summaryFile);
-      }
-    }
-
-    if (options.showNotice) {
-      new Notice(`Tasks Summary written: ${tasksSummaryPath}`);
-    }
-
-    return tasksSummaryPath;
   }
 
   private runAddNewProject(): void {

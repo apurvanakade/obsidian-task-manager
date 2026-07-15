@@ -8,10 +8,13 @@
  * - renders three flat, staleness-sorted tables (Active Projects, Waiting, Someday-Maybe)
  * - offers a per-row "Mark Reviewed" action for Active Projects/Someday-Maybe items,
  *   writing frontmatter directly and refreshing in place
+ * - while a Weekly Review tab is open, auto-refreshes it (debounced) whenever a
+ *   relevant project file is modified/renamed/deleted elsewhere, so the tab doesn't
+ *   go stale between manual "Mark Reviewed" clicks or re-runs of the open command
  *
  * Dependencies:
  * - depends on weekly-review-data.ts for data collection and the reviewed-date write
- * - Obsidian ItemView/workspace APIs
+ * - Obsidian ItemView/workspace/vault APIs
  *
  * Side Effects:
  * - manipulates view DOM; "Mark Reviewed" writes frontmatter via stampReviewedDate()
@@ -19,6 +22,7 @@
 import { App, ItemView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { getEndOfWeek } from "../date/date-utils";
 import { TaskManagerSettings } from "../settings/settings-utils";
+import { isInFolder } from "../summary/summary-file-io";
 import {
   collectActiveProjectReviewRows,
   collectSomedayReviewRows,
@@ -39,6 +43,7 @@ export class WeeklyReviewController {
 
   private readonly app: App;
   private readonly getSettings: () => TaskManagerSettings;
+  private refreshHandle: number | null = null;
 
   constructor(options: WeeklyReviewControllerOptions) {
     this.app = options.app;
@@ -47,6 +52,24 @@ export class WeeklyReviewController {
 
   onload(plugin: Plugin): void {
     plugin.registerView(WeeklyReviewController.VIEW_TYPE, (leaf) => new WeeklyReviewView(leaf, this));
+    plugin.registerEvent(this.app.vault.on("modify", (file) => {
+      if (this.isRelevantFile(file)) {
+        this.queueRefresh();
+      }
+    }));
+    plugin.registerEvent(this.app.vault.on("rename", () => {
+      this.queueRefresh();
+    }));
+    plugin.registerEvent(this.app.vault.on("delete", () => {
+      this.queueRefresh();
+    }));
+  }
+
+  onunload(): void {
+    if (this.refreshHandle !== null) {
+      window.clearTimeout(this.refreshHandle);
+      this.refreshHandle = null;
+    }
   }
 
   /** Opens the Weekly Review tab, reusing an existing one if already open. */
@@ -62,6 +85,34 @@ export class WeeklyReviewController {
 
     const leaf = this.app.workspace.getLeaf(true);
     await leaf.setViewState({ type: WeeklyReviewController.VIEW_TYPE, active: true });
+  }
+
+  private isRelevantFile(file: unknown): boolean {
+    if (!(file instanceof TFile)) return false;
+
+    const settings = this.getSettings();
+    const roots = [settings.projectsFolder, settings.waitingProjectsFolder, settings.somedayMaybeProjectsFolder].filter(Boolean);
+    return roots.some((root) => isInFolder(file.path, root));
+  }
+
+  private queueRefresh(): void {
+    if (this.refreshHandle !== null) {
+      window.clearTimeout(this.refreshHandle);
+    }
+
+    this.refreshHandle = window.setTimeout(() => {
+      this.refreshHandle = null;
+      void this.refreshOpenViews();
+    }, 50);
+  }
+
+  private async refreshOpenViews(): Promise<void> {
+    const leaves = this.app.workspace.getLeavesOfType(WeeklyReviewController.VIEW_TYPE);
+    for (const leaf of leaves) {
+      if (leaf.view instanceof WeeklyReviewView) {
+        await leaf.view.refresh();
+      }
+    }
   }
 
   async renderContent(container: HTMLElement, onNeedsRefresh: () => void): Promise<void> {

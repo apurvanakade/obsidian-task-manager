@@ -1,6 +1,6 @@
 # Task Manager Plugin
 
-Automates task lifecycle management in Obsidian: state transitions, completion metadata stamping, recurring task creation, file routing by status, editor autocomplete for date fields, a right-sidebar date dashboard, and a generated task summary note.
+Automates task lifecycle management in Obsidian: state transitions, completion metadata stamping, recurring task creation, file routing by status, editor autocomplete for date fields, a right-sidebar date dashboard, and live Tasks Summary and Weekly Review tabs.
 
 > For developer/agent architecture reference, see [`CLAUDE.md`](CLAUDE.md).
 
@@ -15,13 +15,10 @@ Automates task lifecycle management in Obsidian: state transitions, completion m
    | Completed Projects Folder | Destination for completed projects | — |
    | Waiting Projects Folder | Destination for waiting projects | — |
    | Someday-Maybe Projects Folder | Destination for someday-maybe projects | — |
-   | Inbox File | File whose tasks appear in the dashboard Inbox section | — |
-   | Tasks Summary File | File written for the task-table summary output | `Tasks Summary.md` |
-   | Open Tasks Summary After Generation | Whether to open the generated Tasks Summary note automatically after generation | Off |
+   | Inbox File | File whose tasks appear in the dashboard Inbox section and the Tasks Summary tab | — |
    | Completed Status Field | Frontmatter field name written on completion | `status` |
-   | Dashboard Filename Hide Keywords | Comma-separated keywords stripped from dashboard display names | — |
-   | Known Contexts | Comma-separated task contexts (e.g. `@home, @calls, @errands`) powering the dashboard Context filter and `context::` editor autocomplete | — |
-   | Tasks Summary Context Filter | Limits the generated Tasks Summary to one context. Only shown once Known Contexts is non-empty | All |
+   | Dashboard Filename Hide Keywords | Comma-separated keywords stripped from display names in the dashboard and Tasks Summary tab | — |
+   | Known Contexts | Comma-separated task contexts (e.g. `@home, @calls, @errands`) powering the Context filter dropdown (in the dashboard and Tasks Summary tab) and `context::` editor autocomplete | — |
    | Enable Multiple Next Actions | Let a project surface one actionable task per context, instead of only ever the file's first open task | Off |
    | Someday-Maybe Review Cadence (days) | Days a Someday-Maybe project can go unreviewed before the Weekly Review flags it | `30` |
    | Waiting Staleness Threshold (days) | Days a project can stay in Waiting before the Weekly Review flags it as stale | `7` |
@@ -34,23 +31,12 @@ In the active file:
 - Removes `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, and `[created:: ...]` from task lines.
 - Then re-runs the same task reconciliation and routing flow for the file.
 
-### Tasks Summary
-Creates or overwrites the generated **Tasks Summary File** with task tables for **Projects**, **Waiting**, **Someday-Maybe**, and **Inbox**.
+### Open Tasks Summary
+Opens a **Tasks Summary** tab (a full main-panel tab, not a generated note or sidebar panel — same placement pattern as Weekly Review), reusing an already-open tab instead of duplicating it. It renders task tables for **Projects**, **Waiting**, **Someday-Maybe**, and **Inbox**, live from the vault — there is nothing to generate, overwrite, or keep in sync.
 
-If the summary file already exists, the command overwrites it directly in place. It does not prompt to merge, append, or confirm replacement.
-The generated summary note is excluded from automatic task routing and reconciliation.
-The summary is also regenerated automatically whenever a project's file status changes.
-It is also regenerated after the Due Date modal updates the newly exposed task's due date or file priority.
+While a Tasks Summary tab is open, it auto-refreshes (debounced) whenever a relevant project file is modified, renamed, or deleted elsewhere — including project status changes and Due Date Modal submits. There's no separate "regenerate" step.
 
-By default, generating the summary does **not** open a note. Enable **Open Tasks Summary After Generation** in plugin settings if you want the generated file opened automatically after the command runs.
-
-The generated summary note also stamps frontmatter metadata:
-- `creation-date: YYYY-MM-DD`
-- `creation-time: HH:MM:SS`
-
-When **Tasks Summary Context Filter** is set to a context (instead of `All`), only actionable rows tagged with that `[context:: ...]` value are included in every section.
-
-For each file, the summary includes the **first incomplete task** (or, with **Enable Multiple Next Actions** on, one row per actionable task — see [Multiple Next Actions](#multiple-next-actions)) and renders a grouped table with:
+For each file, the summary includes the **first incomplete task** (or, with **Enable Multiple Next Actions** on, one row per actionable task — see [Multiple Next Actions](#multiple-next-actions)) — every open task regardless of due date, unlike the dashboard's Due section which only shows tasks due on the active date. Each section renders a grouped table with:
 - Folder
 - Filename
 - Task
@@ -60,6 +46,8 @@ For each file, the summary includes the **first incomplete task** (or, with **En
 - Due (`MM-DD`)
 
 Rows are ordered with priority 1 first, then due date, then file path. Folder and filename display use the same hide-keyword cleanup as the date dashboard. The recurrence column shows the repeat value or `none` for non-recurring tasks. Task text is rendered as **bold** for priority 1, *italic* for priority 2, and default styling for priority 3, using the file's frontmatter priority.
+
+**Context filter**: when **Known Contexts** is configured, a dropdown appears above the sections, identical in behavior to the date dashboard's — selecting a context narrows every section to matching rows. The selection is per-session UI state, not saved to settings.
 
 ### Add New Project
 Opens a modal to create a new project file. The form collects:
@@ -88,6 +76,8 @@ Opens a **Weekly Review** tab (a full main-panel tab, not a generated note or si
 - **Someday-Maybe** — every project in the configured **Someday-Maybe Projects Folder**, with Days Since Review and Last Reviewed columns, sorted most-overdue-first. Never-reviewed projects sort first. A project is marked **Needs Review** when it's never been reviewed or has gone longer than the **Someday-Maybe Review Cadence** setting. Each row has a **Mark Reviewed** button that stamps today's date and refreshes the table in place.
 
 `waiting-since` is stamped automatically the moment a project's status changes to `waiting`, and cleared when it leaves `waiting` — no manual action needed for projects routed after this feature shipped. `reviewed` (shared by Active Projects and Someday-Maybe) is stamped by clicking **Mark Reviewed** in this view, or — for Someday-Maybe only — by opening a project via **Open Random Someday-Maybe Project**, which doubles as a casual review at no extra effort.
+
+While a Weekly Review tab is open, it auto-refreshes (debounced) whenever a file in the Projects, Waiting, or Someday-Maybe folders is modified, renamed, or deleted elsewhere — you don't need to close and reopen the tab, or re-run the command, to see changes made from another note.
 
 ### Stamp Waiting-Since For Existing Waiting Projects
 A one-time backfill command: stamps today's date on any file in the Waiting Projects Folder that doesn't already have a `waiting-since` field (from before the Weekly Review feature existed). Safe to re-run — files that already have the field are skipped.
@@ -149,7 +139,7 @@ When a file's status field changes to a routable value, the file is automaticall
 The configured Inbox File is never moved by status routing, even if all of its tasks are completed.
 When the plugin edits a project file's frontmatter metadata during this flow, it also writes `priority: 3` if the file does not already have a priority field.
 When a file's status changes to `waiting`, `waiting-since: YYYY-MM-DD` is also stamped into its frontmatter (today's date); when it changes away from `waiting`, that field is removed. This powers the Weekly Review's staleness tracking — see [Open Weekly Review](#open-weekly-review).
-That same status change also regenerates the Tasks Summary file silently in the background.
+That same status change also refreshes any open Tasks Summary tab, since a status change moves the file.
 
 ## Due Date Modal
 
@@ -163,7 +153,7 @@ When a task newly becomes actionable after completion or uncompletion (and that 
 - A **Skip** button to dismiss without adding a due date.
 
 On submit, `[due:: YYYY-MM-DD]` is written to the task line, an optional `[repeat:: X]` is added when provided, and `priority: N` is written to the file frontmatter.
-That update also regenerates the Tasks Summary file silently in the background.
+That update also refreshes any open Tasks Summary tab.
 
 ## Inline Field Format
 
@@ -225,8 +215,9 @@ Display notes:
 | `src/projects/add-project-modal.ts` | Modal and helpers for creating a new project note from command input |
 | `src/projects/random-project.ts` | Lists Someday-Maybe project files and picks one at random |
 | `src/tables/grouped-task-table.ts` | Pure grouped task-table model and shared display formatting for dashboard/summary tables |
-| `src/summary/tasks-summary.ts` | Builds and writes the Tasks Summary note from configured sources |
-| `src/summary/summary-file-io.ts` | Shared folder-scan and summary-file resolve/overwrite helpers used by the Tasks Summary note and the random-project picker |
+| `src/summary/tasks-summary.ts` | Pure(ish) data layer: collects actionable-task rows for the Tasks Summary tab from configured sources (no writes) |
+| `src/summary/tasks-summary-view.ts` | On-demand main-panel ItemView controller/renderer for the Tasks Summary tab, with a live Context filter dropdown and auto-refresh on relevant vault changes |
+| `src/summary/summary-file-io.ts` | Shared pure folder-scan/excluded-file helpers used by the Tasks Summary tab, Weekly Review, and the random-project picker |
 | `src/routing/status-routing.ts` | Status extraction, validation, routable-status constants |
 | `src/routing/task-routing.ts` | File movement: destination resolution, folder creation, merge handling |
 | `src/dashboard/date-dashboard.ts` | Right-sidebar ItemView controller and renderer |
@@ -239,8 +230,8 @@ Display notes:
 | `src/settings/settings-ui.ts` | PluginSettingTab renderer |
 | `src/settings/settings-field-definitions.ts` | Declarative metadata for settings controls |
 | `src/settings/folder-picker.ts` | FuzzySuggestModal wrappers for vault folder/file pickers |
-| `src/commands/register-task-commands.ts` | Registers Reset Tasks, Tasks Summary, Add New Project, Open Random Someday-Maybe Project, Quick Capture Task, Open Weekly Review, and Stamp Waiting-Since commands |
-| `src/review/weekly-review-view.ts` | On-demand main-panel ItemView controller/renderer for the Weekly Review tab |
+| `src/commands/register-task-commands.ts` | Registers Reset Tasks, Open Tasks Summary, Add New Project, Open Random Someday-Maybe Project, Quick Capture Task, Open Weekly Review, and Stamp Waiting-Since commands |
+| `src/review/weekly-review-view.ts` | On-demand main-panel ItemView controller/renderer for the Weekly Review tab, with auto-refresh on relevant vault changes |
 | `src/review/weekly-review-data.ts` | Collects Active Projects/Waiting/Someday-Maybe staleness rows and stamps the `reviewed` field |
 | `manifest.json` | Obsidian plugin metadata |
 
@@ -280,6 +271,7 @@ graph TD
    TU[task-utils.ts]
    NA[next-actions.ts]
    SUM[tasks-summary.ts]
+   SUMV[tasks-summary-view.ts]
    SFIO[summary-file-io.ts]
    CMD[register-task-commands.ts]
    WRV[weekly-review-view.ts]
@@ -293,7 +285,7 @@ graph TD
     RT --> M
     AP --> M
     TP --> M
-    SUM --> M
+    SUMV --> M
     CMD --> M
     QC --> M
     DS --> QC
@@ -302,11 +294,17 @@ graph TD
     WRD --> WRV
     DU --> WRV
     SU --> WRV
+    SFIO --> WRV
     SFIO --> WRD
     FMU --> WRD
     DU --> WRD
     TP --> WRD
     SU --> WRD
+
+    SUM --> SUMV
+    GT --> SUMV
+    SU --> SUMV
+    SFIO --> SUMV
 
      DTD --> D
      DU --> D
@@ -333,8 +331,6 @@ graph TD
     RP --> M
     SFIO --> RP
 
-     GT --> SUM
-     DU --> SUM
      SU --> TP
      TU --> TP
     RC --> TP
@@ -361,7 +357,6 @@ graph TD
     NA --> SUM
 
     TU --> TS
-    RT --> SUM
     PRI --> SUM
     SU --> SUM
 

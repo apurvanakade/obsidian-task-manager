@@ -88,7 +88,6 @@ export class DateDashboardController {
   }
 
   async renderContent(container: HTMLElement): Promise<void> {
-    container.innerHTML = "";
     container.classList.add("markdown-rendered");
 
     const activeFile = this.app.workspace.getActiveFile();
@@ -121,6 +120,7 @@ export class DateDashboardController {
     // Completed tasks
     this.appendTaskTable(dashboard, "Completed", this.filterByContext(tasks.completedTasks), sourcePath, false);
 
+    container.innerHTML = "";
     container.appendChild(dashboard);
   }
 
@@ -259,7 +259,7 @@ export class DateDashboardController {
     this.refreshHandle = window.setTimeout(() => {
       this.refreshHandle = null;
       void this.refreshView();
-    }, 50);
+    }, 300);
   }
 
   private async ensureView(): Promise<void> {

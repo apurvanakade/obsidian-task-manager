@@ -416,10 +416,6 @@ export class TaskProcessor {
   }
 
   private shouldTrackFile(file: TFile, settings: TaskManagerSettings): boolean {
-    if (settings.tasksSummaryFile && file.path === settings.tasksSummaryFile) {
-      return false;
-    }
-
     if (this.isInboxFile(file, settings)) {
       return true;
     }

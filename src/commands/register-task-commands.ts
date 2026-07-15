@@ -19,7 +19,7 @@ import { Plugin } from "obsidian";
 
 type TaskCommandHandlers = {
   resetCurrentFileTasks: () => void;
-  createTasksSummary: () => void;
+  openTasksSummary: () => void;
   addNewProject: () => void;
   openRandomSomedayMaybeProject: () => void;
   quickCapture: () => void;
@@ -35,9 +35,9 @@ export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandle
   });
 
   plugin.addCommand({
-    id: "create-tasks-summary",
-    name: "Tasks Summary",
-    callback: handlers.createTasksSummary,
+    id: "open-tasks-summary",
+    name: "Open Tasks Summary",
+    callback: handlers.openTasksSummary,
   });
 
   plugin.addCommand({

@@ -1,35 +1,35 @@
 /**
  * Purpose:
- * - generate a markdown Tasks Summary file from configured task sources.
+ * - collect actionable task rows for the live Tasks Summary tab.
  *
  * Responsibilities:
- * - scans Projects, Waiting, Someday-Maybe, and Inbox sources
- * - selects the actionable task(s) per file (first incomplete task, or one per context
- *   group when Enable Multiple Next Actions is on)
- * - renders grouped summary tables with due date, recurrence, and file-priority columns
- * - creates or overwrites the destination markdown file without merge prompts
+ * - scans Projects, Waiting, Someday-Maybe folders and the Inbox file
+ * - selects the actionable task(s) per file (first incomplete task, or one row per
+ *   context group when Enable Multiple Next Actions is on)
+ * - groups results into Projects/Waiting/Someday-Maybe/Inbox sections, each sorted by
+ *   file priority ascending, then due date, then file path
  *
  * Dependencies:
- * - Obsidian vault/file APIs and normalized plugin settings
+ * - Obsidian vault APIs and normalized plugin settings
  *
  * Side Effects:
- * - reads markdown files and writes the summary file to the vault
+ * - reads markdown files from the vault (no writes — rendering lives in tasks-summary-view.ts)
  */
-import { App, TAbstractFile, TFile } from "obsidian";
+import { App, TFile } from "obsidian";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { readFilePriority } from "../tasks/file-priority";
 import { cleanTaskText, getContexts, getRecurrenceLabel, parseTaskLine, readInlineFieldValue } from "../tasks/task-line-metadata";
 import { findActionableTaskLines } from "../tasks/next-actions";
-import { buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
-import { isInFolder, overwriteSummaryFile, resolveSummaryFile } from "./summary-file-io";
+import { isInFolder } from "./summary-file-io";
 
 const DUE_FIELD_REGEX = /\[due::\s*([^\]]+?)\s*\]/i;
-type SummarySection = {
+
+export type TaskSummarySection = {
   title: string;
-  rows: SummaryRow[];
+  rows: TaskSummaryRow[];
 };
 
-type SummaryRow = {
+export type TaskSummaryRow = {
   file: TFile;
   task: string;
   dueDate: string | null;
@@ -45,19 +45,7 @@ type ParsedActionableTaskLine = {
   contexts: string[];
 };
 
-export async function writeTasksSummary(
-  app: App,
-  settings: TaskManagerSettings,
-  summaryFilePath: string,
-): Promise<string> {
-  const sections = await buildSummarySections(app, settings);
-  const summaryContent = renderSummary(sections, settings.dashboardHideKeywords);
-  const summaryFile = await resolveSummaryFile(app, summaryFilePath);
-  await overwriteSummaryFile(app, summaryFile, summaryContent);
-  return summaryFilePath;
-}
-
-async function buildSummarySections(app: App, settings: TaskManagerSettings): Promise<SummarySection[]> {
+export async function collectTaskSummarySections(app: App, settings: TaskManagerSettings): Promise<TaskSummarySection[]> {
   const sectionSources = [
     { title: "Projects", collectRows: () => collectActionableRowsForFolder(app, settings.projectsFolder, settings) },
     { title: "Waiting", collectRows: () => collectActionableRowsForFolder(app, settings.waitingProjectsFolder, settings) },
@@ -65,32 +53,24 @@ async function buildSummarySections(app: App, settings: TaskManagerSettings): Pr
     { title: "Inbox", collectRows: () => collectActionableRowsForInbox(app, settings.inboxFile, settings) },
   ];
 
-  const sections: SummarySection[] = [];
+  const sections: TaskSummarySection[] = [];
   for (const source of sectionSources) {
     sections.push({
       title: source.title,
-      rows: filterRowsByContext(await source.collectRows(), settings.tasksSummaryContextFilter),
+      rows: await source.collectRows(),
     });
   }
 
   return sections;
 }
 
-function filterRowsByContext(rows: SummaryRow[], contextFilter: string): SummaryRow[] {
-  if (!contextFilter) {
-    return rows;
-  }
-
-  return rows.filter((row) => row.contexts.includes(contextFilter));
-}
-
-async function collectActionableRowsForFolder(app: App, folderPath: string, settings: TaskManagerSettings): Promise<SummaryRow[]> {
+async function collectActionableRowsForFolder(app: App, folderPath: string, settings: TaskManagerSettings): Promise<TaskSummaryRow[]> {
   if (!folderPath) {
     return [];
   }
 
   const files = app.vault.getMarkdownFiles().filter((file) => isInFolder(file.path, folderPath));
-  const rows: SummaryRow[] = [];
+  const rows: TaskSummaryRow[] = [];
 
   for (const file of files) {
     rows.push(...await findActionableRows(app, file, settings));
@@ -99,7 +79,7 @@ async function collectActionableRowsForFolder(app: App, folderPath: string, sett
   return rows.sort(compareSummaryRows);
 }
 
-async function collectActionableRowsForInbox(app: App, inboxFilePath: string, settings: TaskManagerSettings): Promise<SummaryRow[]> {
+async function collectActionableRowsForInbox(app: App, inboxFilePath: string, settings: TaskManagerSettings): Promise<TaskSummaryRow[]> {
   if (!inboxFilePath) {
     return [];
   }
@@ -112,13 +92,13 @@ async function collectActionableRowsForInbox(app: App, inboxFilePath: string, se
   return findActionableRows(app, inboxFile, settings);
 }
 
-async function findActionableRows(app: App, file: TFile, settings: TaskManagerSettings): Promise<SummaryRow[]> {
+async function findActionableRows(app: App, file: TFile, settings: TaskManagerSettings): Promise<TaskSummaryRow[]> {
   const content = await app.vault.read(file);
   const priority = readFilePriority(content);
   const lines = content.split(/\r?\n/);
   const actionableLineIndices = findActionableTaskLines(lines, settings.enableMultipleNextActions);
 
-  const rows: SummaryRow[] = [];
+  const rows: TaskSummaryRow[] = [];
   for (const index of actionableLineIndices) {
     const parsed = parseActionableTaskLine(lines[index]);
     if (!parsed) {
@@ -152,19 +132,7 @@ function parseActionableTaskLine(line: string): ParsedActionableTaskLine | null 
   };
 }
 
-function renderSummary(sections: SummarySection[], hideKeywords: string): string {
-  const lines: string[] = ["# Tasks Summary", ""];
-
-  for (const section of sections) {
-    lines.push(`## ${section.title}`, "");
-    appendSectionTable(lines, section.rows, hideKeywords);
-    lines.push("");
-  }
-
-  return lines.join("\n").trimEnd();
-}
-
-function compareSummaryRows(left: SummaryRow, right: SummaryRow): number {
+function compareSummaryRows(left: TaskSummaryRow, right: TaskSummaryRow): number {
   const priorityCompare = left.priority - right.priority;
   if (priorityCompare !== 0) {
     return priorityCompare;
@@ -178,54 +146,4 @@ function compareSummaryRows(left: SummaryRow, right: SummaryRow): number {
   }
 
   return left.file.path.localeCompare(right.file.path);
-}
-
-function appendSectionTable(lines: string[], rows: SummaryRow[], hideKeywords: string): void {
-  if (rows.length === 0) {
-    lines.push("No tasks.", "");
-    return;
-  }
-
-  const folderGroups = buildGroupedTaskTable(rows, hideKeywords);
-  lines.push("| Folder | Filename | Task | Priority | Recurrence | Context | Due |");
-  lines.push("| --- | --- | --- | --- | --- | --- | --- |");
-
-  for (const folderGroup of folderGroups) {
-    let displayFolder = folderGroup.displayFolderName;
-    for (const fileGroup of folderGroup.files) {
-      for (const row of fileGroup.rows) {
-        lines.push(
-          `| ${escapePipes(displayFolder)} | ${buildFileLink(fileGroup.displayFileName, row.file.path)} | ${buildWeightedTaskText(row.task, row.priority)} | ${row.priority} | ${escapePipes(row.recurrence)} | ${escapePipes(row.contexts.join(", "))} | ${formatMonthDay(row.dueDate)} |`,
-        );
-        displayFolder = "";
-      }
-    }
-  }
-
-  lines.push("");
-}
-
-function buildFileLink(displayName: string, filePath: string): string {
-  return `[${escapeLinkText(displayName)}](<${filePath}>)`;
-}
-
-function escapePipes(value: string): string {
-  return value.replace(/\|/g, "\\|");
-}
-
-function escapeLinkText(value: string): string {
-  return value.replace(/([\\[\]])/g, "\\$1");
-}
-
-function buildWeightedTaskText(task: string, priority: number): string {
-  const escapedTask = escapePipes(task);
-  if (priority === 1) {
-    return `**${escapedTask}**`;
-  }
-
-  if (priority === 2) {
-    return `*${escapedTask}*`;
-  }
-
-  return escapedTask;
 }

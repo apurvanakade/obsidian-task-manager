@@ -14,7 +14,7 @@
  * - none (pure normalization helpers)
  *
  * Notes:
- * - Supports file-path settings for Inbox File and Tasks Summary File.
+ * - Supports a file-path setting for Inbox File.
  */
 export type TaskManagerSettings = {
   statusField: string;
@@ -23,11 +23,8 @@ export type TaskManagerSettings = {
   waitingProjectsFolder: string;
   somedayMaybeProjectsFolder: string;
   inboxFile: string;
-  tasksSummaryFile: string;
-  openSummaryAfterGeneration: boolean;
   dashboardHideKeywords: string;
   knownContexts: string;
-  tasksSummaryContextFilter: string;
   enableMultipleNextActions: boolean;
   somedayMaybeReviewCadenceDays: string;
   waitingStalenessThresholdDays: string;
@@ -35,7 +32,7 @@ export type TaskManagerSettings = {
 
 export type FolderSettingKey = keyof Pick<
   TaskManagerSettings,
-  "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder" | "inboxFile" | "tasksSummaryFile"
+  "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder" | "inboxFile"
 >;
 
 export const DEFAULT_SETTINGS: TaskManagerSettings = {
@@ -45,11 +42,8 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   waitingProjectsFolder: "",
   somedayMaybeProjectsFolder: "",
   inboxFile: "",
-  tasksSummaryFile: "Tasks Summary.md",
-  openSummaryAfterGeneration: false,
   dashboardHideKeywords: "",
   knownContexts: "",
-  tasksSummaryContextFilter: "",
   enableMultipleNextActions: false,
   somedayMaybeReviewCadenceDays: "30",
   waitingStalenessThresholdDays: "7",
@@ -83,11 +77,8 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
     waitingProjectsFolder: normalizeFolder(rawSettings.waitingProjectsFolder),
     somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder),
     inboxFile: normalizeFolder(rawSettings.inboxFile),
-    tasksSummaryFile: normalizeFolder(rawSettings.tasksSummaryFile) || DEFAULT_SETTINGS.tasksSummaryFile,
-    openSummaryAfterGeneration: normalizeBoolean(rawSettings.openSummaryAfterGeneration, DEFAULT_SETTINGS.openSummaryAfterGeneration),
     dashboardHideKeywords: String(rawSettings.dashboardHideKeywords ?? ""),
     knownContexts: String(rawSettings.knownContexts ?? ""),
-    tasksSummaryContextFilter: String(rawSettings.tasksSummaryContextFilter ?? "").trim(),
     enableMultipleNextActions: normalizeBoolean(rawSettings.enableMultipleNextActions, DEFAULT_SETTINGS.enableMultipleNextActions),
     somedayMaybeReviewCadenceDays: normalizePositiveIntegerString(rawSettings.somedayMaybeReviewCadenceDays, DEFAULT_SETTINGS.somedayMaybeReviewCadenceDays),
     waitingStalenessThresholdDays: normalizePositiveIntegerString(rawSettings.waitingStalenessThresholdDays, DEFAULT_SETTINGS.waitingStalenessThresholdDays),

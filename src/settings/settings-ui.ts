@@ -15,11 +15,11 @@
  * - mutates settings container DOM and persists setting values
  *
  * Notes:
- * - Uses file picker for Inbox File and Tasks Summary File; folder picker for the rest.
+ * - Uses a file picker for Inbox File; folder picker for the rest.
  */
 import { PluginSettingTab, Setting, TextComponent, TextAreaComponent } from "obsidian";
 import { openFolderPicker, openFilePicker } from "./folder-picker";
-import { getFolderSettingConfigs, getTextSettingConfigs, getToggleSettingConfigs, getDropdownSettingConfigs, FolderSettingConfig, TextSettingConfig, ToggleSettingConfig, DropdownSettingConfig } from "./settings-field-definitions";
+import { getFolderSettingConfigs, getTextSettingConfigs, getToggleSettingConfigs, FolderSettingConfig, TextSettingConfig, ToggleSettingConfig } from "./settings-field-definitions";
 import { FolderSettingKey, TaskManagerSettings } from "./settings-utils";
 
 type SettingsHost = {
@@ -53,14 +53,10 @@ export class TaskManagerSettingTabRenderer {
     for (const toggleSetting of getToggleSettingConfigs(settings)) {
       this.addToggleSetting(containerEl, toggleSetting);
     }
-
-    for (const dropdownSetting of getDropdownSettingConfigs(settings)) {
-      this.addDropdownSetting(containerEl, dropdownSetting);
-    }
   }
 
   private addFolderSetting(containerEl: HTMLElement, config: FolderSettingConfig): void {
-    const isFilePathSetting = config.key === "inboxFile" || config.key === "tasksSummaryFile";
+    const isFilePathSetting = config.key === "inboxFile";
     new Setting(containerEl)
       .setName(config.name)
       .setDesc(`${config.description} Use Browse to pick a vault ${isFilePathSetting ? "file" : "path"}.`)
@@ -110,22 +106,6 @@ export class TaskManagerSettingTabRenderer {
           });
       });
     }
-  }
-
-  private addDropdownSetting(containerEl: HTMLElement, config: DropdownSettingConfig): void {
-    new Setting(containerEl)
-      .setName(config.name)
-      .setDesc(config.description)
-      .addDropdown((dropdown) => {
-        for (const option of config.options) {
-          dropdown.addOption(option.value, option.label);
-        }
-        dropdown
-          .setValue(config.value)
-          .onChange(async (value) => {
-            await this.plugin.updateSetting(config.key, value);
-          });
-      });
   }
 
   private addToggleSetting(containerEl: HTMLElement, config: ToggleSettingConfig): void {
