@@ -69,11 +69,19 @@ async function buildSummarySections(app: App, settings: TaskManagerSettings): Pr
   for (const source of sectionSources) {
     sections.push({
       title: source.title,
-      rows: await source.collectRows(),
+      rows: filterRowsByContext(await source.collectRows(), settings.tasksSummaryContextFilter),
     });
   }
 
   return sections;
+}
+
+function filterRowsByContext(rows: SummaryRow[], contextFilter: string): SummaryRow[] {
+  if (!contextFilter) {
+    return rows;
+  }
+
+  return rows.filter((row) => row.contexts.includes(contextFilter));
 }
 
 async function collectActionableRowsForFolder(app: App, folderPath: string, settings: TaskManagerSettings): Promise<SummaryRow[]> {

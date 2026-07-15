@@ -2895,6 +2895,7 @@ var DEFAULT_SETTINGS = {
   openSummaryAfterGeneration: false,
   dashboardHideKeywords: "",
   knownContexts: "",
+  tasksSummaryContextFilter: "",
   enableMultipleNextActions: false,
   somedayMaybeReviewCadenceDays: "30",
   waitingStalenessThresholdDays: "7"
@@ -2914,7 +2915,7 @@ function normalizePositiveIntegerString(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 ? String(parsed) : fallback;
 }
 function normalizeSettings(rawSettings) {
-  var _a, _b;
+  var _a, _b, _c;
   return {
     ...DEFAULT_SETTINGS,
     ...rawSettings,
@@ -2928,6 +2929,7 @@ function normalizeSettings(rawSettings) {
     openSummaryAfterGeneration: normalizeBoolean(rawSettings.openSummaryAfterGeneration, DEFAULT_SETTINGS.openSummaryAfterGeneration),
     dashboardHideKeywords: String((_a = rawSettings.dashboardHideKeywords) != null ? _a : ""),
     knownContexts: String((_b = rawSettings.knownContexts) != null ? _b : ""),
+    tasksSummaryContextFilter: String((_c = rawSettings.tasksSummaryContextFilter) != null ? _c : "").trim(),
     enableMultipleNextActions: normalizeBoolean(rawSettings.enableMultipleNextActions, DEFAULT_SETTINGS.enableMultipleNextActions),
     somedayMaybeReviewCadenceDays: normalizePositiveIntegerString(rawSettings.somedayMaybeReviewCadenceDays, DEFAULT_SETTINGS.somedayMaybeReviewCadenceDays),
     waitingStalenessThresholdDays: normalizePositiveIntegerString(rawSettings.waitingStalenessThresholdDays, DEFAULT_SETTINGS.waitingStalenessThresholdDays)
@@ -3073,10 +3075,16 @@ async function buildSummarySections(app, settings) {
   for (const source of sectionSources) {
     sections.push({
       title: source.title,
-      rows: await source.collectRows()
+      rows: filterRowsByContext(await source.collectRows(), settings.tasksSummaryContextFilter)
     });
   }
   return sections;
+}
+function filterRowsByContext(rows, contextFilter) {
+  if (!contextFilter) {
+    return rows;
+  }
+  return rows.filter((row) => row.contexts.includes(contextFilter));
 }
 async function collectActionableRowsForFolder(app, folderPath, settings) {
   if (!folderPath) {
@@ -3340,6 +3348,24 @@ function getTextSettingConfigs(settings) {
     }
   ];
 }
+function getDropdownSettingConfigs(settings) {
+  const knownContexts = parseContextList(settings.knownContexts);
+  if (knownContexts.length === 0) {
+    return [];
+  }
+  return [
+    {
+      name: "Tasks Summary Context Filter",
+      description: 'Limit the generated Tasks Summary to rows matching this context. "All" includes every actionable row regardless of context.',
+      key: "tasksSummaryContextFilter",
+      value: settings.tasksSummaryContextFilter,
+      options: [
+        { value: "", label: "All" },
+        ...knownContexts.map((context) => ({ value: context, label: context }))
+      ]
+    }
+  ];
+}
 function getToggleSettingConfigs(settings) {
   return [
     {
@@ -3375,6 +3401,9 @@ var TaskManagerSettingTabRenderer = class {
     }
     for (const toggleSetting of getToggleSettingConfigs(settings)) {
       this.addToggleSetting(containerEl, toggleSetting);
+    }
+    for (const dropdownSetting of getDropdownSettingConfigs(settings)) {
+      this.addDropdownSetting(containerEl, dropdownSetting);
     }
   }
   addFolderSetting(containerEl, config) {
@@ -3412,6 +3441,16 @@ var TaskManagerSettingTabRenderer = class {
         });
       });
     }
+  }
+  addDropdownSetting(containerEl, config) {
+    new import_obsidian16.Setting(containerEl).setName(config.name).setDesc(config.description).addDropdown((dropdown) => {
+      for (const option of config.options) {
+        dropdown.addOption(option.value, option.label);
+      }
+      dropdown.setValue(config.value).onChange(async (value) => {
+        await this.plugin.updateSetting(config.key, value);
+      });
+    });
   }
   addToggleSetting(containerEl, config) {
     new import_obsidian16.Setting(containerEl).setName(config.name).setDesc(config.description).addToggle((toggle) => {

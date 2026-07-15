@@ -27,6 +27,7 @@ export type TaskManagerSettings = {
   openSummaryAfterGeneration: boolean;
   dashboardHideKeywords: string;
   knownContexts: string;
+  tasksSummaryContextFilter: string;
   enableMultipleNextActions: boolean;
   somedayMaybeReviewCadenceDays: string;
   waitingStalenessThresholdDays: string;
@@ -48,6 +49,7 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   openSummaryAfterGeneration: false,
   dashboardHideKeywords: "",
   knownContexts: "",
+  tasksSummaryContextFilter: "",
   enableMultipleNextActions: false,
   somedayMaybeReviewCadenceDays: "30",
   waitingStalenessThresholdDays: "7",
@@ -85,6 +87,7 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
     openSummaryAfterGeneration: normalizeBoolean(rawSettings.openSummaryAfterGeneration, DEFAULT_SETTINGS.openSummaryAfterGeneration),
     dashboardHideKeywords: String(rawSettings.dashboardHideKeywords ?? ""),
     knownContexts: String(rawSettings.knownContexts ?? ""),
+    tasksSummaryContextFilter: String(rawSettings.tasksSummaryContextFilter ?? "").trim(),
     enableMultipleNextActions: normalizeBoolean(rawSettings.enableMultipleNextActions, DEFAULT_SETTINGS.enableMultipleNextActions),
     somedayMaybeReviewCadenceDays: normalizePositiveIntegerString(rawSettings.somedayMaybeReviewCadenceDays, DEFAULT_SETTINGS.somedayMaybeReviewCadenceDays),
     waitingStalenessThresholdDays: normalizePositiveIntegerString(rawSettings.waitingStalenessThresholdDays, DEFAULT_SETTINGS.waitingStalenessThresholdDays),

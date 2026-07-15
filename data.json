@@ -6,8 +6,13 @@
   "somedayMaybeProjectsFolder": "Tasks/Someday-Maybe",
   "inboxFile": "Tasks/Inbox.md",
   "tasksSummaryFile": "Tasks/Tasks Summary.md",
-  "projectSummaryFile": "Tasks/Project Summary.md",
   "openSummaryAfterGeneration": false,
   "dashboardHideKeywords": "2026, Spring, Summer, Fall",
+  "knownContexts": "email, laptop",
+  "tasksSummaryContextFilter": "",
+  "enableMultipleNextActions": false,
+  "somedayMaybeReviewCadenceDays": "30",
+  "waitingStalenessThresholdDays": "7",
+  "projectSummaryFile": "Tasks/Project Summary.md",
   "journalFolder": "Journal"
 }

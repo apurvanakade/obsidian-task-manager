@@ -17,6 +17,7 @@
  * - Inbox File and Tasks Summary File use file pickers, not folder pickers, in settings UI.
  */
 import { FolderSettingKey, TaskManagerSettings } from "./settings-utils";
+import { parseContextList } from "../tasks/task-line-metadata";
 
 
 export type FolderSettingConfig = {
@@ -41,6 +42,14 @@ export type ToggleSettingConfig = {
   description: string;
   key: keyof Pick<TaskManagerSettings, "openSummaryAfterGeneration" | "enableMultipleNextActions">;
   value: boolean;
+};
+
+export type DropdownSettingConfig = {
+  name: string;
+  description: string;
+  key: keyof Pick<TaskManagerSettings, "tasksSummaryContextFilter">;
+  value: string;
+  options: { value: string; label: string }[];
 };
 
 export function getFolderSettingConfigs(settings: TaskManagerSettings): FolderSettingConfig[] {
@@ -130,6 +139,26 @@ export function getTextSettingConfigs(settings: TaskManagerSettings): TextSettin
       key: "waitingStalenessThresholdDays",
       value: settings.waitingStalenessThresholdDays,
       multiLine: false,
+    },
+  ];
+}
+
+export function getDropdownSettingConfigs(settings: TaskManagerSettings): DropdownSettingConfig[] {
+  const knownContexts = parseContextList(settings.knownContexts);
+  if (knownContexts.length === 0) {
+    return [];
+  }
+
+  return [
+    {
+      name: "Tasks Summary Context Filter",
+      description: "Limit the generated Tasks Summary to rows matching this context. \"All\" includes every actionable row regardless of context.",
+      key: "tasksSummaryContextFilter",
+      value: settings.tasksSummaryContextFilter,
+      options: [
+        { value: "", label: "All" },
+        ...knownContexts.map((context) => ({ value: context, label: context })),
+      ],
     },
   ];
 }

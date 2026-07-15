@@ -21,6 +21,7 @@ Automates task lifecycle management in Obsidian: state transitions, completion m
    | Completed Status Field | Frontmatter field name written on completion | `status` |
    | Dashboard Filename Hide Keywords | Comma-separated keywords stripped from dashboard display names | — |
    | Known Contexts | Comma-separated task contexts (e.g. `@home, @calls, @errands`) powering the dashboard Context filter and `context::` editor autocomplete | — |
+   | Tasks Summary Context Filter | Limits the generated Tasks Summary to one context. Only shown once Known Contexts is non-empty | All |
    | Enable Multiple Next Actions | Let a project surface one actionable task per context, instead of only ever the file's first open task | Off |
    | Someday-Maybe Review Cadence (days) | Days a Someday-Maybe project can go unreviewed before the Weekly Review flags it | `30` |
    | Waiting Staleness Threshold (days) | Days a project can stay in Waiting before the Weekly Review flags it as stale | `7` |
@@ -46,6 +47,8 @@ By default, generating the summary does **not** open a note. Enable **Open Tasks
 The generated summary note also stamps frontmatter metadata:
 - `creation-date: YYYY-MM-DD`
 - `creation-time: HH:MM:SS`
+
+When **Tasks Summary Context Filter** is set to a context (instead of `All`), only actionable rows tagged with that `[context:: ...]` value are included in every section.
 
 For each file, the summary includes the **first incomplete task** (or, with **Enable Multiple Next Actions** on, one row per actionable task — see [Multiple Next Actions](#multiple-next-actions)) and renders a grouped table with:
 - Folder

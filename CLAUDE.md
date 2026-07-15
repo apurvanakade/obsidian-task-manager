@@ -94,7 +94,7 @@ Settings live in `data.json` (loaded/saved via `plugin.loadData()` / `plugin.sav
 
 Configurable paths: Projects Folder, Completed Projects Folder, Waiting Projects Folder, Someday-Maybe Projects Folder, Inbox File (file picker, not folder), Tasks Summary File (file picker).
 
-Other settings: Completed Status Field (default `status`), Open Tasks Summary After Generation (default off), Dashboard Filename Hide Keywords (comma-separated keywords stripped from dashboard display names), Known Contexts (comma-separated, default empty; powers the dashboard Context filter dropdown and `context::`/`contexts::` editor autocomplete via `parseContextList()`), Enable Multiple Next Actions (boolean, default off; gates `findActionableTaskLines()`'s plural per-context behavior — see Multiple Next Actions above), Someday-Maybe Review Cadence Days and Waiting Staleness Threshold Days (both stored as strings, default `"30"`/`"7"`, normalized via `normalizePositiveIntegerString()` and parsed at the Weekly Review's point of use — see Weekly Review below).
+Other settings: Completed Status Field (default `status`), Open Tasks Summary After Generation (default off), Dashboard Filename Hide Keywords (comma-separated keywords stripped from dashboard display names), Known Contexts (comma-separated, default empty; powers the dashboard Context filter dropdown and `context::`/`contexts::` editor autocomplete via `parseContextList()`), Tasks Summary Context Filter (string, default empty meaning `All`; a dropdown populated from Known Contexts via `getDropdownSettingConfigs()` in `settings-field-definitions.ts` — only rendered once Known Contexts is non-empty, since there's nothing to choose from otherwise), Enable Multiple Next Actions (boolean, default off; gates `findActionableTaskLines()`'s plural per-context behavior — see Multiple Next Actions above), Someday-Maybe Review Cadence Days and Waiting Staleness Threshold Days (both stored as strings, default `"30"`/`"7"`, normalized via `normalizePositiveIntegerString()` and parsed at the Weekly Review's point of use — see Weekly Review below).
 
 ### Status Routing
 
@@ -247,6 +247,7 @@ When **Known Contexts** is non-empty, `DateDashboardController.appendContextFilt
 
 - Includes the **first incomplete task** per file (or, with Enable Multiple Next Actions on, one row per actionable task per file — see Multiple Next Actions above)
 - Files without an incomplete task are omitted
+- When **Tasks Summary Context Filter** is set to a specific context (not the default `All`), rows are further filtered to only those whose `[context:: ...]` includes that value — applied per-section in `buildSummarySections()` via `filterRowsByContext()`, after row collection and before sorting
 
 ### Output Format
 
@@ -372,3 +373,4 @@ Run after meaningful logic changes:
 33. Clicking "Mark Reviewed" on a Someday-Maybe row stamps `reviewed` with today's date and the table re-sorts/re-renders in place without re-running the command; `Open Random Someday-Maybe Project` also stamps `reviewed` on the file it opens
 34. `Open Weekly Review`'s Active Projects section lists every file in the configured Projects Folder unconditionally (no threshold/filter), sorted least-recently-reviewed first with never-reviewed files first; it has no "Needs Review" column, unlike Someday-Maybe; clicking "Mark Reviewed" stamps `reviewed` and the row moves toward the bottom of the list on the next render
 35. Deleting a task line (the open instance of a recurring task, its completed historical entry, or any other task line) never spawns a phantom duplicate of an unrelated task, even when the deletion shifts other completed/recurring lines to new indices — completing/uncompleting a task still works normally via a plain checkbox toggle (no line-count change)
+36. The Tasks Summary Context Filter setting only appears once Known Contexts is non-empty; with it set to `All` (default), Tasks Summary output is unchanged from pre-filter behavior; setting it to a specific context restricts every section (Projects/Waiting/Someday-Maybe/Inbox) to rows whose task carries that `[context:: ...]` value, and rows/files with no matching context are omitted rather than shown with an empty Context cell
