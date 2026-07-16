@@ -4,15 +4,11 @@
   "completedProjectsFolder": "Tasks/Completed",
   "waitingProjectsFolder": "Tasks/Waiting",
   "somedayMaybeProjectsFolder": "Tasks/Someday-Maybe",
+  "scheduledProjectsFolder": "Tasks/Scheduled",
   "inboxFile": "Tasks/Inbox.md",
-  "tasksSummaryFile": "Tasks/Tasks Summary.md",
-  "openSummaryAfterGeneration": false,
   "dashboardHideKeywords": "2026, Spring, Summer, Fall",
-  "knownContexts": "email, laptop",
-  "tasksSummaryContextFilter": "",
+  "knownContexts": "email, laptop, cleaning, shopping",
   "enableMultipleNextActions": false,
   "somedayMaybeReviewCadenceDays": "30",
-  "waitingStalenessThresholdDays": "7",
-  "projectSummaryFile": "Tasks/Project Summary.md",
-  "journalFolder": "Journal"
+  "waitingStalenessThresholdDays": "7"
 }

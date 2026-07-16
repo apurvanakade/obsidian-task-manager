@@ -56,8 +56,9 @@ const SECONDARY_BUTTON_STYLES = {
   padding: "8px 16px",
 } as const;
 
-const STATUS_OPTIONS = ["todo", "waiting", "someday-maybe"] as const;
+const STATUS_OPTIONS = ["todo", "waiting", "someday-maybe", "scheduled"] as const;
 const PRIORITY_OPTIONS = ["1", "2", "3"] as const;
+const SCHEDULED_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 export type NewProjectStatus = (typeof STATUS_OPTIONS)[number];
 
@@ -66,6 +67,7 @@ export type AddProjectInput = {
   folder: string;
   priority: 1 | 2 | 3;
   status: NewProjectStatus;
+  scheduledDate: string | null;
   tasks: string[];
 };
 
@@ -83,6 +85,8 @@ export class AddProjectModal extends Modal {
   private folderInput: HTMLInputElement | null = null;
   private prioritySelect: HTMLSelectElement | null = null;
   private statusSelect: HTMLSelectElement | null = null;
+  private scheduledDateSection: HTMLElement | null = null;
+  private scheduledDateInput: HTMLInputElement | null = null;
   private tasksInput: HTMLTextAreaElement | null = null;
   private folderEdited = false;
 
@@ -106,6 +110,7 @@ export class AddProjectModal extends Modal {
     this.createFolderSection(contentEl);
     this.createPrioritySection(contentEl);
     this.createStatusSection(contentEl);
+    this.createScheduledDateSection(contentEl);
     this.createTasksSection(contentEl);
     this.createActionButtons(contentEl);
 
@@ -191,12 +196,42 @@ export class AddProjectModal extends Modal {
     }
 
     this.statusSelect.addEventListener("change", () => {
+      this.updateScheduledDateVisibility();
+
       if (!this.folderInput || this.folderEdited) {
         return;
       }
 
       this.folderInput.value = getDefaultFolderForStatus(this.settings, this.statusSelect!.value as NewProjectStatus);
     });
+  }
+
+  private createScheduledDateSection(container: HTMLElement): void {
+    const section = container.createEl("div");
+    applyStyles(section, SECTION_SPACING_STYLES);
+    this.createLabel(section, "Scheduled Date");
+
+    this.scheduledDateInput = section.createEl("input", {
+      type: "text",
+      placeholder: "YYYY-MM-DD",
+    });
+    applyStyles(this.scheduledDateInput, INPUT_STYLES);
+
+    const hint = section.createEl("p", {
+      text: "Written as the due date on the first task below.",
+    });
+    applyStyles(hint, { margin: "4px 0 0", fontSize: "0.85em", opacity: "0.75" });
+
+    this.scheduledDateSection = section;
+    this.updateScheduledDateVisibility();
+  }
+
+  private updateScheduledDateVisibility(): void {
+    if (!this.scheduledDateSection || !this.statusSelect) {
+      return;
+    }
+
+    this.scheduledDateSection.style.display = this.statusSelect.value === "scheduled" ? "block" : "none";
   }
 
   private createTasksSection(container: HTMLElement): void {
@@ -254,12 +289,27 @@ export class AddProjectModal extends Modal {
       return;
     }
 
+    let scheduledDate: string | null = null;
+    if (status === "scheduled") {
+      scheduledDate = this.scheduledDateInput?.value.trim() ?? "";
+      if (!SCHEDULED_DATE_REGEX.test(scheduledDate)) {
+        new Notice("Enter a Scheduled Date in YYYY-MM-DD format.");
+        return;
+      }
+
+      if (tasks.length === 0) {
+        new Notice("Add at least one task when Status is scheduled — the Scheduled Date is attached to the first task as its due date.");
+        return;
+      }
+    }
+
     try {
       await this.onSubmit({
         name,
         folder,
         priority,
         status,
+        scheduledDate,
         tasks,
       });
       this.close();
@@ -294,8 +344,14 @@ export function buildProjectFileContent(
 
   if (input.tasks.length > 0) {
     lines.push("");
-    input.tasks.forEach((task) => {
-      lines.push(`- [ ] ${task}`);
+    input.tasks.forEach((task, index) => {
+      // Scheduled projects have no dedicated frontmatter field for their promotion
+      // date — it's read off the first task's due date instead (see task-utils.ts's
+      // getFirstTaskDueDate()), so attach the modal's Scheduled Date input there.
+      const dueSuffix = index === 0 && input.status === "scheduled" && input.scheduledDate
+        ? ` [due:: ${input.scheduledDate}]`
+        : "";
+      lines.push(`- [ ] ${task}${dueSuffix}`);
     });
   }
 

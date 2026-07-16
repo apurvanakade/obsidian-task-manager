@@ -21,6 +21,7 @@ import { parseTaskLine, parseTaskLineStructured } from "./task-line-metadata";
 import { findActionableTaskLines } from "./next-actions";
 import {
   findFirstIncompleteTaskLine,
+  findNoteBlockEnd,
   moveTaskToCompletedSection
 } from "./task-utils";
 import { TaskManagerSettings } from "../settings/settings-utils";
@@ -160,8 +161,21 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
   if (repeatRule !== null) {
     const repeatedTaskLine = buildRepeatedTaskLine(sourceTaskLine, repeatRule);
     if (repeatedTaskLine !== null) {
-      nextLines.splice(completedLine, 0, repeatedTaskLine);
-      completedLineIndex += 1;
+      // Move the completed task's note block (see Task Notes in CLAUDE.md) onto the
+      // new occurrence instead of duplicating it — a note attached to a recurring task
+      // is usually reusable instructions/context for the task itself, not a record of
+      // this specific completion, so it belongs with the next occurrence, not this one.
+      const noteBlockEnd = findNoteBlockEnd(lines, completedLine);
+      const noteBlockLines = lines.slice(completedLine + 1, noteBlockEnd);
+      const repeatedBlock = [repeatedTaskLine, ...noteBlockLines];
+      nextLines.splice(completedLine, 0, ...repeatedBlock);
+      completedLineIndex += repeatedBlock.length;
+      if (noteBlockLines.length > 0) {
+        // The original note block is still sitting just below the completed task's
+        // shifted position (untouched by the splice above) — remove it from there now
+        // that a copy lives with the new occurrence, so it isn't left on both.
+        nextLines.splice(completedLineIndex + 1, noteBlockLines.length);
+      }
     }
   }
 
@@ -169,7 +183,8 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
   nextLines[completedLineIndex] = addCompletionFields(nextLines[completedLineIndex]);
 
   let workingLines = nextLines;
-  const newStatus = findFirstIncompleteTaskLine(workingLines) === null ? "completed" : "todo";
+  const newStatus =
+    findFirstIncompleteTaskLine(workingLines) === null && !isInboxFile(file, settings) ? "completed" : "todo";
 
   // Move the stamped completed task into the "## Completed Tasks" section.
   // completedLineIndex may have shifted if a recurring task was inserted above it,
@@ -245,7 +260,7 @@ export async function reconcileFile(context: ReconcilerContext): Promise<void> {
     });
   const firstIncompleteTaskLine = findFirstIncompleteTaskLine(lines);
   const updatedContent = lines.join("\n");
-  let nextStatus: string | null = "completed";
+  let nextStatus: string | null = isInboxFile(file, settings) ? "todo" : "completed";
 
   if (firstIncompleteTaskLine !== null) {
     nextStatus = currentStatus !== null && currentStatus !== "completed" ? null : "todo";
@@ -278,6 +293,11 @@ function stripCompletionFields(line: string): string {
   return line
     .replace(/\s*\[completion-date::[^\]]*\]/g, "")
     .replace(/\s*\[completion-time::[^\]]*\]/g, "");
+}
+
+/** The configured Inbox File is a perpetual landing zone, not a project — it must never be stamped `status: completed`. */
+function isInboxFile(file: TFile, settings: TaskManagerSettings): boolean {
+  return !!settings.inboxFile && file.path === settings.inboxFile;
 }
 
 /** Forces a checkbox line back to its open ("[ ]") form, preserving prefix/body. */

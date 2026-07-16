@@ -48,6 +48,8 @@ const REPEAT_KEYWORD_TO_UNIT: Record<string, RepeatUnit> = {
   year: "year",
   years: "year",
   yearly: "year",
+  annual: "year",
+  annually: "year",
 };
 
 const WEEKDAY_KEYWORD_TO_INDEX: Record<string, RepeatWeekday> = {

@@ -25,6 +25,7 @@ import { TaskManagerSettings } from "../settings/settings-utils";
 import { isInFolder } from "./summary-file-io";
 import { collectTaskSummarySections, TaskSummaryRow, TaskSummarySection } from "./tasks-summary";
 import { buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
+import { appendSearchBox, matchesSearch } from "../ui/search-filter";
 
 type TasksSummaryControllerOptions = {
   app: App;
@@ -39,6 +40,10 @@ export class TasksSummaryController {
   private readonly getSettings: () => TaskManagerSettings;
   private readonly getKnownContexts: () => string[];
   private selectedContext: string | null = null;
+  private searchQuery = "";
+  private lastSections: TaskSummarySection[] = [];
+  private resultsContainer: HTMLElement | null = null;
+  private currentSettings: TaskManagerSettings | null = null;
   private refreshHandle: number | null = null;
 
   constructor(options: TasksSummaryControllerOptions) {
@@ -93,6 +98,7 @@ export class TasksSummaryController {
     container.classList.add("markdown-rendered");
 
     const settings = this.getSettings();
+    this.currentSettings = settings;
     const section = document.createElement("section");
 
     const title = document.createElement("h2");
@@ -100,13 +106,33 @@ export class TasksSummaryController {
     section.appendChild(title);
 
     this.appendContextFilter(section);
+    this.appendSearchFilter(section);
 
-    const sections = await collectTaskSummarySections(this.app, settings);
-    for (const taskSection of sections) {
-      this.appendSection(section, taskSection, settings);
-    }
+    const resultsContainer = document.createElement("div");
+    section.appendChild(resultsContainer);
+    this.resultsContainer = resultsContainer;
+
+    this.lastSections = await collectTaskSummarySections(this.app, settings);
+    this.renderResults();
 
     container.appendChild(section);
+  }
+
+  private appendSearchFilter(container: HTMLElement): void {
+    appendSearchBox(container, this.searchQuery, (query) => {
+      this.searchQuery = query;
+      this.renderResults();
+    });
+  }
+
+  /** Re-renders just the section tables from already-fetched data — no refetch, no input rebuild (preserves focus while typing). */
+  private renderResults(): void {
+    if (!this.resultsContainer || !this.currentSettings) return;
+
+    this.resultsContainer.innerHTML = "";
+    for (const taskSection of this.lastSections) {
+      this.appendSection(this.resultsContainer, taskSection, this.currentSettings);
+    }
   }
 
   private appendContextFilter(container: HTMLElement): void {
@@ -138,7 +164,7 @@ export class TasksSummaryController {
     select.value = this.selectedContext ?? "";
     select.addEventListener("change", () => {
       this.selectedContext = select.value.length > 0 ? select.value : null;
-      this.refreshSoon();
+      this.renderResults();
     });
 
     label.appendChild(select);
@@ -153,15 +179,23 @@ export class TasksSummaryController {
     return rows.filter((row) => row.contexts.includes(this.selectedContext!));
   }
 
+  private filterBySearch(rows: TaskSummaryRow[]): TaskSummaryRow[] {
+    if (!this.searchQuery.trim()) {
+      return rows;
+    }
+
+    return rows.filter((row) => matchesSearch(this.searchQuery, row.task, row.file.path, row.contexts.join(" ")));
+  }
+
   private appendSection(container: HTMLElement, taskSection: TaskSummarySection, settings: TaskManagerSettings): void {
     const heading = document.createElement("h3");
     heading.textContent = taskSection.title;
     container.appendChild(heading);
 
-    const rows = this.filterByContext(taskSection.rows);
+    const rows = this.filterBySearch(this.filterByContext(taskSection.rows));
     if (rows.length === 0) {
       const emptyState = document.createElement("p");
-      emptyState.textContent = "No tasks.";
+      emptyState.textContent = this.searchQuery.trim() ? "No matches." : "No tasks.";
       container.appendChild(emptyState);
       return;
     }

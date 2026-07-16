@@ -17,7 +17,7 @@ import { TaskManagerSettings } from "../settings/settings-utils";
 import { readFrontmatterField } from "../tasks/frontmatter-utils";
 import { getDestinationRootForStatus } from "./task-routing";
 
-export const ROUTABLE_STATUSES = ["todo", "completed", "waiting", "someday-maybe"] as const;
+export const ROUTABLE_STATUSES = ["todo", "completed", "waiting", "someday-maybe", "scheduled"] as const;
 
 export type RoutableStatus = (typeof ROUTABLE_STATUSES)[number];
 

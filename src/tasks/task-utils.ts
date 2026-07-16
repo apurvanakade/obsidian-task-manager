@@ -14,9 +14,10 @@
  * Side Effects:
  * - none (pure functions over strings/arrays)
  */
-import { parseTaskLineStructured } from "./task-line-metadata";
+import { parseTaskLine, parseTaskLineStructured, readInlineFieldValue } from "./task-line-metadata";
 
 const FRONTMATTER_BLOCK_REGEX = /^---\r?\n[\s\S]*?\r?\n---/;
+const DUE_FIELD_REGEX = /\[due::\s*([^\]]+?)\s*\]/i;
 
 export type TaskState = {
   line: number;
@@ -85,11 +86,73 @@ export function findFirstIncompleteTaskLine(lines: string[]): number | null {
   return null;
 }
 
+/**
+ * Reads the `[due:: ...]` value off a file's first incomplete task line, if any. Used
+ * to derive a Scheduled project's promotion date from its first task's due date instead
+ * of a separate frontmatter field, so there's a single source of truth for "when."
+ */
+export function getFirstTaskDueDate(content: string): string | null {
+  const lines = content.split(/\r?\n/);
+  const firstIncompleteIndex = findFirstIncompleteTaskLine(lines);
+  if (firstIncompleteIndex === null) {
+    return null;
+  }
+
+  const parsed = parseTaskLine(lines[firstIncompleteIndex]);
+  if (!parsed) {
+    return null;
+  }
+
+  return readInlineFieldValue(parsed.taskBody, DUE_FIELD_REGEX);
+}
+
 const COMPLETED_SECTION_HEADER = "## Completed Tasks";
+const LEADING_WHITESPACE_REGEX = /^\s*/;
+const HEADING_REGEX = /^#{1,6}\s/;
 
 /**
- * Removes the task at taskLineIndex from its current position and appends it
- * to the "## Completed Tasks" section. Creates the section at end of file if absent.
+ * Finds the exclusive end index of the trailing "note block" attached to the task at
+ * taskLineIndex: a run of lines indented deeper than the task line itself, that are not
+ * themselves checkbox lines or headings. Blank lines are allowed *within* the block (so
+ * multi-paragraph notes survive), but trailing blank lines are trimmed from the boundary.
+ * Returns taskLineIndex + 1 when there is no note block, matching prior single-line behavior.
+ */
+export function findNoteBlockEnd(lines: string[], taskLineIndex: number): number {
+  const taskIndent = getLeadingWhitespaceLength(lines[taskLineIndex] ?? "");
+  let end = taskLineIndex + 1;
+  let cursor = taskLineIndex + 1;
+
+  while (cursor < lines.length) {
+    const line = lines[cursor];
+
+    if (line.trim() === "") {
+      cursor += 1;
+      continue;
+    }
+
+    if (HEADING_REGEX.test(line) || parseTaskLineStructured(line) !== null) {
+      break;
+    }
+
+    if (getLeadingWhitespaceLength(line) <= taskIndent) {
+      break;
+    }
+
+    cursor += 1;
+    end = cursor;
+  }
+
+  return end;
+}
+
+function getLeadingWhitespaceLength(line: string): number {
+  return line.match(LEADING_WHITESPACE_REGEX)?.[0].length ?? 0;
+}
+
+/**
+ * Removes the task at taskLineIndex, along with its trailing note block (see
+ * findNoteBlockEnd), from its current position and appends the whole block to the
+ * "## Completed Tasks" section. Creates the section at end of file if absent.
  * No-ops if the task is already inside that section.
  */
 export function moveTaskToCompletedSection(lines: string[], taskLineIndex: number): string[] {
@@ -97,9 +160,10 @@ export function moveTaskToCompletedSection(lines: string[], taskLineIndex: numbe
     return lines;
   }
 
-  const taskLine = lines[taskLineIndex];
+  const blockEnd = findNoteBlockEnd(lines, taskLineIndex);
+  const taskBlock = lines.slice(taskLineIndex, blockEnd);
   const result = [...lines];
-  result.splice(taskLineIndex, 1);
+  result.splice(taskLineIndex, taskBlock.length);
 
   const sectionIdx = result.findIndex((l) => l.trim() === COMPLETED_SECTION_HEADER);
 
@@ -110,13 +174,13 @@ export function moveTaskToCompletedSection(lines: string[], taskLineIndex: numbe
       if (/^#{1,2}\s/.test(result[i])) break;
       if (result[i].trim() !== "") insertAt = i + 1;
     }
-    result.splice(insertAt, 0, taskLine);
+    result.splice(insertAt, 0, ...taskBlock);
   } else {
     if (result.length > 0 && result[result.length - 1].trim() !== "") {
       result.push("");
     }
     result.push(COMPLETED_SECTION_HEADER);
-    result.push(taskLine);
+    result.push(...taskBlock);
   }
 
   return result;

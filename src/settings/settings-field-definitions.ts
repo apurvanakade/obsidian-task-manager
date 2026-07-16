@@ -74,6 +74,13 @@ export function getFolderSettingConfigs(settings: TaskManagerSettings): FolderSe
       placeholder: "Projects/Someday-Maybe",
     },
     {
+      name: "Scheduled Projects Folder",
+      description: "Destination folder for scheduled projects (deferred to a future date via the due date on the first task; hidden from the dashboard/Tasks Summary until then and auto-promoted to Todo 7 days before that date).",
+      key: "scheduledProjectsFolder",
+      value: settings.scheduledProjectsFolder,
+      placeholder: "Projects/Scheduled",
+    },
+    {
       name: "Inbox File",
       description: "Path to the inbox file (used for Inbox section in dashboard).",
       key: "inboxFile",

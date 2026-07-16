@@ -22,6 +22,7 @@ export type TaskManagerSettings = {
   completedProjectsFolder: string;
   waitingProjectsFolder: string;
   somedayMaybeProjectsFolder: string;
+  scheduledProjectsFolder: string;
   inboxFile: string;
   dashboardHideKeywords: string;
   knownContexts: string;
@@ -32,7 +33,7 @@ export type TaskManagerSettings = {
 
 export type FolderSettingKey = keyof Pick<
   TaskManagerSettings,
-  "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder" | "inboxFile"
+  "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder" | "scheduledProjectsFolder" | "inboxFile"
 >;
 
 export const DEFAULT_SETTINGS: TaskManagerSettings = {
@@ -41,6 +42,7 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   completedProjectsFolder: "",
   waitingProjectsFolder: "",
   somedayMaybeProjectsFolder: "",
+  scheduledProjectsFolder: "",
   inboxFile: "",
   dashboardHideKeywords: "",
   knownContexts: "",
@@ -76,6 +78,7 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
     completedProjectsFolder: normalizeFolder(rawSettings.completedProjectsFolder),
     waitingProjectsFolder: normalizeFolder(rawSettings.waitingProjectsFolder),
     somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder),
+    scheduledProjectsFolder: normalizeFolder(rawSettings.scheduledProjectsFolder),
     inboxFile: normalizeFolder(rawSettings.inboxFile),
     dashboardHideKeywords: String(rawSettings.dashboardHideKeywords ?? ""),
     knownContexts: String(rawSettings.knownContexts ?? ""),

@@ -22,6 +22,7 @@ import { App, ItemView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { getTodayDateString } from "../date/date-utils";
 import { collectOpenTasksFromFile, collectTasksForDate, collectInboxTasks, DashboardRow, getDateStringFromFileName } from "./dashboard-task-data";
 import { buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
+import { appendSearchBox, matchesSearch } from "../ui/search-filter";
 
 const MARKDOWN_EXTENSION_REGEX = /\.md$/i;
 
@@ -43,6 +44,16 @@ export class DateDashboardController {
   private readonly getHideKeywords: () => string;
   private readonly getKnownContexts: () => string[];
   private selectedContext: string | null = null;
+  private searchQuery = "";
+  private cached: {
+    sourcePath: string;
+    dueTasks: DashboardRow[];
+    currentPageTasks: DashboardRow[];
+    inboxTasks: DashboardRow[];
+    completedTasks: DashboardRow[];
+    inboxFile: string;
+  } | null = null;
+  private resultsContainer: HTMLElement | null = null;
 
   constructor(options: DateDashboardControllerOptions) {
     this.app = options.app;
@@ -103,25 +114,64 @@ export class DateDashboardController {
     dashboard.appendChild(title);
 
     this.appendContextFilter(dashboard);
+    this.appendSearchFilter(dashboard);
 
-    // Due tasks
+    const resultsContainer = document.createElement("div");
+    dashboard.appendChild(resultsContainer);
+    this.resultsContainer = resultsContainer;
+
     const inboxFile = this.getInboxFile();
     const tasks = await collectTasksForDate(this.app, this.getTaskFolderRoots(), inboxFile, dateString);
-    this.appendDueSection(dashboard, this.filterByContext(tasks.dueTasks), sourcePath);
-
     const currentPageTasks = activeFile && getDateStringFromFileName(activeFile.name)
       ? await collectOpenTasksFromFile(this.app, activeFile)
       : [];
-    this.appendSimpleTaskListSection(dashboard, "Current Page", this.filterByContext(currentPageTasks));
-
-    // Inbox section (from inbox file)
     const inboxTasks = await collectInboxTasks(this.app, inboxFile);
-    this.appendInboxSection(dashboard, inboxFile, this.filterByContext(inboxTasks));
-    // Completed tasks
-    this.appendTaskTable(dashboard, "Completed", this.filterByContext(tasks.completedTasks), sourcePath, false);
+
+    this.cached = {
+      sourcePath,
+      dueTasks: tasks.dueTasks,
+      currentPageTasks,
+      inboxTasks,
+      completedTasks: tasks.completedTasks,
+      inboxFile,
+    };
+    this.renderResults();
 
     container.innerHTML = "";
     container.appendChild(dashboard);
+  }
+
+  private appendSearchFilter(container: HTMLElement): void {
+    appendSearchBox(container, this.searchQuery, (query) => {
+      this.searchQuery = query;
+      this.renderResults();
+    });
+  }
+
+  /** Re-renders just the section content from already-fetched data — no refetch, no input rebuild (preserves focus while typing). */
+  private renderResults(): void {
+    if (!this.resultsContainer || !this.cached) return;
+
+    const { sourcePath, dueTasks, currentPageTasks, inboxTasks, completedTasks, inboxFile } = this.cached;
+    const container = this.resultsContainer;
+    container.innerHTML = "";
+
+    this.appendDueSection(container, this.filterRows(dueTasks), sourcePath);
+    this.appendSimpleTaskListSection(container, "Current Page", this.filterRows(currentPageTasks));
+    this.appendInboxSection(container, inboxFile, this.filterRows(inboxTasks));
+    this.appendTaskTable(container, "Completed", this.filterRows(completedTasks), sourcePath, false);
+  }
+
+  private filterRows(rows: DashboardRow[]): DashboardRow[] {
+    return this.filterBySearch(this.filterByContext(rows));
+  }
+
+  private filterBySearch(rows: DashboardRow[]): DashboardRow[] {
+    if (!this.searchQuery.trim()) {
+      return rows;
+    }
+
+    return rows.filter((row) => matchesSearch(this.searchQuery, row.task, row.contexts.join(" ")));
   }
 
   private appendContextFilter(container: HTMLElement): void {
@@ -153,7 +203,7 @@ export class DateDashboardController {
     select.value = this.selectedContext ?? "";
     select.addEventListener("change", () => {
       this.selectedContext = select.value.length > 0 ? select.value : null;
-      this.refreshSoon();
+      this.renderResults();
     });
 
     label.appendChild(select);
@@ -190,7 +240,7 @@ export class DateDashboardController {
 
     if (inboxTasks.length === 0) {
       const emptyState = document.createElement("p");
-      emptyState.textContent = "No tasks.";
+      emptyState.textContent = this.emptyMessage();
       container.appendChild(emptyState);
       return;
     }
@@ -211,7 +261,7 @@ export class DateDashboardController {
 
     if (rows.length === 0) {
       const emptyState = document.createElement("p");
-      emptyState.textContent = "No tasks.";
+      emptyState.textContent = this.emptyMessage();
       container.appendChild(emptyState);
       return;
     }
@@ -223,6 +273,10 @@ export class DateDashboardController {
       ul.appendChild(li);
     }
     container.appendChild(ul);
+  }
+
+  private emptyMessage(): string {
+    return this.searchQuery.trim() ? "No matches." : "No tasks.";
   }
 
   private formatTaskListText(row: DashboardRow): string {
@@ -304,7 +358,7 @@ export class DateDashboardController {
   private appendTaskTableContent(container: HTMLElement, rows: DashboardRow[], sourcePath: string, showDueDate: boolean): void {
     if (rows.length === 0) {
       const emptyState = document.createElement("p");
-      emptyState.textContent = "No tasks.";
+      emptyState.textContent = this.emptyMessage();
       container.appendChild(emptyState);
       return;
     }

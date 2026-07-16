@@ -17,7 +17,7 @@
 import { App, Modal, TFile, TFolder } from "obsidian";
 import { TaskManagerSettings } from "../settings/settings-utils";
 
-export type RoutableStatus = "todo" | "completed" | "waiting" | "someday-maybe";
+export type RoutableStatus = "todo" | "completed" | "waiting" | "someday-maybe" | "scheduled";
 
 export function getDestinationRootForStatus(settings: TaskManagerSettings, status: RoutableStatus): string {
   switch (status) {
@@ -29,12 +29,32 @@ export function getDestinationRootForStatus(settings: TaskManagerSettings, statu
       return settings.waitingProjectsFolder;
     case "someday-maybe":
       return settings.somedayMaybeProjectsFolder;
+    case "scheduled":
+      return settings.scheduledProjectsFolder;
     default:
       return "";
   }
 }
 
 export function getTaskFolderRoots(settings: TaskManagerSettings): string[] {
+  const roots = [
+    settings.projectsFolder,
+    settings.completedProjectsFolder,
+    settings.waitingProjectsFolder,
+    settings.somedayMaybeProjectsFolder,
+    settings.scheduledProjectsFolder,
+  ].filter(Boolean);
+
+  return [...new Set(roots)];
+}
+
+/**
+ * Folders whose Due/Completed tasks should surface in the date dashboard. Deliberately
+ * excludes the Scheduled folder — scheduled projects are tickler items that shouldn't
+ * demand review until their first task's due date arrives and they're auto-promoted to
+ * `todo`.
+ */
+export function getSurfacedTaskFolderRoots(settings: TaskManagerSettings): string[] {
   const roots = [
     settings.projectsFolder,
     settings.completedProjectsFolder,

@@ -80,11 +80,23 @@ function getDestinationRootForStatus(settings, status) {
       return settings.waitingProjectsFolder;
     case "someday-maybe":
       return settings.somedayMaybeProjectsFolder;
+    case "scheduled":
+      return settings.scheduledProjectsFolder;
     default:
       return "";
   }
 }
 function getTaskFolderRoots(settings) {
+  const roots = [
+    settings.projectsFolder,
+    settings.completedProjectsFolder,
+    settings.waitingProjectsFolder,
+    settings.somedayMaybeProjectsFolder,
+    settings.scheduledProjectsFolder
+  ].filter(Boolean);
+  return [...new Set(roots)];
+}
+function getSurfacedTaskFolderRoots(settings) {
   const roots = [
     settings.projectsFolder,
     settings.completedProjectsFolder,
@@ -239,8 +251,9 @@ var SECONDARY_BUTTON_STYLES = {
   borderRadius: "4px",
   padding: "8px 16px"
 };
-var STATUS_OPTIONS = ["todo", "waiting", "someday-maybe"];
+var STATUS_OPTIONS = ["todo", "waiting", "someday-maybe", "scheduled"];
 var PRIORITY_OPTIONS = ["1", "2", "3"];
+var SCHEDULED_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 var AddProjectModal = class extends import_obsidian2.Modal {
   constructor(options) {
     super(options.app);
@@ -248,6 +261,8 @@ var AddProjectModal = class extends import_obsidian2.Modal {
     this.folderInput = null;
     this.prioritySelect = null;
     this.statusSelect = null;
+    this.scheduledDateSection = null;
+    this.scheduledDateInput = null;
     this.tasksInput = null;
     this.folderEdited = false;
     this.settings = options.settings;
@@ -262,6 +277,7 @@ var AddProjectModal = class extends import_obsidian2.Modal {
     this.createFolderSection(contentEl);
     this.createPrioritySection(contentEl);
     this.createStatusSection(contentEl);
+    this.createScheduledDateSection(contentEl);
     this.createTasksSection(contentEl);
     this.createActionButtons(contentEl);
     if (this.nameInput) {
@@ -333,11 +349,34 @@ var AddProjectModal = class extends import_obsidian2.Modal {
       }
     }
     this.statusSelect.addEventListener("change", () => {
+      this.updateScheduledDateVisibility();
       if (!this.folderInput || this.folderEdited) {
         return;
       }
       this.folderInput.value = getDefaultFolderForStatus(this.settings, this.statusSelect.value);
     });
+  }
+  createScheduledDateSection(container) {
+    const section = container.createEl("div");
+    applyStyles(section, SECTION_SPACING_STYLES);
+    this.createLabel(section, "Scheduled Date");
+    this.scheduledDateInput = section.createEl("input", {
+      type: "text",
+      placeholder: "YYYY-MM-DD"
+    });
+    applyStyles(this.scheduledDateInput, INPUT_STYLES);
+    const hint = section.createEl("p", {
+      text: "Written as the due date on the first task below."
+    });
+    applyStyles(hint, { margin: "4px 0 0", fontSize: "0.85em", opacity: "0.75" });
+    this.scheduledDateSection = section;
+    this.updateScheduledDateVisibility();
+  }
+  updateScheduledDateVisibility() {
+    if (!this.scheduledDateSection || !this.statusSelect) {
+      return;
+    }
+    this.scheduledDateSection.style.display = this.statusSelect.value === "scheduled" ? "block" : "none";
   }
   createTasksSection(container) {
     const section = container.createEl("div");
@@ -371,7 +410,7 @@ var AddProjectModal = class extends import_obsidian2.Modal {
     return label;
   }
   async submit() {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
     const name = (_b = (_a = this.nameInput) == null ? void 0 : _a.value.trim()) != null ? _b : "";
     const folder = normalizePathSegment((_d = (_c = this.folderInput) == null ? void 0 : _c.value) != null ? _d : "");
     const priorityValue = (_f = (_e = this.prioritySelect) == null ? void 0 : _e.value) != null ? _f : "3";
@@ -386,12 +425,25 @@ var AddProjectModal = class extends import_obsidian2.Modal {
       new import_obsidian2.Notice("Choose priority 1, 2, or 3.");
       return;
     }
+    let scheduledDate = null;
+    if (status === "scheduled") {
+      scheduledDate = (_l = (_k = this.scheduledDateInput) == null ? void 0 : _k.value.trim()) != null ? _l : "";
+      if (!SCHEDULED_DATE_REGEX.test(scheduledDate)) {
+        new import_obsidian2.Notice("Enter a Scheduled Date in YYYY-MM-DD format.");
+        return;
+      }
+      if (tasks.length === 0) {
+        new import_obsidian2.Notice("Add at least one task when Status is scheduled \u2014 the Scheduled Date is attached to the first task as its due date.");
+        return;
+      }
+    }
     try {
       await this.onSubmit({
         name,
         folder,
         priority,
         status,
+        scheduledDate,
         tasks
       });
       this.close();
@@ -419,8 +471,9 @@ function buildProjectFileContent(input, statusField) {
   ];
   if (input.tasks.length > 0) {
     lines.push("");
-    input.tasks.forEach((task) => {
-      lines.push(`- [ ] ${task}`);
+    input.tasks.forEach((task, index) => {
+      const dueSuffix = index === 0 && input.status === "scheduled" && input.scheduledDate ? ` [due:: ${input.scheduledDate}]` : "";
+      lines.push(`- [ ] ${task}${dueSuffix}`);
     });
   }
   return `${lines.join("\n").trimEnd()}
@@ -475,6 +528,14 @@ function parseIsoDate(value) {
   }
   const parsed = /* @__PURE__ */ new Date(`${value}T00:00:00`);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+function addDaysToDateString(dateString, days) {
+  const date = parseIsoDate(dateString);
+  if (!date) {
+    return null;
+  }
+  date.setDate(date.getDate() + days);
+  return getCurrentDateString(date);
 }
 function crossesThresholdWithinCurrentWeek(startDateString, thresholdDays, referenceDate = /* @__PURE__ */ new Date()) {
   const startDate = parseIsoDate(startDateString);
@@ -798,12 +859,35 @@ function applyHideKeywords(name, hideKeywords) {
   return result || name;
 }
 
+// src/ui/search-filter.ts
+function appendSearchBox(container, query, onQueryChange) {
+  const wrapper = document.createElement("div");
+  wrapper.style.marginBottom = "10px";
+  const input = document.createElement("input");
+  input.type = "search";
+  input.placeholder = "Search";
+  input.value = query;
+  input.style.width = "100%";
+  input.addEventListener("input", () => onQueryChange(input.value));
+  wrapper.appendChild(input);
+  container.appendChild(wrapper);
+  return input;
+}
+function matchesSearch(query, ...texts) {
+  const trimmed = query.trim().toLowerCase();
+  if (trimmed.length === 0) return true;
+  return texts.some((text) => text.toLowerCase().includes(trimmed));
+}
+
 // src/dashboard/date-dashboard.ts
 var MARKDOWN_EXTENSION_REGEX3 = /\.md$/i;
 var _DateDashboardController = class _DateDashboardController {
   constructor(options) {
     this.refreshHandle = null;
     this.selectedContext = null;
+    this.searchQuery = "";
+    this.cached = null;
+    this.resultsContainer = null;
     this.app = options.app;
     this.getTaskFolderRoots = options.getTaskFolderRoots;
     this.getInboxFile = options.getInboxFile;
@@ -852,16 +936,51 @@ var _DateDashboardController = class _DateDashboardController {
     title.textContent = `Tasks for ${dateString}`;
     dashboard.appendChild(title);
     this.appendContextFilter(dashboard);
+    this.appendSearchFilter(dashboard);
+    const resultsContainer = document.createElement("div");
+    dashboard.appendChild(resultsContainer);
+    this.resultsContainer = resultsContainer;
     const inboxFile = this.getInboxFile();
     const tasks = await collectTasksForDate(this.app, this.getTaskFolderRoots(), inboxFile, dateString);
-    this.appendDueSection(dashboard, this.filterByContext(tasks.dueTasks), sourcePath);
     const currentPageTasks = activeFile && getDateStringFromFileName(activeFile.name) ? await collectOpenTasksFromFile(this.app, activeFile) : [];
-    this.appendSimpleTaskListSection(dashboard, "Current Page", this.filterByContext(currentPageTasks));
     const inboxTasks = await collectInboxTasks(this.app, inboxFile);
-    this.appendInboxSection(dashboard, inboxFile, this.filterByContext(inboxTasks));
-    this.appendTaskTable(dashboard, "Completed", this.filterByContext(tasks.completedTasks), sourcePath, false);
+    this.cached = {
+      sourcePath,
+      dueTasks: tasks.dueTasks,
+      currentPageTasks,
+      inboxTasks,
+      completedTasks: tasks.completedTasks,
+      inboxFile
+    };
+    this.renderResults();
     container.innerHTML = "";
     container.appendChild(dashboard);
+  }
+  appendSearchFilter(container) {
+    appendSearchBox(container, this.searchQuery, (query) => {
+      this.searchQuery = query;
+      this.renderResults();
+    });
+  }
+  /** Re-renders just the section content from already-fetched data — no refetch, no input rebuild (preserves focus while typing). */
+  renderResults() {
+    if (!this.resultsContainer || !this.cached) return;
+    const { sourcePath, dueTasks, currentPageTasks, inboxTasks, completedTasks, inboxFile } = this.cached;
+    const container = this.resultsContainer;
+    container.innerHTML = "";
+    this.appendDueSection(container, this.filterRows(dueTasks), sourcePath);
+    this.appendSimpleTaskListSection(container, "Current Page", this.filterRows(currentPageTasks));
+    this.appendInboxSection(container, inboxFile, this.filterRows(inboxTasks));
+    this.appendTaskTable(container, "Completed", this.filterRows(completedTasks), sourcePath, false);
+  }
+  filterRows(rows) {
+    return this.filterBySearch(this.filterByContext(rows));
+  }
+  filterBySearch(rows) {
+    if (!this.searchQuery.trim()) {
+      return rows;
+    }
+    return rows.filter((row) => matchesSearch(this.searchQuery, row.task, row.contexts.join(" ")));
   }
   appendContextFilter(container) {
     var _a;
@@ -888,7 +1007,7 @@ var _DateDashboardController = class _DateDashboardController {
     select.value = (_a = this.selectedContext) != null ? _a : "";
     select.addEventListener("change", () => {
       this.selectedContext = select.value.length > 0 ? select.value : null;
-      this.refreshSoon();
+      this.renderResults();
     });
     label.appendChild(select);
     container.appendChild(wrapper);
@@ -919,7 +1038,7 @@ var _DateDashboardController = class _DateDashboardController {
     }
     if (inboxTasks.length === 0) {
       const emptyState = document.createElement("p");
-      emptyState.textContent = "No tasks.";
+      emptyState.textContent = this.emptyMessage();
       container.appendChild(emptyState);
       return;
     }
@@ -937,7 +1056,7 @@ var _DateDashboardController = class _DateDashboardController {
     container.appendChild(heading);
     if (rows.length === 0) {
       const emptyState = document.createElement("p");
-      emptyState.textContent = "No tasks.";
+      emptyState.textContent = this.emptyMessage();
       container.appendChild(emptyState);
       return;
     }
@@ -948,6 +1067,9 @@ var _DateDashboardController = class _DateDashboardController {
       ul.appendChild(li);
     }
     container.appendChild(ul);
+  }
+  emptyMessage() {
+    return this.searchQuery.trim() ? "No matches." : "No tasks.";
   }
   formatTaskListText(row) {
     return row.contexts.length > 0 ? `${row.task} (${row.contexts.join(", ")})` : row.task;
@@ -1014,7 +1136,7 @@ var _DateDashboardController = class _DateDashboardController {
   appendTaskTableContent(container, rows, sourcePath, showDueDate) {
     if (rows.length === 0) {
       const emptyState = document.createElement("p");
-      emptyState.textContent = "No tasks.";
+      emptyState.textContent = this.emptyMessage();
       container.appendChild(emptyState);
       return;
     }
@@ -1404,11 +1526,9 @@ function pickRandomFile(files) {
 // src/review/weekly-review-view.ts
 var import_obsidian11 = require("obsidian");
 
-// src/tasks/task-processor.ts
-var import_obsidian10 = require("obsidian");
-
 // src/tasks/task-utils.ts
 var FRONTMATTER_BLOCK_REGEX2 = /^---\r?\n[\s\S]*?\r?\n---/;
+var DUE_FIELD_REGEX2 = /\[due::\s*([^\]]+?)\s*\]/i;
 function extractTaskState(content) {
   const lines = content.split(/\r?\n/);
   const taskState = [];
@@ -1453,14 +1573,55 @@ function findFirstIncompleteTaskLine(lines) {
   }
   return null;
 }
+function getFirstTaskDueDate(content) {
+  const lines = content.split(/\r?\n/);
+  const firstIncompleteIndex = findFirstIncompleteTaskLine(lines);
+  if (firstIncompleteIndex === null) {
+    return null;
+  }
+  const parsed = parseTaskLine(lines[firstIncompleteIndex]);
+  if (!parsed) {
+    return null;
+  }
+  return readInlineFieldValue(parsed.taskBody, DUE_FIELD_REGEX2);
+}
 var COMPLETED_SECTION_HEADER = "## Completed Tasks";
+var LEADING_WHITESPACE_REGEX = /^\s*/;
+var HEADING_REGEX = /^#{1,6}\s/;
+function findNoteBlockEnd(lines, taskLineIndex) {
+  var _a;
+  const taskIndent = getLeadingWhitespaceLength((_a = lines[taskLineIndex]) != null ? _a : "");
+  let end = taskLineIndex + 1;
+  let cursor = taskLineIndex + 1;
+  while (cursor < lines.length) {
+    const line = lines[cursor];
+    if (line.trim() === "") {
+      cursor += 1;
+      continue;
+    }
+    if (HEADING_REGEX.test(line) || parseTaskLineStructured(line) !== null) {
+      break;
+    }
+    if (getLeadingWhitespaceLength(line) <= taskIndent) {
+      break;
+    }
+    cursor += 1;
+    end = cursor;
+  }
+  return end;
+}
+function getLeadingWhitespaceLength(line) {
+  var _a, _b;
+  return (_b = (_a = line.match(LEADING_WHITESPACE_REGEX)) == null ? void 0 : _a[0].length) != null ? _b : 0;
+}
 function moveTaskToCompletedSection(lines, taskLineIndex) {
   if (isLineInCompletedSection(lines, taskLineIndex)) {
     return lines;
   }
-  const taskLine = lines[taskLineIndex];
+  const blockEnd = findNoteBlockEnd(lines, taskLineIndex);
+  const taskBlock = lines.slice(taskLineIndex, blockEnd);
   const result = [...lines];
-  result.splice(taskLineIndex, 1);
+  result.splice(taskLineIndex, taskBlock.length);
   const sectionIdx = result.findIndex((l) => l.trim() === COMPLETED_SECTION_HEADER);
   if (sectionIdx !== -1) {
     let insertAt = sectionIdx + 1;
@@ -1468,13 +1629,13 @@ function moveTaskToCompletedSection(lines, taskLineIndex) {
       if (/^#{1,2}\s/.test(result[i])) break;
       if (result[i].trim() !== "") insertAt = i + 1;
     }
-    result.splice(insertAt, 0, taskLine);
+    result.splice(insertAt, 0, ...taskBlock);
   } else {
     if (result.length > 0 && result[result.length - 1].trim() !== "") {
       result.push("");
     }
     result.push(COMPLETED_SECTION_HEADER);
-    result.push(taskLine);
+    result.push(...taskBlock);
   }
   return result;
 }
@@ -1520,6 +1681,9 @@ function stripResetTaskFields(taskBody) {
   return taskBody.replace(/\s*\[(?:due|completion-date|completion-time|created)::\s*[^\]]*\]/gi, "").replace(/\s{2,}/g, " ").trimEnd();
 }
 
+// src/tasks/task-processor.ts
+var import_obsidian10 = require("obsidian");
+
 // src/tasks/reconciler.ts
 var import_obsidian9 = require("obsidian");
 
@@ -1555,7 +1719,7 @@ function findActionableTaskLines(lines, enableMultipleNextActions) {
 }
 
 // src/routing/status-routing.ts
-var ROUTABLE_STATUSES = ["todo", "completed", "waiting", "someday-maybe"];
+var ROUTABLE_STATUSES = ["todo", "completed", "waiting", "someday-maybe", "scheduled"];
 function isRoutableStatus(value) {
   return ROUTABLE_STATUSES.includes(value);
 }
@@ -1601,7 +1765,9 @@ var REPEAT_KEYWORD_TO_UNIT = {
   monthly: "month",
   year: "year",
   years: "year",
-  yearly: "year"
+  yearly: "year",
+  annual: "year",
+  annually: "year"
 };
 var WEEKDAY_KEYWORD_TO_INDEX = {
   sunday: 0,
@@ -2036,13 +2202,19 @@ async function applyCompletionRules(context) {
   if (repeatRule !== null) {
     const repeatedTaskLine = buildRepeatedTaskLine(sourceTaskLine, repeatRule);
     if (repeatedTaskLine !== null) {
-      nextLines.splice(completedLine, 0, repeatedTaskLine);
-      completedLineIndex += 1;
+      const noteBlockEnd = findNoteBlockEnd(lines, completedLine);
+      const noteBlockLines = lines.slice(completedLine + 1, noteBlockEnd);
+      const repeatedBlock = [repeatedTaskLine, ...noteBlockLines];
+      nextLines.splice(completedLine, 0, ...repeatedBlock);
+      completedLineIndex += repeatedBlock.length;
+      if (noteBlockLines.length > 0) {
+        nextLines.splice(completedLineIndex + 1, noteBlockLines.length);
+      }
     }
   }
   nextLines[completedLineIndex] = addCompletionFields(nextLines[completedLineIndex]);
   let workingLines = nextLines;
-  const newStatus = findFirstIncompleteTaskLine(workingLines) === null ? "completed" : "todo";
+  const newStatus = findFirstIncompleteTaskLine(workingLines) === null && !isInboxFile(file, settings) ? "completed" : "todo";
   const stampedLine = workingLines[completedLineIndex];
   const actualCompletedLineIndex = workingLines.indexOf(stampedLine, completedLineIndex);
   if (actualCompletedLineIndex !== -1) {
@@ -2094,7 +2266,7 @@ async function reconcileFile(context) {
   });
   const firstIncompleteTaskLine = findFirstIncompleteTaskLine(lines);
   const updatedContent = lines.join("\n");
-  let nextStatus = "completed";
+  let nextStatus = isInboxFile(file, settings) ? "todo" : "completed";
   if (firstIncompleteTaskLine !== null) {
     nextStatus = currentStatus !== null && currentStatus !== "completed" ? null : "todo";
   }
@@ -2118,6 +2290,9 @@ function addCompletionFields(line) {
 }
 function stripCompletionFields(line) {
   return line.replace(/\s*\[completion-date::[^\]]*\]/g, "").replace(/\s*\[completion-time::[^\]]*\]/g, "");
+}
+function isInboxFile(file, settings) {
+  return !!settings.inboxFile && file.path === settings.inboxFile;
 }
 function forceLineOpen(line) {
   const structured = parseTaskLineStructured(line);
@@ -2231,6 +2406,7 @@ var TaskStateStore = class {
 
 // src/tasks/task-processor.ts
 var WAITING_SINCE_FRONTMATTER_FIELD = "waiting-since";
+var SCHEDULED_PROMOTION_LEAD_DAYS = 7;
 var TaskProcessor = class {
   constructor(options) {
     this.stateStore = new TaskStateStore();
@@ -2286,6 +2462,10 @@ var TaskProcessor = class {
       return;
     }
     const content = await this.app.vault.read(file);
+    if (await this.maybePromoteScheduledFile(file, content, settings)) {
+      this.snapshotTaskState(file.path, content);
+      return;
+    }
     const nextState = extractTaskState(content);
     const nextLineCount = this.countLines(content);
     const previousState = this.stateStore.getTaskState(file.path);
@@ -2389,6 +2569,64 @@ var TaskProcessor = class {
         }
       });
     });
+  }
+  /**
+   * Scans the configured Scheduled folder and promotes any file whose first task's due
+   * date has entered the promotion window. Called once at plugin load so tickler items
+   * don't sit un-promoted indefinitely just because nobody touched the file while
+   * Obsidian was closed.
+   */
+  async checkScheduledPromotions() {
+    const settings = this.getSettings();
+    const folderPath = settings.scheduledProjectsFolder;
+    if (!folderPath) {
+      return;
+    }
+    const files = this.app.vault.getMarkdownFiles().filter((file) => file.path.startsWith(`${folderPath}/`));
+    for (const file of files) {
+      const content = await this.app.vault.read(file);
+      await this.maybePromoteScheduledFile(file, content, settings);
+    }
+  }
+  /**
+   * Promotes a `scheduled` file to `todo` (and routes it accordingly) once its first
+   * open task's `[due:: ...]` date is within the promotion lead window. The due date
+   * itself is left untouched — once promoted, it's just an ordinary task due date the
+   * dashboard picks up normally. Returns true if it promoted the file, so callers
+   * mid-modify-event can skip the rest of normal reconciliation for this pass — the
+   * promotion's own frontmatter write fires a fresh `modify` event that gets processed
+   * normally once the pending-path guard clears.
+   */
+  async maybePromoteScheduledFile(file, content, settings) {
+    var _a;
+    if (this.isInboxFile(file, settings)) {
+      return false;
+    }
+    const status = readStatusValue(content, settings.statusField);
+    if (status !== "scheduled") {
+      return false;
+    }
+    const scheduledDate = getFirstTaskDueDate(content);
+    if (!scheduledDate) {
+      return false;
+    }
+    const promotionThreshold = addDaysToDateString(scheduledDate, -SCHEDULED_PROMOTION_LEAD_DAYS);
+    if (!promotionThreshold || promotionThreshold > getCurrentDateString()) {
+      return false;
+    }
+    await this.setFileStatus(file, "todo", settings);
+    try {
+      assertConfiguredDestinationForStatus("todo", settings);
+      await this.routeFileByStatus(file, settings, "todo");
+    } catch (error) {
+      new import_obsidian10.Notice(error instanceof Error ? error.message : "Failed to route promoted scheduled file.");
+    }
+    try {
+      await ((_a = this.onFileStatusChanged) == null ? void 0 : _a.call(this));
+    } catch (error) {
+      new import_obsidian10.Notice(error instanceof Error ? error.message : "Failed to update summary files after promotion.");
+    }
+    return true;
   }
   /**
    * One-time backfill for files already in the Waiting folder before this feature
@@ -2623,6 +2861,36 @@ async function collectSomedayReviewRows(app, settings) {
     needsReview: row.daysSinceReview === null || row.daysSinceReview >= cadenceDays
   }));
 }
+async function collectScheduledReviewRows(app, settings) {
+  const folderPath = settings.scheduledProjectsFolder;
+  if (!folderPath) {
+    return [];
+  }
+  const today = getTodayDateString();
+  const files = app.vault.getMarkdownFiles().filter((file) => isInFolder(file.path, folderPath));
+  const rows = [];
+  for (const file of files) {
+    const content = await app.vault.read(file);
+    const scheduledDate = getFirstTaskDueDate(content);
+    const daysPastScheduled = daysBetween(scheduledDate, today);
+    rows.push({
+      file,
+      scheduledDate,
+      daysUntil: daysPastScheduled === null ? null : -daysPastScheduled
+    });
+  }
+  return rows.sort((left, right) => {
+    if (left.daysUntil === null && right.daysUntil === null) return 0;
+    if (left.daysUntil === null) return 1;
+    if (right.daysUntil === null) return -1;
+    return left.daysUntil - right.daysUntil;
+  });
+}
+async function promoteScheduledFileNow(app, file, settings) {
+  await app.fileManager.processFrontMatter(file, (frontmatter) => {
+    frontmatter[settings.statusField] = "todo";
+  });
+}
 async function stampReviewedDate(app, file) {
   await app.fileManager.processFrontMatter(file, (frontmatter) => {
     frontmatter[REVIEWED_FRONTMATTER_FIELD] = getTodayDateString();
@@ -2652,6 +2920,10 @@ function compareByStaleness(getDays) {
 // src/review/weekly-review-view.ts
 var _WeeklyReviewController = class _WeeklyReviewController {
   constructor(options) {
+    this.searchQuery = "";
+    this.cached = null;
+    this.resultsContainer = null;
+    this.onNeedsRefresh = null;
     this.refreshHandle = null;
     this.app = options.app;
     this.getSettings = options.getSettings;
@@ -2692,7 +2964,12 @@ var _WeeklyReviewController = class _WeeklyReviewController {
   isRelevantFile(file) {
     if (!(file instanceof import_obsidian11.TFile)) return false;
     const settings = this.getSettings();
-    const roots = [settings.projectsFolder, settings.waitingProjectsFolder, settings.somedayMaybeProjectsFolder].filter(Boolean);
+    const roots = [
+      settings.projectsFolder,
+      settings.waitingProjectsFolder,
+      settings.somedayMaybeProjectsFolder,
+      settings.scheduledProjectsFolder
+    ].filter(Boolean);
     return roots.some((root) => isInFolder(file.path, root));
   }
   queueRefresh() {
@@ -2715,6 +2992,7 @@ var _WeeklyReviewController = class _WeeklyReviewController {
   async renderContent(container, onNeedsRefresh) {
     container.innerHTML = "";
     container.classList.add("markdown-rendered");
+    this.onNeedsRefresh = onNeedsRefresh;
     const settings = this.getSettings();
     const section = document.createElement("section");
     const title = document.createElement("h2");
@@ -2723,13 +3001,46 @@ var _WeeklyReviewController = class _WeeklyReviewController {
     const weekLabel = document.createElement("p");
     weekLabel.textContent = `Week ending ${formatDate3(getEndOfWeek(/* @__PURE__ */ new Date()))}`;
     section.appendChild(weekLabel);
-    const activeProjectRows = await collectActiveProjectReviewRows(this.app, settings);
-    this.appendActiveProjectsSection(section, activeProjectRows, settings, onNeedsRefresh);
-    const waitingRows = await collectWaitingReviewRows(this.app, settings);
-    this.appendWaitingSection(section, waitingRows, settings);
-    const somedayRows = await collectSomedayReviewRows(this.app, settings);
-    this.appendSomedaySection(section, somedayRows, settings, onNeedsRefresh);
+    this.appendSearchFilter(section);
+    const resultsContainer = document.createElement("div");
+    section.appendChild(resultsContainer);
+    this.resultsContainer = resultsContainer;
+    this.cached = {
+      settings,
+      activeProjectRows: await collectActiveProjectReviewRows(this.app, settings),
+      waitingRows: await collectWaitingReviewRows(this.app, settings),
+      somedayRows: await collectSomedayReviewRows(this.app, settings),
+      scheduledRows: await collectScheduledReviewRows(this.app, settings)
+    };
+    this.renderResults();
     container.appendChild(section);
+  }
+  appendSearchFilter(container) {
+    appendSearchBox(container, this.searchQuery, (query) => {
+      this.searchQuery = query;
+      this.renderResults();
+    });
+  }
+  filterBySearch(rows) {
+    if (!this.searchQuery.trim()) {
+      return rows;
+    }
+    return rows.filter((row) => matchesSearch(this.searchQuery, row.file.basename, row.file.path));
+  }
+  emptyMessage(defaultText) {
+    return this.searchQuery.trim() ? "No matches." : defaultText;
+  }
+  /** Re-renders just the section tables from already-fetched data — no refetch, no input rebuild (preserves focus while typing). */
+  renderResults() {
+    if (!this.resultsContainer || !this.cached || !this.onNeedsRefresh) return;
+    const { settings, activeProjectRows, waitingRows, somedayRows, scheduledRows } = this.cached;
+    const onNeedsRefresh = this.onNeedsRefresh;
+    const container = this.resultsContainer;
+    container.innerHTML = "";
+    this.appendActiveProjectsSection(container, this.filterBySearch(activeProjectRows), settings, onNeedsRefresh);
+    this.appendWaitingSection(container, this.filterBySearch(waitingRows), settings);
+    this.appendSomedaySection(container, this.filterBySearch(somedayRows), settings, onNeedsRefresh);
+    this.appendScheduledSection(container, this.filterBySearch(scheduledRows), settings, onNeedsRefresh);
   }
   appendActiveProjectsSection(container, rows, settings, onNeedsRefresh) {
     var _a;
@@ -2741,7 +3052,7 @@ var _WeeklyReviewController = class _WeeklyReviewController {
       return;
     }
     if (rows.length === 0) {
-      container.appendChild(this.createParagraph("No active projects."));
+      container.appendChild(this.createParagraph(this.emptyMessage("No active projects.")));
       return;
     }
     const table = document.createElement("table");
@@ -2780,7 +3091,7 @@ var _WeeklyReviewController = class _WeeklyReviewController {
       return;
     }
     if (rows.length === 0) {
-      container.appendChild(this.createParagraph("No waiting projects."));
+      container.appendChild(this.createParagraph(this.emptyMessage("No waiting projects.")));
       return;
     }
     const table = document.createElement("table");
@@ -2810,7 +3121,7 @@ var _WeeklyReviewController = class _WeeklyReviewController {
       return;
     }
     if (rows.length === 0) {
-      container.appendChild(this.createParagraph("No someday-maybe projects."));
+      container.appendChild(this.createParagraph(this.emptyMessage("No someday-maybe projects.")));
       return;
     }
     const table = document.createElement("table");
@@ -2830,6 +3141,45 @@ var _WeeklyReviewController = class _WeeklyReviewController {
       button.addEventListener("click", () => {
         void (async () => {
           await stampReviewedDate(this.app, row.file);
+          onNeedsRefresh();
+        })();
+      });
+      actionCell.appendChild(button);
+      tr.appendChild(actionCell);
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    container.appendChild(table);
+  }
+  appendScheduledSection(container, rows, settings, onNeedsRefresh) {
+    var _a;
+    const heading = document.createElement("h3");
+    heading.textContent = "Scheduled";
+    container.appendChild(heading);
+    if (!settings.scheduledProjectsFolder) {
+      container.appendChild(this.createParagraph("Set Scheduled Projects Folder in plugin settings to see items here."));
+      return;
+    }
+    if (rows.length === 0) {
+      container.appendChild(this.createParagraph(this.emptyMessage("No scheduled projects.")));
+      return;
+    }
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    thead.appendChild(this.createRow(["Project", "Scheduled Date", "Days Until", ""], "th"));
+    table.appendChild(thead);
+    const tbody = document.createElement("tbody");
+    for (const row of rows) {
+      const tr = document.createElement("tr");
+      tr.appendChild(this.createCell(this.createFileLinkCell(row.file), "td"));
+      tr.appendChild(this.createCell((_a = row.scheduledDate) != null ? _a : "\u2014", "td"));
+      tr.appendChild(this.createCell(formatDaysUntil(row.daysUntil), "td"));
+      const actionCell = document.createElement("td");
+      const button = document.createElement("button");
+      button.textContent = "Promote Now";
+      button.addEventListener("click", () => {
+        void (async () => {
+          await promoteScheduledFileNow(this.app, row.file, settings);
           onNeedsRefresh();
         })();
       });
@@ -2881,6 +3231,12 @@ function formatDate3(date) {
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
+function formatDaysUntil(daysUntil) {
+  if (daysUntil === null) return "\u2014";
+  if (daysUntil === 0) return "Today";
+  if (daysUntil < 0) return `${-daysUntil} day${daysUntil === -1 ? "" : "s"} overdue`;
+  return `in ${daysUntil} day${daysUntil === 1 ? "" : "s"}`;
+}
 var WeeklyReviewView = class extends import_obsidian11.ItemView {
   constructor(leaf, controller) {
     super(leaf);
@@ -2909,6 +3265,7 @@ var DEFAULT_SETTINGS = {
   completedProjectsFolder: "",
   waitingProjectsFolder: "",
   somedayMaybeProjectsFolder: "",
+  scheduledProjectsFolder: "",
   inboxFile: "",
   dashboardHideKeywords: "",
   knownContexts: "",
@@ -2940,6 +3297,7 @@ function normalizeSettings(rawSettings) {
     completedProjectsFolder: normalizeFolder(rawSettings.completedProjectsFolder),
     waitingProjectsFolder: normalizeFolder(rawSettings.waitingProjectsFolder),
     somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder),
+    scheduledProjectsFolder: normalizeFolder(rawSettings.scheduledProjectsFolder),
     inboxFile: normalizeFolder(rawSettings.inboxFile),
     dashboardHideKeywords: String((_a = rawSettings.dashboardHideKeywords) != null ? _a : ""),
     knownContexts: String((_b = rawSettings.knownContexts) != null ? _b : ""),
@@ -3072,7 +3430,7 @@ var import_obsidian14 = require("obsidian");
 
 // src/summary/tasks-summary.ts
 var import_obsidian13 = require("obsidian");
-var DUE_FIELD_REGEX2 = /\[due::\s*([^\]]+?)\s*\]/i;
+var DUE_FIELD_REGEX3 = /\[due::\s*([^\]]+?)\s*\]/i;
 async function collectTaskSummarySections(app, settings) {
   const sectionSources = [
     { title: "Projects", collectRows: () => collectActionableRowsForFolder(app, settings.projectsFolder, settings) },
@@ -3139,7 +3497,7 @@ function parseActionableTaskLine(line) {
   }
   return {
     task: cleanTaskText(parsedTask.taskBody),
-    dueDate: readInlineFieldValue(parsedTask.taskBody, DUE_FIELD_REGEX2),
+    dueDate: readInlineFieldValue(parsedTask.taskBody, DUE_FIELD_REGEX3),
     recurrence: getRecurrenceLabel(parsedTask.taskBody),
     contexts: getContexts(parsedTask.taskBody)
   };
@@ -3163,6 +3521,10 @@ function compareSummaryRows(left, right) {
 var _TasksSummaryController = class _TasksSummaryController {
   constructor(options) {
     this.selectedContext = null;
+    this.searchQuery = "";
+    this.lastSections = [];
+    this.resultsContainer = null;
+    this.currentSettings = null;
     this.refreshHandle = null;
     this.app = options.app;
     this.getSettings = options.getSettings;
@@ -3208,16 +3570,33 @@ var _TasksSummaryController = class _TasksSummaryController {
     container.innerHTML = "";
     container.classList.add("markdown-rendered");
     const settings = this.getSettings();
+    this.currentSettings = settings;
     const section = document.createElement("section");
     const title = document.createElement("h2");
     title.textContent = "Tasks Summary";
     section.appendChild(title);
     this.appendContextFilter(section);
-    const sections = await collectTaskSummarySections(this.app, settings);
-    for (const taskSection of sections) {
-      this.appendSection(section, taskSection, settings);
-    }
+    this.appendSearchFilter(section);
+    const resultsContainer = document.createElement("div");
+    section.appendChild(resultsContainer);
+    this.resultsContainer = resultsContainer;
+    this.lastSections = await collectTaskSummarySections(this.app, settings);
+    this.renderResults();
     container.appendChild(section);
+  }
+  appendSearchFilter(container) {
+    appendSearchBox(container, this.searchQuery, (query) => {
+      this.searchQuery = query;
+      this.renderResults();
+    });
+  }
+  /** Re-renders just the section tables from already-fetched data — no refetch, no input rebuild (preserves focus while typing). */
+  renderResults() {
+    if (!this.resultsContainer || !this.currentSettings) return;
+    this.resultsContainer.innerHTML = "";
+    for (const taskSection of this.lastSections) {
+      this.appendSection(this.resultsContainer, taskSection, this.currentSettings);
+    }
   }
   appendContextFilter(container) {
     var _a;
@@ -3244,7 +3623,7 @@ var _TasksSummaryController = class _TasksSummaryController {
     select.value = (_a = this.selectedContext) != null ? _a : "";
     select.addEventListener("change", () => {
       this.selectedContext = select.value.length > 0 ? select.value : null;
-      this.refreshSoon();
+      this.renderResults();
     });
     label.appendChild(select);
     container.appendChild(wrapper);
@@ -3255,14 +3634,20 @@ var _TasksSummaryController = class _TasksSummaryController {
     }
     return rows.filter((row) => row.contexts.includes(this.selectedContext));
   }
+  filterBySearch(rows) {
+    if (!this.searchQuery.trim()) {
+      return rows;
+    }
+    return rows.filter((row) => matchesSearch(this.searchQuery, row.task, row.file.path, row.contexts.join(" ")));
+  }
   appendSection(container, taskSection, settings) {
     const heading = document.createElement("h3");
     heading.textContent = taskSection.title;
     container.appendChild(heading);
-    const rows = this.filterByContext(taskSection.rows);
+    const rows = this.filterBySearch(this.filterByContext(taskSection.rows));
     if (rows.length === 0) {
       const emptyState = document.createElement("p");
-      emptyState.textContent = "No tasks.";
+      emptyState.textContent = this.searchQuery.trim() ? "No matches." : "No tasks.";
       container.appendChild(emptyState);
       return;
     }
@@ -3469,6 +3854,13 @@ function getFolderSettingConfigs(settings) {
       placeholder: "Projects/Someday-Maybe"
     },
     {
+      name: "Scheduled Projects Folder",
+      description: "Destination folder for scheduled projects (deferred to a future date via the due date on the first task; hidden from the dashboard/Tasks Summary until then and auto-promoted to Todo 7 days before that date).",
+      key: "scheduledProjectsFolder",
+      value: settings.scheduledProjectsFolder,
+      placeholder: "Projects/Scheduled"
+    },
+    {
       name: "Inbox File",
       description: "Path to the inbox file (used for Inbox section in dashboard).",
       key: "inboxFile",
@@ -3631,7 +4023,7 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
     });
     this.dateDashboard = new DateDashboardController({
       app: this.app,
-      getTaskFolderRoots: () => this.getTaskFolderRoots(),
+      getTaskFolderRoots: () => getSurfacedTaskFolderRoots(this.settings),
       getInboxFile: () => this.settings.inboxFile,
       getHideKeywords: () => this.settings.dashboardHideKeywords,
       getKnownContexts: () => this.getKnownContexts()
@@ -3714,6 +4106,7 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
     this.weeklyReview.onload(this);
     this.tasksSummary.onload(this);
     await this.taskProcessor.primeState();
+    await this.taskProcessor.checkScheduledPromotions();
     await this.dateDashboard.onload(this);
   }
   onunload() {
@@ -3829,20 +4222,21 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
       new import_obsidian17.Notice(error instanceof Error ? error.message : "Failed to stamp waiting-since.");
     }
   }
-  getTaskFolderRoots() {
-    return getTaskFolderRoots(this.settings);
-  }
   getKnownContexts() {
     return parseContextList(this.settings.knownContexts);
   }
 };
 var FRONTMATTER_BLOCK_REGEX3 = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
 function prependTaskLine(content, taskLine) {
+  var _a, _b;
   const frontmatterMatch = content.match(FRONTMATTER_BLOCK_REGEX3);
   if (frontmatterMatch) {
     const frontmatterBlock = frontmatterMatch[0];
-    return `${frontmatterBlock}${taskLine}
-${content.slice(frontmatterBlock.length)}`;
+    const rest = content.slice(frontmatterBlock.length);
+    const blankLines = (_b = (_a = rest.match(/^(\r?\n)*/)) == null ? void 0 : _a[0]) != null ? _b : "";
+    const afterBlankLines = rest.slice(blankLines.length);
+    return `${frontmatterBlock}${blankLines}${taskLine}
+${afterBlankLines}`;
   }
   return content.length > 0 ? `${taskLine}
 ${content}` : `${taskLine}

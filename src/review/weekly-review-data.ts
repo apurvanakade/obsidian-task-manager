@@ -1,25 +1,33 @@
 /**
  * Purpose:
- * - pure(ish) data collection for the Weekly Review view: stale Waiting items, and
- *   review-staleness for Active Projects and Someday-Maybe items.
+ * - pure(ish) data collection for the Weekly Review view: stale Waiting items,
+ *   review-staleness for Active Projects and Someday-Maybe items, and upcoming
+ *   Scheduled (tickler) items.
  *
  * Responsibilities:
- * - scans the configured Projects/Waiting/Someday-Maybe folders
- * - computes days-waiting / days-since-review staleness from frontmatter timestamps
- * - sorts each list most-overdue-first, with never-stamped items sorting first
- * - stamps the `reviewed` frontmatter field (the one write operation in this module)
+ * - scans the configured Projects/Waiting/Someday-Maybe/Scheduled folders
+ * - computes days-waiting / days-since-review / days-until staleness from frontmatter
+ *   timestamps
+ * - sorts each list most-overdue-first (Scheduled: soonest-first), with
+ *   never-stamped items sorting first (Scheduled: last, since there's no date to act on)
+ * - stamps the `reviewed` frontmatter field, and promotes a Scheduled item to `todo`
+ *   ahead of its date (the two write operations in this module)
  *
  * Dependencies:
  * - Obsidian vault/file-manager APIs, shared date-utils, summary-file-io folder scan,
- *   and task-processor.ts's WAITING_SINCE_FRONTMATTER_FIELD
+ *   task-processor.ts's WAITING_SINCE_FRONTMATTER_FIELD, and task-utils.ts's
+ *   getFirstTaskDueDate() (Scheduled's promotion date, derived from the first task's
+ *   due date rather than a separate frontmatter field)
  *
  * Side Effects:
- * - reads markdown files from the vault; stampReviewedDate() writes frontmatter
+ * - reads markdown files from the vault; stampReviewedDate()/promoteScheduledFileNow()
+ *   write frontmatter
  */
 import { App, TFile } from "obsidian";
 import { crossesThresholdWithinCurrentWeek, getTodayDateString, parseIsoDate } from "../date/date-utils";
 import { isInFolder } from "../summary/summary-file-io";
 import { readFrontmatterField } from "../tasks/frontmatter-utils";
+import { getFirstTaskDueDate } from "../tasks/task-utils";
 import { WAITING_SINCE_FRONTMATTER_FIELD } from "../tasks/task-processor";
 import { TaskManagerSettings } from "../settings/settings-utils";
 
@@ -105,6 +113,63 @@ export async function collectSomedayReviewRows(app: App, settings: TaskManagerSe
     ...row,
     needsReview: row.daysSinceReview === null || row.daysSinceReview >= cadenceDays,
   }));
+}
+
+export type ScheduledReviewRow = {
+  file: TFile;
+  /** The `[due:: ...]` on the file's first open task — its promotion date. */
+  scheduledDate: string | null;
+  /** Negative when overdue (already past its promotion window but not yet promoted). */
+  daysUntil: number | null;
+};
+
+/**
+ * Scheduled projects, soonest-to-arrive first. A project's date is its first open
+ * task's `[due:: ...]` field (see `getFirstTaskDueDate()`) — there's no separate
+ * frontmatter field. Rows with no due date on their first task (an
+ * incomplete/misconfigured entry) sort last, unlike Waiting/Someday-Maybe where a
+ * missing timestamp means "most stale" — here it just means "no date to act on."
+ */
+export async function collectScheduledReviewRows(app: App, settings: TaskManagerSettings): Promise<ScheduledReviewRow[]> {
+  const folderPath = settings.scheduledProjectsFolder;
+  if (!folderPath) {
+    return [];
+  }
+
+  const today = getTodayDateString();
+  const files = app.vault.getMarkdownFiles().filter((file) => isInFolder(file.path, folderPath));
+  const rows: ScheduledReviewRow[] = [];
+
+  for (const file of files) {
+    const content = await app.vault.read(file);
+    const scheduledDate = getFirstTaskDueDate(content);
+    const daysPastScheduled = daysBetween(scheduledDate, today);
+    rows.push({
+      file,
+      scheduledDate,
+      daysUntil: daysPastScheduled === null ? null : -daysPastScheduled,
+    });
+  }
+
+  return rows.sort((left, right) => {
+    if (left.daysUntil === null && right.daysUntil === null) return 0;
+    if (left.daysUntil === null) return 1;
+    if (right.daysUntil === null) return -1;
+    return left.daysUntil - right.daysUntil;
+  });
+}
+
+/**
+ * Manually promotes a scheduled project to `todo` ahead of its first task's due date.
+ * The due date itself is left alone — it becomes an ordinary task due date once the
+ * file is `todo`. This is a plain frontmatter write (not routed here) — the resulting
+ * vault `modify` event flows through TaskProcessor.handleFileModify's normal
+ * status-change routing, exactly like any other manual status edit.
+ */
+export async function promoteScheduledFileNow(app: App, file: TFile, settings: TaskManagerSettings): Promise<void> {
+  await app.fileManager.processFrontMatter(file, (frontmatter: Record<string, string>) => {
+    frontmatter[settings.statusField] = "todo";
+  });
 }
 
 export async function stampReviewedDate(app: App, file: TFile): Promise<void> {

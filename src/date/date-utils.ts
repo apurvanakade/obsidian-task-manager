@@ -50,6 +50,17 @@ export function parseIsoDate(value: string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+/** Shifts an ISO date string by `days` (negative to go backward). Null if unparseable. */
+export function addDaysToDateString(dateString: string, days: number): string | null {
+  const date = parseIsoDate(dateString);
+  if (!date) {
+    return null;
+  }
+
+  date.setDate(date.getDate() + days);
+  return getCurrentDateString(date);
+}
+
 /**
  * True when `startDateString + thresholdDays` falls between today and the end of the
  * current (Sunday-ending) week, inclusive — i.e. the item is about to (or just did)

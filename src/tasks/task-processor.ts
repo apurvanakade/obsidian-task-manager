@@ -15,7 +15,7 @@
  * - reads/writes files, updates routing destinations, and emits notices
  */
 import { App, Notice, TFile, TFolder } from "obsidian";
-import { getCurrentDateString } from "../date/date-utils";
+import { addDaysToDateString, getCurrentDateString } from "../date/date-utils";
 import { readFrontmatterField } from "./frontmatter-utils";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { DEFAULT_PRIORITY, FilePriority, PRIORITY_FRONTMATTER_FIELD } from "./file-priority";
@@ -23,6 +23,7 @@ import {
   extractTaskState,
   findNewlyCompletedTask,
   findNewlyUncompletedTask,
+  getFirstTaskDueDate,
   normalizeForComparison,
   resetTaskContent,
 } from "./task-utils";
@@ -51,6 +52,14 @@ import { TaskStateStore } from "./task-state-store";
 
 /** Stamped onto a project's frontmatter while its status is `waiting`; cleared otherwise. */
 export const WAITING_SINCE_FRONTMATTER_FIELD = "waiting-since";
+
+/**
+ * Promote a scheduled file this many days ahead of its promotion date (the `[due:: ...]`
+ * on its first open task — see `getFirstTaskDueDate()`), rather than exactly on it — so
+ * it surfaces in the Projects folder with enough lead time to catch it before the actual
+ * date, instead of risking it getting missed.
+ */
+const SCHEDULED_PROMOTION_LEAD_DAYS = 7;
 
 type TaskProcessorOptions = {
   app: App;
@@ -133,6 +142,16 @@ export class TaskProcessor {
     }
 
     const content = await this.app.vault.read(file);
+
+    if (await this.maybePromoteScheduledFile(file, content, settings)) {
+      // The promotion writes are self-triggered (pending-guarded) and won't re-enter
+      // this handler, so snapshot this pass's content now — otherwise a task-line edit
+      // that happened to land in the same event as the promotion would leave a stale
+      // snapshot behind, corrupting completion/uncompletion diffing on the next edit.
+      this.snapshotTaskState(file.path, content);
+      return;
+    }
+
     const nextState = extractTaskState(content);
     const nextLineCount = this.countLines(content);
     const previousState = this.stateStore.getTaskState(file.path);
@@ -264,6 +283,73 @@ export class TaskProcessor {
         }
       });
     });
+  }
+
+  /**
+   * Scans the configured Scheduled folder and promotes any file whose first task's due
+   * date has entered the promotion window. Called once at plugin load so tickler items
+   * don't sit un-promoted indefinitely just because nobody touched the file while
+   * Obsidian was closed.
+   */
+  async checkScheduledPromotions(): Promise<void> {
+    const settings = this.getSettings();
+    const folderPath = settings.scheduledProjectsFolder;
+    if (!folderPath) {
+      return;
+    }
+
+    const files = this.app.vault.getMarkdownFiles().filter((file) => file.path.startsWith(`${folderPath}/`));
+    for (const file of files) {
+      const content = await this.app.vault.read(file);
+      await this.maybePromoteScheduledFile(file, content, settings);
+    }
+  }
+
+  /**
+   * Promotes a `scheduled` file to `todo` (and routes it accordingly) once its first
+   * open task's `[due:: ...]` date is within the promotion lead window. The due date
+   * itself is left untouched — once promoted, it's just an ordinary task due date the
+   * dashboard picks up normally. Returns true if it promoted the file, so callers
+   * mid-modify-event can skip the rest of normal reconciliation for this pass — the
+   * promotion's own frontmatter write fires a fresh `modify` event that gets processed
+   * normally once the pending-path guard clears.
+   */
+  private async maybePromoteScheduledFile(file: TFile, content: string, settings: TaskManagerSettings): Promise<boolean> {
+    if (this.isInboxFile(file, settings)) {
+      return false;
+    }
+
+    const status = readStatusValue(content, settings.statusField);
+    if (status !== "scheduled") {
+      return false;
+    }
+
+    const scheduledDate = getFirstTaskDueDate(content);
+    if (!scheduledDate) {
+      return false;
+    }
+
+    const promotionThreshold = addDaysToDateString(scheduledDate, -SCHEDULED_PROMOTION_LEAD_DAYS);
+    if (!promotionThreshold || promotionThreshold > getCurrentDateString()) {
+      return false;
+    }
+
+    await this.setFileStatus(file, "todo", settings);
+
+    try {
+      assertConfiguredDestinationForStatus("todo", settings);
+      await this.routeFileByStatus(file, settings, "todo");
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : "Failed to route promoted scheduled file.");
+    }
+
+    try {
+      await this.onFileStatusChanged?.();
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : "Failed to update summary files after promotion.");
+    }
+
+    return true;
   }
 
   /**

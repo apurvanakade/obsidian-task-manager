@@ -1,13 +1,15 @@
 /**
  * Purpose:
  * - render the on-demand Weekly Review tab: Active Projects and Someday-Maybe items
- *   due for review, and stale Waiting items.
+ *   due for review, stale Waiting items, and upcoming Scheduled (tickler) items.
  *
  * Responsibilities:
  * - registers and opens a main-panel ItemView (not a persistent sidebar leaf)
- * - renders three flat, staleness-sorted tables (Active Projects, Waiting, Someday-Maybe)
- * - offers a per-row "Mark Reviewed" action for Active Projects/Someday-Maybe items,
- *   writing frontmatter directly and refreshing in place
+ * - renders four flat, staleness-sorted tables (Active Projects, Waiting, Someday-Maybe,
+ *   Scheduled)
+ * - offers a per-row "Mark Reviewed" action for Active Projects/Someday-Maybe items and
+ *   a "Promote Now" action for Scheduled items, writing frontmatter directly and
+ *   refreshing in place
  * - while a Weekly Review tab is open, auto-refreshes it (debounced) whenever a
  *   relevant project file is modified/renamed/deleted elsewhere, so the tab doesn't
  *   go stale between manual "Mark Reviewed" clicks or re-runs of the open command
@@ -23,11 +25,15 @@ import { App, ItemView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { getEndOfWeek } from "../date/date-utils";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { isInFolder } from "../summary/summary-file-io";
+import { appendSearchBox, matchesSearch } from "../ui/search-filter";
 import {
   collectActiveProjectReviewRows,
+  collectScheduledReviewRows,
   collectSomedayReviewRows,
   collectWaitingReviewRows,
+  promoteScheduledFileNow,
   ReviewRow,
+  ScheduledReviewRow,
   SomedayReviewRow,
   stampReviewedDate,
   WaitingReviewRow,
@@ -43,6 +49,16 @@ export class WeeklyReviewController {
 
   private readonly app: App;
   private readonly getSettings: () => TaskManagerSettings;
+  private searchQuery = "";
+  private cached: {
+    settings: TaskManagerSettings;
+    activeProjectRows: ReviewRow[];
+    waitingRows: WaitingReviewRow[];
+    somedayRows: SomedayReviewRow[];
+    scheduledRows: ScheduledReviewRow[];
+  } | null = null;
+  private resultsContainer: HTMLElement | null = null;
+  private onNeedsRefresh: (() => void) | null = null;
   private refreshHandle: number | null = null;
 
   constructor(options: WeeklyReviewControllerOptions) {
@@ -91,7 +107,12 @@ export class WeeklyReviewController {
     if (!(file instanceof TFile)) return false;
 
     const settings = this.getSettings();
-    const roots = [settings.projectsFolder, settings.waitingProjectsFolder, settings.somedayMaybeProjectsFolder].filter(Boolean);
+    const roots = [
+      settings.projectsFolder,
+      settings.waitingProjectsFolder,
+      settings.somedayMaybeProjectsFolder,
+      settings.scheduledProjectsFolder,
+    ].filter(Boolean);
     return roots.some((root) => isInFolder(file.path, root));
   }
 
@@ -118,6 +139,7 @@ export class WeeklyReviewController {
   async renderContent(container: HTMLElement, onNeedsRefresh: () => void): Promise<void> {
     container.innerHTML = "";
     container.classList.add("markdown-rendered");
+    this.onNeedsRefresh = onNeedsRefresh;
 
     const settings = this.getSettings();
     const section = document.createElement("section");
@@ -130,16 +152,56 @@ export class WeeklyReviewController {
     weekLabel.textContent = `Week ending ${formatDate(getEndOfWeek(new Date()))}`;
     section.appendChild(weekLabel);
 
-    const activeProjectRows = await collectActiveProjectReviewRows(this.app, settings);
-    this.appendActiveProjectsSection(section, activeProjectRows, settings, onNeedsRefresh);
+    this.appendSearchFilter(section);
 
-    const waitingRows = await collectWaitingReviewRows(this.app, settings);
-    this.appendWaitingSection(section, waitingRows, settings);
+    const resultsContainer = document.createElement("div");
+    section.appendChild(resultsContainer);
+    this.resultsContainer = resultsContainer;
 
-    const somedayRows = await collectSomedayReviewRows(this.app, settings);
-    this.appendSomedaySection(section, somedayRows, settings, onNeedsRefresh);
+    this.cached = {
+      settings,
+      activeProjectRows: await collectActiveProjectReviewRows(this.app, settings),
+      waitingRows: await collectWaitingReviewRows(this.app, settings),
+      somedayRows: await collectSomedayReviewRows(this.app, settings),
+      scheduledRows: await collectScheduledReviewRows(this.app, settings),
+    };
+    this.renderResults();
 
     container.appendChild(section);
+  }
+
+  private appendSearchFilter(container: HTMLElement): void {
+    appendSearchBox(container, this.searchQuery, (query) => {
+      this.searchQuery = query;
+      this.renderResults();
+    });
+  }
+
+  private filterBySearch<T extends { file: TFile }>(rows: T[]): T[] {
+    if (!this.searchQuery.trim()) {
+      return rows;
+    }
+
+    return rows.filter((row) => matchesSearch(this.searchQuery, row.file.basename, row.file.path));
+  }
+
+  private emptyMessage(defaultText: string): string {
+    return this.searchQuery.trim() ? "No matches." : defaultText;
+  }
+
+  /** Re-renders just the section tables from already-fetched data — no refetch, no input rebuild (preserves focus while typing). */
+  private renderResults(): void {
+    if (!this.resultsContainer || !this.cached || !this.onNeedsRefresh) return;
+
+    const { settings, activeProjectRows, waitingRows, somedayRows, scheduledRows } = this.cached;
+    const onNeedsRefresh = this.onNeedsRefresh;
+    const container = this.resultsContainer;
+    container.innerHTML = "";
+
+    this.appendActiveProjectsSection(container, this.filterBySearch(activeProjectRows), settings, onNeedsRefresh);
+    this.appendWaitingSection(container, this.filterBySearch(waitingRows), settings);
+    this.appendSomedaySection(container, this.filterBySearch(somedayRows), settings, onNeedsRefresh);
+    this.appendScheduledSection(container, this.filterBySearch(scheduledRows), settings, onNeedsRefresh);
   }
 
   private appendActiveProjectsSection(
@@ -158,7 +220,7 @@ export class WeeklyReviewController {
     }
 
     if (rows.length === 0) {
-      container.appendChild(this.createParagraph("No active projects."));
+      container.appendChild(this.createParagraph(this.emptyMessage("No active projects.")));
       return;
     }
 
@@ -203,7 +265,7 @@ export class WeeklyReviewController {
     }
 
     if (rows.length === 0) {
-      container.appendChild(this.createParagraph("No waiting projects."));
+      container.appendChild(this.createParagraph(this.emptyMessage("No waiting projects.")));
       return;
     }
 
@@ -242,7 +304,7 @@ export class WeeklyReviewController {
     }
 
     if (rows.length === 0) {
-      container.appendChild(this.createParagraph("No someday-maybe projects."));
+      container.appendChild(this.createParagraph(this.emptyMessage("No someday-maybe projects.")));
       return;
     }
 
@@ -265,6 +327,56 @@ export class WeeklyReviewController {
       button.addEventListener("click", () => {
         void (async () => {
           await stampReviewedDate(this.app, row.file);
+          onNeedsRefresh();
+        })();
+      });
+      actionCell.appendChild(button);
+      tr.appendChild(actionCell);
+
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    container.appendChild(table);
+  }
+
+  private appendScheduledSection(
+    container: HTMLElement,
+    rows: ScheduledReviewRow[],
+    settings: TaskManagerSettings,
+    onNeedsRefresh: () => void,
+  ): void {
+    const heading = document.createElement("h3");
+    heading.textContent = "Scheduled";
+    container.appendChild(heading);
+
+    if (!settings.scheduledProjectsFolder) {
+      container.appendChild(this.createParagraph("Set Scheduled Projects Folder in plugin settings to see items here."));
+      return;
+    }
+
+    if (rows.length === 0) {
+      container.appendChild(this.createParagraph(this.emptyMessage("No scheduled projects.")));
+      return;
+    }
+
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    thead.appendChild(this.createRow(["Project", "Scheduled Date", "Days Until", ""], "th"));
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    for (const row of rows) {
+      const tr = document.createElement("tr");
+      tr.appendChild(this.createCell(this.createFileLinkCell(row.file), "td"));
+      tr.appendChild(this.createCell(row.scheduledDate ?? "—", "td"));
+      tr.appendChild(this.createCell(formatDaysUntil(row.daysUntil), "td"));
+
+      const actionCell = document.createElement("td");
+      const button = document.createElement("button");
+      button.textContent = "Promote Now";
+      button.addEventListener("click", () => {
+        void (async () => {
+          await promoteScheduledFileNow(this.app, row.file, settings);
           onNeedsRefresh();
         })();
       });
@@ -319,6 +431,13 @@ function formatDate(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function formatDaysUntil(daysUntil: number | null): string {
+  if (daysUntil === null) return "—";
+  if (daysUntil === 0) return "Today";
+  if (daysUntil < 0) return `${-daysUntil} day${daysUntil === -1 ? "" : "s"} overdue`;
+  return `in ${daysUntil} day${daysUntil === 1 ? "" : "s"}`;
 }
 
 class WeeklyReviewView extends ItemView {

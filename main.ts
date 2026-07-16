@@ -29,7 +29,7 @@ import { parseContextList } from "./src/tasks/task-line-metadata";
 import { QuickCaptureModal } from "./src/tasks/quick-capture-modal";
 import { TasksSummaryController } from "./src/summary/tasks-summary-view";
 import { TaskManagerSettingTabRenderer } from "./src/settings/settings-ui";
-import { ensureParentFoldersExist, getTaskFolderRoots } from "./src/routing/task-routing";
+import { ensureParentFoldersExist, getSurfacedTaskFolderRoots } from "./src/routing/task-routing";
 import { TaskProcessor } from "./src/tasks/task-processor";
 
 export default class TaskManagerPlugin extends Plugin {
@@ -58,7 +58,7 @@ export default class TaskManagerPlugin extends Plugin {
     });
     this.dateDashboard = new DateDashboardController({
       app: this.app,
-      getTaskFolderRoots: () => this.getTaskFolderRoots(),
+      getTaskFolderRoots: () => getSurfacedTaskFolderRoots(this.settings),
       getInboxFile: () => this.settings.inboxFile,
       getHideKeywords: () => this.settings.dashboardHideKeywords,
       getKnownContexts: () => this.getKnownContexts(),
@@ -139,6 +139,7 @@ export default class TaskManagerPlugin extends Plugin {
     this.weeklyReview.onload(this);
     this.tasksSummary.onload(this);
     await this.taskProcessor.primeState();
+    await this.taskProcessor.checkScheduledPromotions();
     await this.dateDashboard.onload(this);
   }
 
@@ -271,10 +272,6 @@ export default class TaskManagerPlugin extends Plugin {
     }
   }
 
-  private getTaskFolderRoots(): string[] {
-    return getTaskFolderRoots(this.settings);
-  }
-
   private getKnownContexts(): string[] {
     return parseContextList(this.settings.knownContexts);
   }
@@ -290,7 +287,13 @@ function prependTaskLine(content: string, taskLine: string): string {
   const frontmatterMatch = content.match(FRONTMATTER_BLOCK_REGEX);
   if (frontmatterMatch) {
     const frontmatterBlock = frontmatterMatch[0];
-    return `${frontmatterBlock}${taskLine}\n${content.slice(frontmatterBlock.length)}`;
+    const rest = content.slice(frontmatterBlock.length);
+    // Preserve any blank line(s) that already separate frontmatter from the body —
+    // otherwise that separator ends up stuck between the new task and the old first
+    // line instead of between the frontmatter and the new task.
+    const blankLines = rest.match(/^(\r?\n)*/)?.[0] ?? "";
+    const afterBlankLines = rest.slice(blankLines.length);
+    return `${frontmatterBlock}${blankLines}${taskLine}\n${afterBlankLines}`;
   }
 
   return content.length > 0 ? `${taskLine}\n${content}` : `${taskLine}\n`;
