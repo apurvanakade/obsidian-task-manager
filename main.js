@@ -2916,7 +2916,10 @@ function compareByStaleness(getDays) {
     var _a, _b;
     const leftDays = (_a = getDays(left)) != null ? _a : Number.POSITIVE_INFINITY;
     const rightDays = (_b = getDays(right)) != null ? _b : Number.POSITIVE_INFINITY;
-    return rightDays - leftDays;
+    if (leftDays !== rightDays) {
+      return rightDays - leftDays;
+    }
+    return left.priority - right.priority;
   };
 }
 

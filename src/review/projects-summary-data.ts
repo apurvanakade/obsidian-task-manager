@@ -9,7 +9,9 @@
  * - computes days-waiting / days-since-review / days-until staleness from frontmatter
  *   timestamps
  * - sorts each list most-overdue-first (Scheduled: soonest-first), with
- *   never-stamped items sorting first (Scheduled: last, since there's no date to act on)
+ *   never-stamped items sorting first (Scheduled: last, since there's no date to act on);
+ *   ties (Waiting/Active Projects/Someday-Maybe) are broken by priority ascending
+ *   (highest-priority project first)
  * - stamps the `reviewed` frontmatter field, and promotes a Scheduled item to `todo`
  *   ahead of its date (the two write operations in this module)
  *
@@ -200,11 +202,18 @@ function daysBetween(dateString: string | null, todayString: string): number | n
   return Math.round((today.getTime() - date.getTime()) / millisPerDay);
 }
 
-/** Sorts most-stale first; rows with no timestamp (never stamped) sort first of all. */
-function compareByStaleness<T>(getDays: (row: T) => number | null): (left: T, right: T) => number {
+/**
+ * Sorts most-stale first (rows with no timestamp — never stamped — sort first of all);
+ * ties broken by priority ascending (1 highest first).
+ */
+function compareByStaleness<T extends { priority: FilePriority }>(getDays: (row: T) => number | null): (left: T, right: T) => number {
   return (left, right) => {
     const leftDays = getDays(left) ?? Number.POSITIVE_INFINITY;
     const rightDays = getDays(right) ?? Number.POSITIVE_INFINITY;
-    return rightDays - leftDays;
+    if (leftDays !== rightDays) {
+      return rightDays - leftDays;
+    }
+
+    return left.priority - right.priority;
   };
 }
