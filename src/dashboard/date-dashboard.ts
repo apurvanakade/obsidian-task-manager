@@ -21,7 +21,7 @@
 import { App, ItemView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { getTodayDateString } from "../date/date-utils";
 import { collectOpenTasksFromFile, collectTasksForDate, collectInboxTasks, DashboardRow, getDateStringFromFileName } from "./dashboard-task-data";
-import { buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
+import { applyPriorityStyle, buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
 import { appendSearchBox, matchesSearch } from "../ui/search-filter";
 
 const MARKDOWN_EXTENSION_REGEX = /\.md$/i;
@@ -370,8 +370,8 @@ export class DateDashboardController {
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
     const labels = showDueDate
-      ? ["Folder", "Filename", "Task", "Priority", "Recurrence", "Context", "Due"]
-      : ["Folder", "Filename", "Task", "Priority", "Recurrence", "Context"];
+      ? ["Folder", "Project", "Task", "Priority", "Recurrence", "Context", "Due"]
+      : ["Folder", "Project", "Task", "Priority", "Recurrence", "Context"];
     for (const label of labels) {
       headerRow.appendChild(this.createTextElement("th", label));
     }
@@ -398,14 +398,14 @@ export class DateDashboardController {
           }
 
           if (i === 0) {
-            const fileCell = this.createFileCell(fileGroup.displayFileName, row.file.path, sourcePath);
+            const fileCell = this.createFileCell(fileGroup.displayFileName, row.file.path, sourcePath, row.priority);
             if (fileGroup.rows.length > 1) {
               fileCell.rowSpan = fileGroup.rows.length;
             }
             tableRow.appendChild(fileCell);
           }
 
-          tableRow.appendChild(this.createTaskCell(row.task, row.priority));
+          tableRow.appendChild(this.createTaskCell(row.task));
           tableRow.appendChild(this.createTextElement("td", String(row.priority)));
           tableRow.appendChild(this.createTextElement("td", row.recurrence));
           tableRow.appendChild(this.createTextElement("td", row.contexts.join(", ")));
@@ -421,7 +421,7 @@ export class DateDashboardController {
     container.appendChild(table);
   }
 
-  private createFileCell(displayFileName: string, filePath: string, sourcePath: string): HTMLTableCellElement {
+  private createFileCell(displayFileName: string, filePath: string, sourcePath: string, priority: number): HTMLTableCellElement {
     const fileCell = document.createElement("td");
     const link = document.createElement("a");
     link.href = "#";
@@ -431,6 +431,7 @@ export class DateDashboardController {
       event.preventDefault();
       void this.app.workspace.openLinkText(filePath, sourcePath);
     });
+    applyPriorityStyle(link, priority);
     fileCell.appendChild(link);
     return fileCell;
   }
@@ -441,22 +442,10 @@ export class DateDashboardController {
     return element;
   }
 
-  private createTaskCell(task: string, priority: number): HTMLTableCellElement {
+  private createTaskCell(task: string): HTMLTableCellElement {
     const taskCell = document.createElement("td");
     taskCell.textContent = task;
-    this.applyPriorityTextStyle(taskCell, priority);
     return taskCell;
-  }
-
-  private applyPriorityTextStyle(element: HTMLElement, priority: number): void {
-    if (priority === 1) {
-      element.style.fontWeight = "700";
-      return;
-    }
-
-    if (priority === 2) {
-      element.style.fontStyle = "italic";
-    }
   }
 }
 

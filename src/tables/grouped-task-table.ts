@@ -78,6 +78,24 @@ export function buildGroupedTaskTable<TRow extends GroupedTaskTableRow>(
     });
 }
 
+/**
+ * Applies the shared priority-based text decoration (bold for priority 1, italic for
+ * priority 2, unstyled for priority 3+) to an element. Priority is a project-level
+ * concept (file frontmatter), so this is applied to project-name/filename cells, not
+ * task-text cells — kept uniform across the date dashboard, Tasks Summary, and Weekly
+ * Review (now Projects Summary).
+ */
+export function applyPriorityStyle(element: HTMLElement, priority: number): void {
+  if (priority === 1) {
+    element.style.fontWeight = "700";
+    return;
+  }
+
+  if (priority === 2) {
+    element.style.fontStyle = "italic";
+  }
+}
+
 export function formatMonthDay(dateString: string | null): string {
   if (!dateString) {
     return "";

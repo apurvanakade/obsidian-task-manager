@@ -64,7 +64,7 @@ export function addDaysToDateString(dateString: string, days: number): string | 
 /**
  * True when `startDateString + thresholdDays` falls between today and the end of the
  * current (Sunday-ending) week, inclusive — i.e. the item is about to (or just did)
- * cross its staleness threshold "this week." Used by the Weekly Review to flag items
+ * cross its staleness threshold "this week." Used by the Projects Summary to flag items
  * worth surfacing now rather than items merely somewhere in the stale backlog.
  */
 export function crossesThresholdWithinCurrentWeek(

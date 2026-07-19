@@ -1,21 +1,23 @@
 /**
  * Purpose:
- * - render the on-demand Weekly Review tab: Active Projects and Someday-Maybe items
- *   due for review, stale Waiting items, and upcoming Scheduled (tickler) items.
+ * - render the on-demand Projects Summary tab (formerly "Weekly Review" — the rename
+ *   covers file names, class names, VIEW_TYPE, and command name, not just display text):
+ *   Active Projects and Someday-Maybe items due for review, stale Waiting items, and
+ *   upcoming Scheduled (tickler) items.
  *
  * Responsibilities:
  * - registers and opens a main-panel ItemView (not a persistent sidebar leaf)
  * - renders four flat, staleness-sorted tables (Active Projects, Waiting, Someday-Maybe,
- *   Scheduled)
+ *   Scheduled), each showing project Priority alongside its staleness columns
  * - offers a per-row "Mark Reviewed" action for Active Projects/Someday-Maybe items and
  *   a "Promote Now" action for Scheduled items, writing frontmatter directly and
  *   refreshing in place
- * - while a Weekly Review tab is open, auto-refreshes it (debounced) whenever a
- *   relevant project file is modified/renamed/deleted elsewhere, so the tab doesn't
- *   go stale between manual "Mark Reviewed" clicks or re-runs of the open command
+ * - while the tab is open, auto-refreshes it (debounced) whenever a relevant project
+ *   file is modified/renamed/deleted elsewhere, so the tab doesn't go stale between
+ *   manual "Mark Reviewed" clicks or re-runs of the open command
  *
  * Dependencies:
- * - depends on weekly-review-data.ts for data collection and the reviewed-date write
+ * - depends on projects-summary-data.ts for data collection and the reviewed-date write
  * - Obsidian ItemView/workspace/vault APIs
  *
  * Side Effects:
@@ -25,6 +27,8 @@ import { App, ItemView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { getEndOfWeek } from "../date/date-utils";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { isInFolder } from "../summary/summary-file-io";
+import { applyPriorityStyle } from "../tables/grouped-task-table";
+import { FilePriority } from "../tasks/file-priority";
 import { appendSearchBox, matchesSearch } from "../ui/search-filter";
 import {
   collectActiveProjectReviewRows,
@@ -37,15 +41,15 @@ import {
   SomedayReviewRow,
   stampReviewedDate,
   WaitingReviewRow,
-} from "./weekly-review-data";
+} from "./projects-summary-data";
 
-type WeeklyReviewControllerOptions = {
+type ProjectsSummaryControllerOptions = {
   app: App;
   getSettings: () => TaskManagerSettings;
 };
 
-export class WeeklyReviewController {
-  static readonly VIEW_TYPE = "task-manager-weekly-review";
+export class ProjectsSummaryController {
+  static readonly VIEW_TYPE = "task-manager-projects-summary";
 
   private readonly app: App;
   private readonly getSettings: () => TaskManagerSettings;
@@ -61,13 +65,13 @@ export class WeeklyReviewController {
   private onNeedsRefresh: (() => void) | null = null;
   private refreshHandle: number | null = null;
 
-  constructor(options: WeeklyReviewControllerOptions) {
+  constructor(options: ProjectsSummaryControllerOptions) {
     this.app = options.app;
     this.getSettings = options.getSettings;
   }
 
   onload(plugin: Plugin): void {
-    plugin.registerView(WeeklyReviewController.VIEW_TYPE, (leaf) => new WeeklyReviewView(leaf, this));
+    plugin.registerView(ProjectsSummaryController.VIEW_TYPE, (leaf) => new ProjectsSummaryView(leaf, this));
     plugin.registerEvent(this.app.vault.on("modify", (file) => {
       if (this.isRelevantFile(file)) {
         this.queueRefresh();
@@ -88,19 +92,19 @@ export class WeeklyReviewController {
     }
   }
 
-  /** Opens the Weekly Review tab, reusing an existing one if already open. */
+  /** Opens the Projects Summary tab, reusing an existing one if already open. */
   async openView(): Promise<void> {
-    const existingLeaf = this.app.workspace.getLeavesOfType(WeeklyReviewController.VIEW_TYPE)[0];
+    const existingLeaf = this.app.workspace.getLeavesOfType(ProjectsSummaryController.VIEW_TYPE)[0];
     if (existingLeaf) {
       this.app.workspace.revealLeaf(existingLeaf);
-      if (existingLeaf.view instanceof WeeklyReviewView) {
+      if (existingLeaf.view instanceof ProjectsSummaryView) {
         await existingLeaf.view.refresh();
       }
       return;
     }
 
     const leaf = this.app.workspace.getLeaf(true);
-    await leaf.setViewState({ type: WeeklyReviewController.VIEW_TYPE, active: true });
+    await leaf.setViewState({ type: ProjectsSummaryController.VIEW_TYPE, active: true });
   }
 
   private isRelevantFile(file: unknown): boolean {
@@ -128,9 +132,9 @@ export class WeeklyReviewController {
   }
 
   private async refreshOpenViews(): Promise<void> {
-    const leaves = this.app.workspace.getLeavesOfType(WeeklyReviewController.VIEW_TYPE);
+    const leaves = this.app.workspace.getLeavesOfType(ProjectsSummaryController.VIEW_TYPE);
     for (const leaf of leaves) {
-      if (leaf.view instanceof WeeklyReviewView) {
+      if (leaf.view instanceof ProjectsSummaryView) {
         await leaf.view.refresh();
       }
     }
@@ -145,7 +149,7 @@ export class WeeklyReviewController {
     const section = document.createElement("section");
 
     const title = document.createElement("h2");
-    title.textContent = "Weekly Review";
+    title.textContent = "Projects Summary";
     section.appendChild(title);
 
     const weekLabel = document.createElement("p");
@@ -226,13 +230,14 @@ export class WeeklyReviewController {
 
     const table = document.createElement("table");
     const thead = document.createElement("thead");
-    thead.appendChild(this.createRow(["Project", "Days Since Review", "Last Reviewed", ""], "th"));
+    thead.appendChild(this.createRow(["Project", "Priority", "Days Since Review", "Last Reviewed", ""], "th"));
     table.appendChild(thead);
 
     const tbody = document.createElement("tbody");
     for (const row of rows) {
       const tr = document.createElement("tr");
-      tr.appendChild(this.createCell(this.createFileLinkCell(row.file), "td"));
+      tr.appendChild(this.createCell(this.createFileLinkCell(row.file, row.priority), "td"));
+      tr.appendChild(this.createCell(String(row.priority), "td"));
       tr.appendChild(this.createCell(row.daysSinceReview === null ? "—" : String(row.daysSinceReview), "td"));
       tr.appendChild(this.createCell(row.reviewed ?? "Never", "td"));
 
@@ -271,13 +276,14 @@ export class WeeklyReviewController {
 
     const table = document.createElement("table");
     const thead = document.createElement("thead");
-    thead.appendChild(this.createRow(["Project", "Days Waiting", "Waiting Since", ""], "th"));
+    thead.appendChild(this.createRow(["Project", "Priority", "Days Waiting", "Waiting Since", ""], "th"));
     table.appendChild(thead);
 
     const tbody = document.createElement("tbody");
     for (const row of rows) {
       const tr = this.createRow([
-        this.createFileLinkCell(row.file),
+        this.createFileLinkCell(row.file, row.priority),
+        String(row.priority),
         row.daysWaiting === null ? "—" : String(row.daysWaiting),
         row.waitingSince ?? "—",
         row.isNewlyStale ? "Newly stale" : "",
@@ -310,13 +316,14 @@ export class WeeklyReviewController {
 
     const table = document.createElement("table");
     const thead = document.createElement("thead");
-    thead.appendChild(this.createRow(["Project", "Days Since Review", "Last Reviewed", "Needs Review", ""], "th"));
+    thead.appendChild(this.createRow(["Project", "Priority", "Days Since Review", "Last Reviewed", "Needs Review", ""], "th"));
     table.appendChild(thead);
 
     const tbody = document.createElement("tbody");
     for (const row of rows) {
       const tr = document.createElement("tr");
-      tr.appendChild(this.createCell(this.createFileLinkCell(row.file), "td"));
+      tr.appendChild(this.createCell(this.createFileLinkCell(row.file, row.priority), "td"));
+      tr.appendChild(this.createCell(String(row.priority), "td"));
       tr.appendChild(this.createCell(row.daysSinceReview === null ? "—" : String(row.daysSinceReview), "td"));
       tr.appendChild(this.createCell(row.reviewed ?? "Never", "td"));
       tr.appendChild(this.createCell(row.needsReview ? "Yes" : "", "td"));
@@ -361,13 +368,14 @@ export class WeeklyReviewController {
 
     const table = document.createElement("table");
     const thead = document.createElement("thead");
-    thead.appendChild(this.createRow(["Project", "Scheduled Date", "Days Until", ""], "th"));
+    thead.appendChild(this.createRow(["Project", "Priority", "Scheduled Date", "Days Until", ""], "th"));
     table.appendChild(thead);
 
     const tbody = document.createElement("tbody");
     for (const row of rows) {
       const tr = document.createElement("tr");
-      tr.appendChild(this.createCell(this.createFileLinkCell(row.file), "td"));
+      tr.appendChild(this.createCell(this.createFileLinkCell(row.file, row.priority), "td"));
+      tr.appendChild(this.createCell(String(row.priority), "td"));
       tr.appendChild(this.createCell(row.scheduledDate ?? "—", "td"));
       tr.appendChild(this.createCell(formatDaysUntil(row.daysUntil), "td"));
 
@@ -389,7 +397,7 @@ export class WeeklyReviewController {
     container.appendChild(table);
   }
 
-  private createFileLinkCell(file: TFile): HTMLAnchorElement {
+  private createFileLinkCell(file: TFile, priority: FilePriority): HTMLAnchorElement {
     const link = document.createElement("a");
     link.href = "#";
     link.textContent = file.basename;
@@ -398,6 +406,7 @@ export class WeeklyReviewController {
       event.preventDefault();
       void this.app.workspace.openLinkText(file.path, "");
     });
+    applyPriorityStyle(link, priority);
     return link;
   }
 
@@ -440,20 +449,20 @@ function formatDaysUntil(daysUntil: number | null): string {
   return `in ${daysUntil} day${daysUntil === 1 ? "" : "s"}`;
 }
 
-class WeeklyReviewView extends ItemView {
-  private readonly controller: WeeklyReviewController;
+class ProjectsSummaryView extends ItemView {
+  private readonly controller: ProjectsSummaryController;
 
-  constructor(leaf: WorkspaceLeaf, controller: WeeklyReviewController) {
+  constructor(leaf: WorkspaceLeaf, controller: ProjectsSummaryController) {
     super(leaf);
     this.controller = controller;
   }
 
   getViewType(): string {
-    return WeeklyReviewController.VIEW_TYPE;
+    return ProjectsSummaryController.VIEW_TYPE;
   }
 
   getDisplayText(): string {
-    return "Weekly Review";
+    return "Projects Summary";
   }
 
   async onOpen(): Promise<void> {

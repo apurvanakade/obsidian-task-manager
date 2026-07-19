@@ -1,6 +1,6 @@
 /**
  * Purpose:
- * - shared file-scanning helpers reused across the live Tasks Summary/Weekly Review
+ * - shared file-scanning helpers reused across the live Tasks Summary/Projects Summary
  *   tabs and other features that enumerate task/project files by configured folder.
  *
  * Responsibilities:

@@ -24,7 +24,7 @@ import { App, ItemView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { isInFolder } from "./summary-file-io";
 import { collectTaskSummarySections, TaskSummaryRow, TaskSummarySection } from "./tasks-summary";
-import { buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
+import { applyPriorityStyle, buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
 import { appendSearchBox, matchesSearch } from "../ui/search-filter";
 
 type TasksSummaryControllerOptions = {
@@ -205,7 +205,7 @@ export class TasksSummaryController {
     const table = document.createElement("table");
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
-    for (const label of ["Folder", "Filename", "Task", "Priority", "Recurrence", "Context", "Due"]) {
+    for (const label of ["Folder", "Project", "Task", "Priority", "Recurrence", "Context", "Due"]) {
       headerRow.appendChild(this.createTextElement("th", label));
     }
     thead.appendChild(headerRow);
@@ -230,14 +230,14 @@ export class TasksSummaryController {
           }
 
           if (i === 0) {
-            const fileCell = this.createFileCell(fileGroup.displayFileName, row.file.path);
+            const fileCell = this.createFileCell(fileGroup.displayFileName, row.file.path, row.priority);
             if (fileGroup.rows.length > 1) {
               fileCell.rowSpan = fileGroup.rows.length;
             }
             tableRow.appendChild(fileCell);
           }
 
-          tableRow.appendChild(this.createTaskCell(row.task, row.priority));
+          tableRow.appendChild(this.createTaskCell(row.task));
           tableRow.appendChild(this.createTextElement("td", String(row.priority)));
           tableRow.appendChild(this.createTextElement("td", row.recurrence));
           tableRow.appendChild(this.createTextElement("td", row.contexts.join(", ")));
@@ -251,7 +251,7 @@ export class TasksSummaryController {
     container.appendChild(table);
   }
 
-  private createFileCell(displayFileName: string, filePath: string): HTMLTableCellElement {
+  private createFileCell(displayFileName: string, filePath: string, priority: number): HTMLTableCellElement {
     const fileCell = document.createElement("td");
     const link = document.createElement("a");
     link.href = "#";
@@ -261,6 +261,7 @@ export class TasksSummaryController {
       event.preventDefault();
       void this.app.workspace.openLinkText(filePath, "");
     });
+    applyPriorityStyle(link, priority);
     fileCell.appendChild(link);
     return fileCell;
   }
@@ -271,14 +272,9 @@ export class TasksSummaryController {
     return element;
   }
 
-  private createTaskCell(task: string, priority: number): HTMLTableCellElement {
+  private createTaskCell(task: string): HTMLTableCellElement {
     const taskCell = document.createElement("td");
     taskCell.textContent = task;
-    if (priority === 1) {
-      taskCell.style.fontWeight = "700";
-    } else if (priority === 2) {
-      taskCell.style.fontStyle = "italic";
-    }
     return taskCell;
   }
 

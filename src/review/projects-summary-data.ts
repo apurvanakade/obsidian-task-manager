@@ -1,6 +1,6 @@
 /**
  * Purpose:
- * - pure(ish) data collection for the Weekly Review view: stale Waiting items,
+ * - pure(ish) data collection for the Projects Summary view: stale Waiting items,
  *   review-staleness for Active Projects and Someday-Maybe items, and upcoming
  *   Scheduled (tickler) items.
  *
@@ -27,6 +27,7 @@ import { App, TFile } from "obsidian";
 import { crossesThresholdWithinCurrentWeek, getTodayDateString, parseIsoDate } from "../date/date-utils";
 import { isInFolder } from "../summary/summary-file-io";
 import { readFrontmatterField } from "../tasks/frontmatter-utils";
+import { FilePriority, readFilePriority } from "../tasks/file-priority";
 import { getFirstTaskDueDate } from "../tasks/task-utils";
 import { WAITING_SINCE_FRONTMATTER_FIELD } from "../tasks/task-processor";
 import { TaskManagerSettings } from "../settings/settings-utils";
@@ -35,6 +36,7 @@ export const REVIEWED_FRONTMATTER_FIELD = "reviewed";
 
 export type WaitingReviewRow = {
   file: TFile;
+  priority: FilePriority;
   waitingSince: string | null;
   daysWaiting: number | null;
   /** Crosses the configured staleness threshold within the current (Sun-ending) week. */
@@ -43,6 +45,7 @@ export type WaitingReviewRow = {
 
 export type ReviewRow = {
   file: TFile;
+  priority: FilePriority;
   reviewed: string | null;
   daysSinceReview: number | null;
 };
@@ -68,6 +71,7 @@ export async function collectWaitingReviewRows(app: App, settings: TaskManagerSe
     const waitingSince = readFrontmatterField(content, WAITING_SINCE_FRONTMATTER_FIELD);
     rows.push({
       file,
+      priority: readFilePriority(content),
       waitingSince,
       daysWaiting: daysBetween(waitingSince, today),
       isNewlyStale: waitingSince !== null && crossesThresholdWithinCurrentWeek(waitingSince, thresholdDays),
@@ -92,6 +96,7 @@ async function collectReviewRows(app: App, folderPath: string): Promise<ReviewRo
     const reviewed = readFrontmatterField(content, REVIEWED_FRONTMATTER_FIELD);
     rows.push({
       file,
+      priority: readFilePriority(content),
       reviewed,
       daysSinceReview: daysBetween(reviewed, today),
     });
@@ -117,6 +122,7 @@ export async function collectSomedayReviewRows(app: App, settings: TaskManagerSe
 
 export type ScheduledReviewRow = {
   file: TFile;
+  priority: FilePriority;
   /** The `[due:: ...]` on the file's first open task — its promotion date. */
   scheduledDate: string | null;
   /** Negative when overdue (already past its promotion window but not yet promoted). */
@@ -146,6 +152,7 @@ export async function collectScheduledReviewRows(app: App, settings: TaskManager
     const daysPastScheduled = daysBetween(scheduledDate, today);
     rows.push({
       file,
+      priority: readFilePriority(content),
       scheduledDate,
       daysUntil: daysPastScheduled === null ? null : -daysPastScheduled,
     });

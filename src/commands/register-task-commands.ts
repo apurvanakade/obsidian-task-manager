@@ -23,7 +23,7 @@ type TaskCommandHandlers = {
   addNewProject: () => void;
   openRandomSomedayMaybeProject: () => void;
   quickCapture: () => void;
-  openWeeklyReview: () => void;
+  openProjectsSummary: () => void;
   backfillWaitingSince: () => void;
 };
 
@@ -59,9 +59,9 @@ export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandle
   });
 
   plugin.addCommand({
-    id: "open-weekly-review",
-    name: "Open Weekly Review",
-    callback: handlers.openWeeklyReview,
+    id: "open-projects-summary",
+    name: "Open Projects Summary",
+    callback: handlers.openProjectsSummary,
   });
 
   plugin.addCommand({

@@ -53,9 +53,9 @@ function registerTaskCommands(plugin, handlers) {
     callback: handlers.quickCapture
   });
   plugin.addCommand({
-    id: "open-weekly-review",
-    name: "Open Weekly Review",
-    callback: handlers.openWeeklyReview
+    id: "open-projects-summary",
+    name: "Open Projects Summary",
+    callback: handlers.openProjectsSummary
   });
   plugin.addCommand({
     id: "backfill-waiting-since",
@@ -830,6 +830,15 @@ function buildGroupedTaskTable(rows, hideKeywords) {
     };
   });
 }
+function applyPriorityStyle(element, priority) {
+  if (priority === 1) {
+    element.style.fontWeight = "700";
+    return;
+  }
+  if (priority === 2) {
+    element.style.fontStyle = "italic";
+  }
+}
 function formatMonthDay(dateString) {
   if (!dateString) {
     return "";
@@ -1144,7 +1153,7 @@ var _DateDashboardController = class _DateDashboardController {
     const table = document.createElement("table");
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
-    const labels = showDueDate ? ["Folder", "Filename", "Task", "Priority", "Recurrence", "Context", "Due"] : ["Folder", "Filename", "Task", "Priority", "Recurrence", "Context"];
+    const labels = showDueDate ? ["Folder", "Project", "Task", "Priority", "Recurrence", "Context", "Due"] : ["Folder", "Project", "Task", "Priority", "Recurrence", "Context"];
     for (const label of labels) {
       headerRow.appendChild(this.createTextElement("th", label));
     }
@@ -1166,13 +1175,13 @@ var _DateDashboardController = class _DateDashboardController {
             folderCellEmitted = true;
           }
           if (i === 0) {
-            const fileCell = this.createFileCell(fileGroup.displayFileName, row.file.path, sourcePath);
+            const fileCell = this.createFileCell(fileGroup.displayFileName, row.file.path, sourcePath, row.priority);
             if (fileGroup.rows.length > 1) {
               fileCell.rowSpan = fileGroup.rows.length;
             }
             tableRow.appendChild(fileCell);
           }
-          tableRow.appendChild(this.createTaskCell(row.task, row.priority));
+          tableRow.appendChild(this.createTaskCell(row.task));
           tableRow.appendChild(this.createTextElement("td", String(row.priority)));
           tableRow.appendChild(this.createTextElement("td", row.recurrence));
           tableRow.appendChild(this.createTextElement("td", row.contexts.join(", ")));
@@ -1186,7 +1195,7 @@ var _DateDashboardController = class _DateDashboardController {
     table.appendChild(tbody);
     container.appendChild(table);
   }
-  createFileCell(displayFileName, filePath, sourcePath) {
+  createFileCell(displayFileName, filePath, sourcePath, priority) {
     const fileCell = document.createElement("td");
     const link = document.createElement("a");
     link.href = "#";
@@ -1196,6 +1205,7 @@ var _DateDashboardController = class _DateDashboardController {
       event.preventDefault();
       void this.app.workspace.openLinkText(filePath, sourcePath);
     });
+    applyPriorityStyle(link, priority);
     fileCell.appendChild(link);
     return fileCell;
   }
@@ -1204,20 +1214,10 @@ var _DateDashboardController = class _DateDashboardController {
     element.textContent = text;
     return element;
   }
-  createTaskCell(task, priority) {
+  createTaskCell(task) {
     const taskCell = document.createElement("td");
     taskCell.textContent = task;
-    this.applyPriorityTextStyle(taskCell, priority);
     return taskCell;
-  }
-  applyPriorityTextStyle(element, priority) {
-    if (priority === 1) {
-      element.style.fontWeight = "700";
-      return;
-    }
-    if (priority === 2) {
-      element.style.fontStyle = "italic";
-    }
   }
 };
 _DateDashboardController.VIEW_TYPE = "task-manager-date-dashboard";
@@ -1523,7 +1523,7 @@ function pickRandomFile(files) {
   return files[index];
 }
 
-// src/review/weekly-review-view.ts
+// src/review/projects-summary-view.ts
 var import_obsidian11 = require("obsidian");
 
 // src/tasks/task-utils.ts
@@ -2552,7 +2552,7 @@ var TaskProcessor = class {
   }
   /**
    * Stamps `waiting-since` on transition into `waiting`, clears it on transition out.
-   * Powers the Weekly Review's waiting-staleness calculation.
+   * Powers the Projects Summary's waiting-staleness calculation.
    */
   async updateWaitingSinceStamp(file, latestStatus, previousStatus) {
     const enteringWaiting = latestStatus === "waiting" && previousStatus !== "waiting";
@@ -2809,7 +2809,7 @@ ${sourceContent}`;
   }
 };
 
-// src/review/weekly-review-data.ts
+// src/review/projects-summary-data.ts
 var REVIEWED_FRONTMATTER_FIELD = "reviewed";
 async function collectWaitingReviewRows(app, settings) {
   const folderPath = settings.waitingProjectsFolder;
@@ -2825,6 +2825,7 @@ async function collectWaitingReviewRows(app, settings) {
     const waitingSince = readFrontmatterField(content, WAITING_SINCE_FRONTMATTER_FIELD);
     rows.push({
       file,
+      priority: readFilePriority(content),
       waitingSince,
       daysWaiting: daysBetween(waitingSince, today),
       isNewlyStale: waitingSince !== null && crossesThresholdWithinCurrentWeek(waitingSince, thresholdDays)
@@ -2844,6 +2845,7 @@ async function collectReviewRows(app, folderPath) {
     const reviewed = readFrontmatterField(content, REVIEWED_FRONTMATTER_FIELD);
     rows.push({
       file,
+      priority: readFilePriority(content),
       reviewed,
       daysSinceReview: daysBetween(reviewed, today)
     });
@@ -2875,6 +2877,7 @@ async function collectScheduledReviewRows(app, settings) {
     const daysPastScheduled = daysBetween(scheduledDate, today);
     rows.push({
       file,
+      priority: readFilePriority(content),
       scheduledDate,
       daysUntil: daysPastScheduled === null ? null : -daysPastScheduled
     });
@@ -2917,8 +2920,8 @@ function compareByStaleness(getDays) {
   };
 }
 
-// src/review/weekly-review-view.ts
-var _WeeklyReviewController = class _WeeklyReviewController {
+// src/review/projects-summary-view.ts
+var _ProjectsSummaryController = class _ProjectsSummaryController {
   constructor(options) {
     this.searchQuery = "";
     this.cached = null;
@@ -2929,7 +2932,7 @@ var _WeeklyReviewController = class _WeeklyReviewController {
     this.getSettings = options.getSettings;
   }
   onload(plugin) {
-    plugin.registerView(_WeeklyReviewController.VIEW_TYPE, (leaf) => new WeeklyReviewView(leaf, this));
+    plugin.registerView(_ProjectsSummaryController.VIEW_TYPE, (leaf) => new ProjectsSummaryView(leaf, this));
     plugin.registerEvent(this.app.vault.on("modify", (file) => {
       if (this.isRelevantFile(file)) {
         this.queueRefresh();
@@ -2948,18 +2951,18 @@ var _WeeklyReviewController = class _WeeklyReviewController {
       this.refreshHandle = null;
     }
   }
-  /** Opens the Weekly Review tab, reusing an existing one if already open. */
+  /** Opens the Projects Summary tab, reusing an existing one if already open. */
   async openView() {
-    const existingLeaf = this.app.workspace.getLeavesOfType(_WeeklyReviewController.VIEW_TYPE)[0];
+    const existingLeaf = this.app.workspace.getLeavesOfType(_ProjectsSummaryController.VIEW_TYPE)[0];
     if (existingLeaf) {
       this.app.workspace.revealLeaf(existingLeaf);
-      if (existingLeaf.view instanceof WeeklyReviewView) {
+      if (existingLeaf.view instanceof ProjectsSummaryView) {
         await existingLeaf.view.refresh();
       }
       return;
     }
     const leaf = this.app.workspace.getLeaf(true);
-    await leaf.setViewState({ type: _WeeklyReviewController.VIEW_TYPE, active: true });
+    await leaf.setViewState({ type: _ProjectsSummaryController.VIEW_TYPE, active: true });
   }
   isRelevantFile(file) {
     if (!(file instanceof import_obsidian11.TFile)) return false;
@@ -2982,9 +2985,9 @@ var _WeeklyReviewController = class _WeeklyReviewController {
     }, 50);
   }
   async refreshOpenViews() {
-    const leaves = this.app.workspace.getLeavesOfType(_WeeklyReviewController.VIEW_TYPE);
+    const leaves = this.app.workspace.getLeavesOfType(_ProjectsSummaryController.VIEW_TYPE);
     for (const leaf of leaves) {
-      if (leaf.view instanceof WeeklyReviewView) {
+      if (leaf.view instanceof ProjectsSummaryView) {
         await leaf.view.refresh();
       }
     }
@@ -2996,7 +2999,7 @@ var _WeeklyReviewController = class _WeeklyReviewController {
     const settings = this.getSettings();
     const section = document.createElement("section");
     const title = document.createElement("h2");
-    title.textContent = "Weekly Review";
+    title.textContent = "Projects Summary";
     section.appendChild(title);
     const weekLabel = document.createElement("p");
     weekLabel.textContent = `Week ending ${formatDate3(getEndOfWeek(/* @__PURE__ */ new Date()))}`;
@@ -3057,12 +3060,13 @@ var _WeeklyReviewController = class _WeeklyReviewController {
     }
     const table = document.createElement("table");
     const thead = document.createElement("thead");
-    thead.appendChild(this.createRow(["Project", "Days Since Review", "Last Reviewed", ""], "th"));
+    thead.appendChild(this.createRow(["Project", "Priority", "Days Since Review", "Last Reviewed", ""], "th"));
     table.appendChild(thead);
     const tbody = document.createElement("tbody");
     for (const row of rows) {
       const tr = document.createElement("tr");
-      tr.appendChild(this.createCell(this.createFileLinkCell(row.file), "td"));
+      tr.appendChild(this.createCell(this.createFileLinkCell(row.file, row.priority), "td"));
+      tr.appendChild(this.createCell(String(row.priority), "td"));
       tr.appendChild(this.createCell(row.daysSinceReview === null ? "\u2014" : String(row.daysSinceReview), "td"));
       tr.appendChild(this.createCell((_a = row.reviewed) != null ? _a : "Never", "td"));
       const actionCell = document.createElement("td");
@@ -3096,12 +3100,13 @@ var _WeeklyReviewController = class _WeeklyReviewController {
     }
     const table = document.createElement("table");
     const thead = document.createElement("thead");
-    thead.appendChild(this.createRow(["Project", "Days Waiting", "Waiting Since", ""], "th"));
+    thead.appendChild(this.createRow(["Project", "Priority", "Days Waiting", "Waiting Since", ""], "th"));
     table.appendChild(thead);
     const tbody = document.createElement("tbody");
     for (const row of rows) {
       const tr = this.createRow([
-        this.createFileLinkCell(row.file),
+        this.createFileLinkCell(row.file, row.priority),
+        String(row.priority),
         row.daysWaiting === null ? "\u2014" : String(row.daysWaiting),
         (_a = row.waitingSince) != null ? _a : "\u2014",
         row.isNewlyStale ? "Newly stale" : ""
@@ -3126,12 +3131,13 @@ var _WeeklyReviewController = class _WeeklyReviewController {
     }
     const table = document.createElement("table");
     const thead = document.createElement("thead");
-    thead.appendChild(this.createRow(["Project", "Days Since Review", "Last Reviewed", "Needs Review", ""], "th"));
+    thead.appendChild(this.createRow(["Project", "Priority", "Days Since Review", "Last Reviewed", "Needs Review", ""], "th"));
     table.appendChild(thead);
     const tbody = document.createElement("tbody");
     for (const row of rows) {
       const tr = document.createElement("tr");
-      tr.appendChild(this.createCell(this.createFileLinkCell(row.file), "td"));
+      tr.appendChild(this.createCell(this.createFileLinkCell(row.file, row.priority), "td"));
+      tr.appendChild(this.createCell(String(row.priority), "td"));
       tr.appendChild(this.createCell(row.daysSinceReview === null ? "\u2014" : String(row.daysSinceReview), "td"));
       tr.appendChild(this.createCell((_a = row.reviewed) != null ? _a : "Never", "td"));
       tr.appendChild(this.createCell(row.needsReview ? "Yes" : "", "td"));
@@ -3166,12 +3172,13 @@ var _WeeklyReviewController = class _WeeklyReviewController {
     }
     const table = document.createElement("table");
     const thead = document.createElement("thead");
-    thead.appendChild(this.createRow(["Project", "Scheduled Date", "Days Until", ""], "th"));
+    thead.appendChild(this.createRow(["Project", "Priority", "Scheduled Date", "Days Until", ""], "th"));
     table.appendChild(thead);
     const tbody = document.createElement("tbody");
     for (const row of rows) {
       const tr = document.createElement("tr");
-      tr.appendChild(this.createCell(this.createFileLinkCell(row.file), "td"));
+      tr.appendChild(this.createCell(this.createFileLinkCell(row.file, row.priority), "td"));
+      tr.appendChild(this.createCell(String(row.priority), "td"));
       tr.appendChild(this.createCell((_a = row.scheduledDate) != null ? _a : "\u2014", "td"));
       tr.appendChild(this.createCell(formatDaysUntil(row.daysUntil), "td"));
       const actionCell = document.createElement("td");
@@ -3190,7 +3197,7 @@ var _WeeklyReviewController = class _WeeklyReviewController {
     table.appendChild(tbody);
     container.appendChild(table);
   }
-  createFileLinkCell(file) {
+  createFileLinkCell(file, priority) {
     const link = document.createElement("a");
     link.href = "#";
     link.textContent = file.basename;
@@ -3199,6 +3206,7 @@ var _WeeklyReviewController = class _WeeklyReviewController {
       event.preventDefault();
       void this.app.workspace.openLinkText(file.path, "");
     });
+    applyPriorityStyle(link, priority);
     return link;
   }
   createRow(cells, tag) {
@@ -3223,8 +3231,8 @@ var _WeeklyReviewController = class _WeeklyReviewController {
     return paragraph;
   }
 };
-_WeeklyReviewController.VIEW_TYPE = "task-manager-weekly-review";
-var WeeklyReviewController = _WeeklyReviewController;
+_ProjectsSummaryController.VIEW_TYPE = "task-manager-projects-summary";
+var ProjectsSummaryController = _ProjectsSummaryController;
 function formatDate3(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -3237,16 +3245,16 @@ function formatDaysUntil(daysUntil) {
   if (daysUntil < 0) return `${-daysUntil} day${daysUntil === -1 ? "" : "s"} overdue`;
   return `in ${daysUntil} day${daysUntil === 1 ? "" : "s"}`;
 }
-var WeeklyReviewView = class extends import_obsidian11.ItemView {
+var ProjectsSummaryView = class extends import_obsidian11.ItemView {
   constructor(leaf, controller) {
     super(leaf);
     this.controller = controller;
   }
   getViewType() {
-    return WeeklyReviewController.VIEW_TYPE;
+    return ProjectsSummaryController.VIEW_TYPE;
   }
   getDisplayText() {
-    return "Weekly Review";
+    return "Projects Summary";
   }
   async onOpen() {
     await this.refresh();
@@ -3655,7 +3663,7 @@ var _TasksSummaryController = class _TasksSummaryController {
     const table = document.createElement("table");
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
-    for (const label of ["Folder", "Filename", "Task", "Priority", "Recurrence", "Context", "Due"]) {
+    for (const label of ["Folder", "Project", "Task", "Priority", "Recurrence", "Context", "Due"]) {
       headerRow.appendChild(this.createTextElement("th", label));
     }
     thead.appendChild(headerRow);
@@ -3676,13 +3684,13 @@ var _TasksSummaryController = class _TasksSummaryController {
             folderCellEmitted = true;
           }
           if (i === 0) {
-            const fileCell = this.createFileCell(fileGroup.displayFileName, row.file.path);
+            const fileCell = this.createFileCell(fileGroup.displayFileName, row.file.path, row.priority);
             if (fileGroup.rows.length > 1) {
               fileCell.rowSpan = fileGroup.rows.length;
             }
             tableRow.appendChild(fileCell);
           }
-          tableRow.appendChild(this.createTaskCell(row.task, row.priority));
+          tableRow.appendChild(this.createTaskCell(row.task));
           tableRow.appendChild(this.createTextElement("td", String(row.priority)));
           tableRow.appendChild(this.createTextElement("td", row.recurrence));
           tableRow.appendChild(this.createTextElement("td", row.contexts.join(", ")));
@@ -3694,7 +3702,7 @@ var _TasksSummaryController = class _TasksSummaryController {
     table.appendChild(tbody);
     container.appendChild(table);
   }
-  createFileCell(displayFileName, filePath) {
+  createFileCell(displayFileName, filePath, priority) {
     const fileCell = document.createElement("td");
     const link = document.createElement("a");
     link.href = "#";
@@ -3704,6 +3712,7 @@ var _TasksSummaryController = class _TasksSummaryController {
       event.preventDefault();
       void this.app.workspace.openLinkText(filePath, "");
     });
+    applyPriorityStyle(link, priority);
     fileCell.appendChild(link);
     return fileCell;
   }
@@ -3712,14 +3721,9 @@ var _TasksSummaryController = class _TasksSummaryController {
     element.textContent = text;
     return element;
   }
-  createTaskCell(task, priority) {
+  createTaskCell(task) {
     const taskCell = document.createElement("td");
     taskCell.textContent = task;
-    if (priority === 1) {
-      taskCell.style.fontWeight = "700";
-    } else if (priority === 2) {
-      taskCell.style.fontStyle = "italic";
-    }
     return taskCell;
   }
   isRelevantFile(file) {
@@ -3896,7 +3900,7 @@ function getTextSettingConfigs(settings) {
     },
     {
       name: "Someday-Maybe Review Cadence (days)",
-      description: "How many days a Someday-Maybe project can go without being reviewed before the Weekly Review flags it. Invalid or non-positive values fall back to 30.",
+      description: "How many days a Someday-Maybe project can go without being reviewed before the Projects Summary flags it. Invalid or non-positive values fall back to 30.",
       placeholder: "30",
       key: "somedayMaybeReviewCadenceDays",
       value: settings.somedayMaybeReviewCadenceDays,
@@ -3904,7 +3908,7 @@ function getTextSettingConfigs(settings) {
     },
     {
       name: "Waiting Staleness Threshold (days)",
-      description: "How many days a project can stay in Waiting before the Weekly Review flags it as stale. Invalid or non-positive values fall back to 7.",
+      description: "How many days a project can stay in Waiting before the Projects Summary flags it as stale. Invalid or non-positive values fall back to 7.",
       placeholder: "7",
       key: "waitingStalenessThresholdDays",
       value: settings.waitingStalenessThresholdDays,
@@ -3999,7 +4003,7 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
     super(...arguments);
     this.taskProcessor = null;
     this.dateDashboard = null;
-    this.weeklyReview = null;
+    this.projectsSummary = null;
     this.tasksSummary = null;
     this.dueDateSuggest = null;
     this.createdDateSuggest = null;
@@ -4033,7 +4037,7 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
       getSettings: () => this.getSettings(),
       getKnownContexts: () => this.getKnownContexts()
     });
-    this.weeklyReview = new WeeklyReviewController({
+    this.projectsSummary = new ProjectsSummaryController({
       app: this.app,
       getSettings: () => this.getSettings()
     });
@@ -4061,9 +4065,9 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
       quickCapture: () => {
         this.runQuickCapture();
       },
-      openWeeklyReview: () => {
+      openProjectsSummary: () => {
         var _a;
-        void ((_a = this.weeklyReview) == null ? void 0 : _a.openView());
+        void ((_a = this.projectsSummary) == null ? void 0 : _a.openView());
       },
       backfillWaitingSince: () => {
         void this.runBackfillWaitingSince();
@@ -4103,7 +4107,7 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
       }
       (_a = this.taskProcessor) == null ? void 0 : _a.handleFileDelete(file);
     }));
-    this.weeklyReview.onload(this);
+    this.projectsSummary.onload(this);
     this.tasksSummary.onload(this);
     await this.taskProcessor.primeState();
     await this.taskProcessor.checkScheduledPromotions();
@@ -4115,8 +4119,8 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
     this.taskProcessor = null;
     (_b = this.dateDashboard) == null ? void 0 : _b.onunload();
     this.dateDashboard = null;
-    (_c = this.weeklyReview) == null ? void 0 : _c.onunload();
-    this.weeklyReview = null;
+    (_c = this.projectsSummary) == null ? void 0 : _c.onunload();
+    this.projectsSummary = null;
     (_d = this.tasksSummary) == null ? void 0 : _d.onunload();
     this.tasksSummary = null;
     this.dueDateSuggest = null;

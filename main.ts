@@ -22,8 +22,8 @@ import { DateDashboardController } from "./src/dashboard/date-dashboard";
 import { ContextEditorSuggest } from "./src/editor/context-suggest";
 import { CreatedDateEditorSuggest, DueDateEditorSuggest } from "./src/editor/due-date-suggest";
 import { getSomedayMaybeProjectFiles, pickRandomFile } from "./src/projects/random-project";
-import { WeeklyReviewController } from "./src/review/weekly-review-view";
-import { stampReviewedDate } from "./src/review/weekly-review-data";
+import { ProjectsSummaryController } from "./src/review/projects-summary-view";
+import { stampReviewedDate } from "./src/review/projects-summary-data";
 import { normalizeSettings, TaskManagerSettings } from "./src/settings/settings-utils";
 import { parseContextList } from "./src/tasks/task-line-metadata";
 import { QuickCaptureModal } from "./src/tasks/quick-capture-modal";
@@ -35,7 +35,7 @@ import { TaskProcessor } from "./src/tasks/task-processor";
 export default class TaskManagerPlugin extends Plugin {
   private taskProcessor: TaskProcessor | null = null;
   private dateDashboard: DateDashboardController | null = null;
-  private weeklyReview: WeeklyReviewController | null = null;
+  private projectsSummary: ProjectsSummaryController | null = null;
   private tasksSummary: TasksSummaryController | null = null;
   private dueDateSuggest: DueDateEditorSuggest | null = null;
   private createdDateSuggest: CreatedDateEditorSuggest | null = null;
@@ -68,7 +68,7 @@ export default class TaskManagerPlugin extends Plugin {
       getSettings: () => this.getSettings(),
       getKnownContexts: () => this.getKnownContexts(),
     });
-    this.weeklyReview = new WeeklyReviewController({
+    this.projectsSummary = new ProjectsSummaryController({
       app: this.app,
       getSettings: () => this.getSettings(),
     });
@@ -95,8 +95,8 @@ export default class TaskManagerPlugin extends Plugin {
       quickCapture: () => {
         this.runQuickCapture();
       },
-      openWeeklyReview: () => {
-        void this.weeklyReview?.openView();
+      openProjectsSummary: () => {
+        void this.projectsSummary?.openView();
       },
       backfillWaitingSince: () => {
         void this.runBackfillWaitingSince();
@@ -136,7 +136,7 @@ export default class TaskManagerPlugin extends Plugin {
 
       this.taskProcessor?.handleFileDelete(file);
     }));
-    this.weeklyReview.onload(this);
+    this.projectsSummary.onload(this);
     this.tasksSummary.onload(this);
     await this.taskProcessor.primeState();
     await this.taskProcessor.checkScheduledPromotions();
@@ -148,8 +148,8 @@ export default class TaskManagerPlugin extends Plugin {
     this.taskProcessor = null;
     this.dateDashboard?.onunload();
     this.dateDashboard = null;
-    this.weeklyReview?.onunload();
-    this.weeklyReview = null;
+    this.projectsSummary?.onunload();
+    this.projectsSummary = null;
     this.tasksSummary?.onunload();
     this.tasksSummary = null;
     this.dueDateSuggest = null;
@@ -258,7 +258,7 @@ export default class TaskManagerPlugin extends Plugin {
     }
 
     // Opening a random someday-maybe project doubles as a casual review: stamp it
-    // reviewed so the Weekly Review's staleness tracking reflects this glance at it.
+    // reviewed so the Projects Summary's staleness tracking reflects this glance at it.
     await stampReviewedDate(this.app, file);
     await this.app.workspace.getLeaf(true).openFile(file);
   }

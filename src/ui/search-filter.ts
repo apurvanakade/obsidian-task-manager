@@ -1,6 +1,6 @@
 /**
  * Purpose:
- * - shared search-box UI used by the Date Dashboard, Weekly Review, and Tasks Summary
+ * - shared search-box UI used by the Date Dashboard, Projects Summary, and Tasks Summary
  *   views: a text input rendered above a view's content that narrows displayed rows.
  *
  * Responsibilities:

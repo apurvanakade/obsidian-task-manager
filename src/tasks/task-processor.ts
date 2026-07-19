@@ -265,7 +265,7 @@ export class TaskProcessor {
 
   /**
    * Stamps `waiting-since` on transition into `waiting`, clears it on transition out.
-   * Powers the Weekly Review's waiting-staleness calculation.
+   * Powers the Projects Summary's waiting-staleness calculation.
    */
   private async updateWaitingSinceStamp(file: TFile, latestStatus: string | null, previousStatus: string | null): Promise<void> {
     const enteringWaiting = latestStatus === "waiting" && previousStatus !== "waiting";
