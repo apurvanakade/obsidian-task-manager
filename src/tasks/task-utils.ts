@@ -17,7 +17,7 @@
 import { parseTaskLine, parseTaskLineStructured, readInlineFieldValue } from "./task-line-metadata";
 
 const FRONTMATTER_BLOCK_REGEX = /^---\r?\n[\s\S]*?\r?\n---/;
-const DUE_FIELD_REGEX = /\[due::\s*([^\]]+?)\s*\]/i;
+export const DUE_FIELD_REGEX = /\[due::\s*([^\]]+?)\s*\]/i;
 
 export type TaskState = {
   line: number;

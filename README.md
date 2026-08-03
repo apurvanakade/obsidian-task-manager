@@ -23,7 +23,6 @@ Automates task lifecycle management in Obsidian: state transitions, completion m
    | Someday-Maybe Review Cadence (days) | Days a Someday-Maybe project can go unreviewed before the Projects Summary flags it | `30` |
    | Waiting Staleness Threshold (days) | Days a project can stay in Waiting before the Projects Summary flags it as stale | `7` |
    | Bases File Path | Vault-relative path for the generated Obsidian Bases file (**Create Task Bases** command) | `Tasks/Tasks.base` |
-   | Board File Path | Vault-relative path for the Task Board canvas (**Open Task Board** command) | `Tasks/Board.canvas` |
 
 ## Commands
 
@@ -107,16 +106,7 @@ Resyncs [derived frontmatter fields](#derived-frontmatter-fields) (`next-due`, `
 ### Create Task Bases
 Generates an [Obsidian Bases](https://help.obsidian.md/bases) file at the configured **Bases File Path**, with five table views wired to your configured folders: **Active projects**, **Next actions** (any file with a `next-due`), **Waiting**, **Someday-Maybe review**, and **Scheduled**. Requires the **Bases** core plugin (Settings → Core plugins) — if it's disabled, the command still generates the file but shows a Notice reminding you to enable it.
 
-This is a one-time scaffold, not a plugin-managed file: re-running the command when the file already exists asks for confirmation before overwriting, since Bases' whole value is customizing views from its own UI afterward, and the plugin never touches the file again unprompted. The generated views sort and filter using this plugin's own frontmatter fields (`status`, `priority`, `waiting-since`, `reviewed`) plus the [derived fields](#derived-frontmatter-fields) above — so `next-due`/`next-action`/`open-tasks` need to already be flowing (they are, automatically, once you're on this version) for the generated views to show meaningful data.
-
-### Open Task Board
-Opens (creating it first if it doesn't exist) a **Task Board** canvas at the configured **Board File Path**: one column per status — Active, Waiting, Someday-Maybe, Scheduled (no Completed column) — with one card per project, stacked by priority. Requires the **Canvas** core plugin.
-
-Unlike the generated Bases file, the board is **kept in sync automatically**, in both directions, for as long as it exists:
-- Editing, creating, renaming, or deleting a tracked project file updates the board (debounced) — cards appear, disappear, and reorder without reopening the tab.
-- **Dragging a card into a different column changes that project's status**, which routes the file and stamps the same metadata (e.g. `waiting-since`) a manual status edit would.
-
-Dropping a card in empty space (outside every column) doesn't change its status — it snaps back into its actual column on the next sync. Anything you add to the board yourself — sticky notes, other file cards, manually drawn edges — is preserved across every resync; the plugin only ever touches its own generated cards and columns. If a project ends up represented by more than one card (e.g. from manual editing), the board shows a Notice and skips writing a status for that project until the duplicate is removed. Deleting the board file and re-running the command is always safe — it's fully derived from your projects' current status.
+This is a one-time scaffold, not a plugin-managed file: re-running the command when the file already exists asks for confirmation before overwriting, since Bases' whole value is customizing views from its own UI afterward, and the plugin never touches the file again unprompted. The generated views sort and filter using this plugin's own frontmatter fields (`status`, `priority`, `waiting-since`, `reviewed`) plus the [derived fields](#derived-frontmatter-fields) above — so `next-due`/`next-action`/`open-tasks` need to already be flowing (they are, automatically, once you're on this version) for the generated views to show meaningful data. Fields that need bracket-notation property access (`next-due`, `next-action`, `open-tasks`, `waiting-since`) get a `properties:` displayName override so their column headers read cleanly instead of showing the raw `note["..."]` expression.
 
 ## Automatic Behavior (live editing)
 
@@ -134,32 +124,38 @@ The plugin reacts to checkbox changes as you edit, but only for markdown files i
 The plugin always uses the first incomplete task in the file as the current actionable task — exactly one actionable task per file.
 
 ### Recurring Tasks
-If a completed task has `[repeat:: X]` or `[repeats:: X]`, a new open copy is inserted above the completed task with a computed due date:
+If a completed task has `[repeat:: X]` or `[repeats:: X]`, a new open copy is inserted above the completed task with a computed due date. The grammar is case-insensitive and covers most of Todoist's recurring-date syntax (excluding time-of-day/hourly rules and the `starting`/`for N` bound forms):
 
-| Interval | New due date |
-|---|---|
-| `day` | Tomorrow |
-| `2 days` | +2 days |
-| `week` | +7 days |
-| `2 weeks` | +14 days |
-| `month` | +1 month (clamped to last day of month) |
-| `3 months` | +3 months (clamped to last day of month) |
-| `year` | +1 year (clamped to last day of month) |
-| `2 years` | +2 years (clamped to last day of month) |
-| `Monday` | Next Monday |
-| `Fri` | Next Friday |
-| `1st` | Next occurrence of the 1st day of a month |
-| `5th` | Next occurrence of the 5th day of a month |
+| Form | Example | New due date |
+|---|---|---|
+| Interval | `daily`, `2 weeks`, `other month`, `quarterly`, `2 quarters` | +N units (`other X` = 2×; `quarter` = 3 months) |
+| Workday interval | `weekday` / `workday`, `3 workdays` | Nth workday (Mon–Fri) ahead |
+| Weekday set | `Monday`, `mon, wed, fri` | Next day matching one in the set |
+| Month-day set | `5th`, `2, 15, 27` | Next such day-of-month (clamped to month length) |
+| Last day / last workday | `last day`, `last workday` | End of month (last workday walks back from month-end to Friday if needed) |
+| Nth weekday of month | `1st wed`, `last friday` | That weekday's Nth (or last) occurrence, monthly |
+| Yearly nth weekday | `3rd thu jul`, `3rd thursday of july` | Same, restricted to one named month, yearly |
+| Yearly date | `jan 27`, `27 jan`, `january 27th` | That date each year (Feb 29 clamps to Feb 28 in non-leap years) |
 
 Accepted aliases are normalized automatically:
 - Day: `day`, `days`, `daily`
 - Week: `week`, `weeks`, `weekly`
 - Month: `month`, `months`, `monthly`
+- Quarter: `quarter`, `quarters`, `quarterly` (= 3 months)
 - Year: `year`, `years`, `yearly`, `annual`, `annually`
 - Weekdays: full or short names like `monday` / `mon`
-- Month days: ordinal forms `1st` through `31st`
+- Months: full or short names like `january` / `jan`
+- Month days: ordinal forms `1st` through `31st` (plain digits are also accepted inside a comma-separated set, e.g. `2, 15, 27`)
 
-Weekday and ordinal repeats always resolve to the **next future occurrence**. For example, `Monday` completed on a Monday becomes next Monday, and `5th` completed on the 5th becomes next month's 5th.
+**Prefixes — anchoring the next date:** a plain rule (no prefix, or `every`/`ev`) anchors the next date to the task's **previous `[due:: ...]` date** — completing an overdue task doesn't shift its future schedule, and completing early doesn't shorten it. A `every!`/`ev!` prefix (or `after N <unit>`, a shorthand for the same thing) anchors to the **completion date** instead — the classic "N days after I actually finish it" behavior. In both modes, the computed date is always strictly after today, so a long-overdue recurring task never spawns an already-overdue clone; for interval rules this means catch-up is computed directly from the anchor date, not chained step-by-step (e.g. a monthly task due Jan 31, completed in mid-April, becomes due Apr 30 — not drifted down to Apr 28 by re-clamping three times).
+
+**Suffix — ending the recurrence:** append `until YYYY-MM-DD` or `ending YYYY-MM-DD` (ISO dates only) to stop recurring after that date, inclusive. Once the computed next date would fall after the bound, completion stamps normally but no new copy is created, and a Notice explains why.
+
+Examples: `every! 3 days`, `ev fri`, `mon, wed, fri until 2026-12-31`, `1st wed`, `last workday`, `jan 27`.
+
+Weekday, month-day, and calendar-date repeats always resolve to the **next future occurrence** relative to the anchor. For example, `Monday` completed on a Monday becomes next Monday, and `5th` completed on the 5th becomes next month's 5th.
+
+If a `[repeat:: ...]` field can't be parsed at all, completion still proceeds normally (stamping, moving to Completed Tasks) but no recurring copy is created, and a Notice names the unrecognized value. More generally, whenever a task with an unparseable (or absent) `[repeat:: ...]` field newly becomes actionable, the Due Date Modal's Repeat field is prefilled with that raw value, so a broken repeat rule is easy to spot and fix in place.
 
 Recurring tasks skip the Due Date Modal on the new copy.
 
@@ -199,7 +195,7 @@ When a task newly becomes actionable after completion or uncompletion (and that 
 - A **project priority** dropdown (1–3, default 3; 1 is highest).
 - Suggested dates from today through +30 days with Today / Tomorrow / weekday labels — clicking one immediately applies it.
 - A text input for a custom `YYYY-MM-DD` date or natural-language terms (`today`, `tomorrow`, weekday names); press Enter to submit. If the task already has a due date, it is prefilled here.
-- A **Repeat** text field with no default value for rules like `daily`, `2 weeks`, `Monday`, or `5th`.
+- A **Repeat** text field for rules like `daily`, `2 weeks`, `mon, wed, fri`, `1st wed`, `last workday`, or `jan 27` (see [Recurring Tasks](#recurring-tasks) for the full grammar) — prefilled with the task's existing raw repeat value if it has one (most often seen when that value failed to parse and needs fixing).
 - A **Skip** button to dismiss without adding a due date.
 
 On submit, `[due:: YYYY-MM-DD]` is written to the task line, an optional `[repeat:: X]` is added when provided, and `priority: N` is written to the file frontmatter.
@@ -214,7 +210,7 @@ Tasks use Dataview-style double-colon inline fields on the same line as the chec
 | `[due:: YYYY-MM-DD]` | Due date |
 | `[completion-date:: YYYY-MM-DD]` | Stamped on task completion |
 | `[completion-time:: HH:MM:SS]` | Stamped on task completion |
-| `[repeat:: X]` / `[repeats:: X]` | Recurring interval; supports aliases, numeric intervals, weekday names like `Monday`, and ordinal month-days like `5th` |
+| `[repeat:: X]` / `[repeats:: X]` | Recurring rule — see [Recurring Tasks](#recurring-tasks) for the full grammar (intervals, weekday/month-day sets, nth-weekday-of-month, yearly dates, `every!`/`until` modifiers) |
 | `[created:: YYYY-MM-DD]` | Creation date (editor suggest only) |
 
 Project priority is stored in file frontmatter as `priority: N`, where `1` is highest and missing/invalid values default to `3`.
@@ -280,7 +276,7 @@ Display notes:
 | `src/tasks/reconciler.ts` | Task transition logic: completion, uncompletion, deletion, recurring |
 | `src/tasks/file-priority.ts` | Pure helpers for reading file-frontmatter priority |
 | `src/tasks/task-line-metadata.ts` | Pure shared task-line parsing and display-text helpers |
-| `src/tasks/repeat-rules.ts` | Pure recurring-rule parser, alias normalizer, and next-due-date calculator |
+| `src/tasks/repeat-rules.ts` | Pure recurring-rule parser (Todoist-level grammar: intervals, weekday/month-day sets, nth-weekday-of-month, yearly dates, `every`/`every!`/`until` modifiers), alias normalizer, and next-occurrence calculator — the sole owner of the `[repeat::]`/`[repeats::]` field extraction regex |
 | `src/tasks/task-utils.ts` | Pure parsing/diffing utilities (no side effects) |
 | `src/tasks/next-actions.ts` | Pure actionable-task-line finder: the file's first open task line |
 | `src/tasks/task-state-store.ts` | In-memory per-file task/status snapshot cache and pending-write guards |
@@ -309,8 +305,6 @@ Display notes:
 | `src/commands/register-task-commands.ts` | Registers Reset Tasks, Open Tasks Summary, Add New Project, Open Random Someday-Maybe Project, Quick Capture Task, Open Projects Summary, Stamp Waiting-Since, Stamp Derived Fields, and Create Task Bases commands |
 | `src/bases/base-file-content.ts` | Pure YAML string builder for the generated `.base` file — five table views over the configured folders |
 | `src/bases/create-task-bases.ts` | I/O for the Create Task Bases command: Bases-core-plugin detection, overwrite-confirm modal, vault write |
-| `src/canvas/canvas-model.ts` | Pure JSON Canvas layout/diff model for the Task Board: builds columns/cards, parses/serializes canvas JSON, geometric group-membership lookup, drag-to-status diffing |
-| `src/canvas/board-sync.ts` | I/O controller keeping the Task Board canvas in sync: debounced regenerate on project-file changes, status writes on card drags, "Open Task Board" command |
 | `src/review/projects-summary-view.ts` | On-demand main-panel ItemView controller/renderer for the Projects Summary tab: priority filter, collapsible sections (Someday-Maybe collapsed by default), Someday-Maybe row actions (Mark Reviewed/Promote to Active/Archive), auto-refresh on relevant vault changes |
 | `src/review/projects-summary-data.ts` | Collects Active Projects/Waiting/Someday-Maybe staleness rows, stamps the `reviewed` field, and sets a project's status directly (Promote to Active/Archive) |
 | `src/ui/search-filter.ts` | Shared search-box UI, used by the date dashboard, Projects Summary, and Tasks Summary views |
@@ -365,8 +359,6 @@ graph TD
    CSEC[collapsible-section.ts]
    BFC[base-file-content.ts]
    CTB[create-task-bases.ts]
-   CVM[canvas-model.ts]
-   BSY[board-sync.ts]
 
     D --> M
     E --> M
@@ -452,12 +444,6 @@ graph TD
    RT --> CTB
    CTB --> M
 
-   CVM --> BSY
-   RT --> BSY
-   RS --> BSY
-   PRI --> BSY
-   BSY --> M
-
     TU --> RC
     DU --> RC
     PRI --> RC
@@ -473,6 +459,8 @@ graph TD
     TLM --> TU
     TLM --> NA
     NA --> SUM
+    DU --> RR
+    RR --> TLM
 
     TU --> TS
     PRI --> SUM

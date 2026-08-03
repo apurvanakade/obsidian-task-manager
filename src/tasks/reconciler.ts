@@ -17,9 +17,10 @@
 import { App, Notice, TFile } from "obsidian";
 import { getCurrentDateString, getCurrentTimeString } from "../date/date-utils";
 import { FilePriority, readFilePriority } from "./file-priority";
-import { parseTaskLine, parseTaskLineStructured } from "./task-line-metadata";
+import { parseTaskLine, parseTaskLineStructured, readInlineFieldValue } from "./task-line-metadata";
 import { findActionableTaskLines } from "./next-actions";
 import {
+  DUE_FIELD_REGEX,
   findFirstIncompleteTaskLine,
   findNoteBlockEnd,
   moveTaskToCompletedSection
@@ -27,7 +28,7 @@ import {
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { readStatusValue } from "../routing/status-routing";
 import { DueDateModal } from "./due-date-modal";
-import { getRepeatDueDate, parseRepeatRule, RepeatRule } from "./repeat-rules";
+import { getNextRepeatDate, getRepeatFieldValue, parseRepeatRule } from "./repeat-rules";
 
 type ReconcilerContext = {
   file: TFile;
@@ -79,6 +80,10 @@ async function showDueDateModalForFirstIncompleteTask(
   const initialPriority = String(readFilePriority(modalContent)) as "1" | "2" | "3";
   const initialDueDateMatch = taskLine.match(/\[due::\s*([^\]]*?)\s*\]/i);
   const initialDueDate = initialDueDateMatch ? initialDueDateMatch[1].trim() : null;
+  // Prefilling surfaces an existing-but-unparseable repeat value for repair — the modal
+  // only opens for lines whose repeat field is absent or failed to parse (see the
+  // isRepeating check above), so a parseable repeat never reaches here.
+  const initialRepeat = getRepeatFieldValue(taskLine);
 
   const modal = new DueDateModal({
     app,
@@ -86,6 +91,7 @@ async function showDueDateModalForFirstIncompleteTask(
     taskLineIndex,
     initialPriority,
     initialDueDate,
+    initialRepeat,
     onSubmit: async (targetLineIndex, taskLine, dueDate, priority, repeat) => {
       // Validate date format
       if (!isValidDateFormat(dueDate)) {
@@ -156,24 +162,35 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
       .map((index) => getLineBody(previousLines[index])),
   );
 
-  const repeatRule = parseRepeatRule(sourceTaskLine);
-  if (repeatRule !== null) {
-    const repeatedTaskLine = buildRepeatedTaskLine(sourceTaskLine, repeatRule);
-    if (repeatedTaskLine !== null) {
-      // Move the completed task's note block (see Task Notes in CLAUDE.md) onto the
-      // new occurrence instead of duplicating it — a note attached to a recurring task
-      // is usually reusable instructions/context for the task itself, not a record of
-      // this specific completion, so it belongs with the next occurrence, not this one.
-      const noteBlockEnd = findNoteBlockEnd(lines, completedLine);
-      const noteBlockLines = lines.slice(completedLine + 1, noteBlockEnd);
-      const repeatedBlock = [repeatedTaskLine, ...noteBlockLines];
-      nextLines.splice(completedLine, 0, ...repeatedBlock);
-      completedLineIndex += repeatedBlock.length;
-      if (noteBlockLines.length > 0) {
-        // The original note block is still sitting just below the completed task's
-        // shifted position (untouched by the splice above) — remove it from there now
-        // that a copy lives with the new occurrence, so it isn't left on both.
-        nextLines.splice(completedLineIndex + 1, noteBlockLines.length);
+  const repeatFieldValue = getRepeatFieldValue(sourceTaskLine);
+  if (repeatFieldValue !== null) {
+    const repeatRule = parseRepeatRule(sourceTaskLine);
+    if (repeatRule === null) {
+      new Notice(`Unrecognized repeat rule "${repeatFieldValue}" — no recurring copy created.`);
+    } else {
+      const previousDueDate = readInlineFieldValue(sourceTaskLine, DUE_FIELD_REGEX);
+      const nextDate = getNextRepeatDate(repeatRule, { previousDueDate });
+      if (nextDate === null) {
+        new Notice(`Recurrence ended (until ${repeatRule.until}) — no new copy created.`);
+      } else {
+        const repeatedTaskLine = buildRepeatedTaskLine(sourceTaskLine, nextDate);
+        if (repeatedTaskLine !== null) {
+          // Move the completed task's note block (see Task Notes in CLAUDE.md) onto the
+          // new occurrence instead of duplicating it — a note attached to a recurring task
+          // is usually reusable instructions/context for the task itself, not a record of
+          // this specific completion, so it belongs with the next occurrence, not this one.
+          const noteBlockEnd = findNoteBlockEnd(lines, completedLine);
+          const noteBlockLines = lines.slice(completedLine + 1, noteBlockEnd);
+          const repeatedBlock = [repeatedTaskLine, ...noteBlockLines];
+          nextLines.splice(completedLine, 0, ...repeatedBlock);
+          completedLineIndex += repeatedBlock.length;
+          if (noteBlockLines.length > 0) {
+            // The original note block is still sitting just below the completed task's
+            // shifted position (untouched by the splice above) — remove it from there now
+            // that a copy lives with the new occurrence, so it isn't left on both.
+            nextLines.splice(completedLineIndex + 1, noteBlockLines.length);
+          }
+        }
       }
     }
   }
@@ -311,7 +328,7 @@ function getLineBody(line: string): string {
   return parseTaskLineStructured(line)?.body ?? line;
 }
 
-function buildRepeatedTaskLine(completedLine: string, repeatRule: RepeatRule): string | null {
+function buildRepeatedTaskLine(completedLine: string, nextDueDate: string): string | null {
   const cleaned = stripCompletionFields(completedLine);
   const structured = parseTaskLineStructured(cleaned);
   if (!structured) {
@@ -320,8 +337,7 @@ function buildRepeatedTaskLine(completedLine: string, repeatRule: RepeatRule): s
 
   const openTask = `${structured.prefix} ${structured.bracketSuffix}${structured.body}`;
   const taskBodyWithoutDue = openTask.replace(/\s*\[due::\s*[^\]]*\]/g, "").trimEnd();
-  const dueDate = getRepeatDueDate(repeatRule);
-  return `${taskBodyWithoutDue} [due:: ${dueDate}]`;
+  return `${taskBodyWithoutDue} [due:: ${nextDueDate}]`;
 }
 
 function isValidDateFormat(dateStr: string): boolean {

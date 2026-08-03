@@ -18,7 +18,6 @@
 import { App, Notice, Plugin, PluginSettingTab, TFile } from "obsidian";
 import { registerTaskCommands } from "./src/commands/register-task-commands";
 import { runCreateTaskBases } from "./src/bases/create-task-bases";
-import { BoardSyncController } from "./src/canvas/board-sync";
 import { AddProjectInput, AddProjectModal, buildProjectFileContent, buildProjectFilePath } from "./src/projects/add-project-modal";
 import { DateDashboardController } from "./src/dashboard/date-dashboard";
 import { CreatedDateEditorSuggest, DueDateEditorSuggest } from "./src/editor/due-date-suggest";
@@ -37,7 +36,6 @@ export default class TaskManagerPlugin extends Plugin {
   private dateDashboard: DateDashboardController | null = null;
   private projectsSummary: ProjectsSummaryController | null = null;
   private tasksSummary: TasksSummaryController | null = null;
-  private boardSync: BoardSyncController | null = null;
   private dueDateSuggest: DueDateEditorSuggest | null = null;
   private createdDateSuggest: CreatedDateEditorSuggest | null = null;
 
@@ -68,10 +66,6 @@ export default class TaskManagerPlugin extends Plugin {
       createProject: (input) => this.createProjectFile(input),
     });
     this.projectsSummary = new ProjectsSummaryController({
-      app: this.app,
-      getSettings: () => this.getSettings(),
-    });
-    this.boardSync = new BoardSyncController({
       app: this.app,
       getSettings: () => this.getSettings(),
     });
@@ -107,9 +101,6 @@ export default class TaskManagerPlugin extends Plugin {
       },
       createTaskBases: () => {
         void runCreateTaskBases(this.app, this.getSettings());
-      },
-      openTaskBoard: () => {
-        void this.boardSync?.openBoard();
       },
     });
     this.addRibbonIcon("shuffle", "Open Random Someday-Maybe Project", () => {
@@ -148,7 +139,6 @@ export default class TaskManagerPlugin extends Plugin {
     }));
     this.projectsSummary.onload(this);
     this.tasksSummary.onload(this);
-    this.boardSync.onload(this);
     await this.taskProcessor.primeState();
     await this.taskProcessor.checkScheduledPromotions();
     await this.dateDashboard.onload(this);
@@ -163,8 +153,6 @@ export default class TaskManagerPlugin extends Plugin {
     this.projectsSummary = null;
     this.tasksSummary?.onunload();
     this.tasksSummary = null;
-    this.boardSync?.onunload();
-    this.boardSync = null;
     this.dueDateSuggest = null;
     this.createdDateSuggest = null;
     console.log("Unloading Task Manager plugin");

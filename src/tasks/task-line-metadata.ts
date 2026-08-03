@@ -9,17 +9,18 @@
  * - normalize task text for dashboard/summary display
  *
  * Dependencies:
- * - none outside language/runtime primitives
+ * - ./repeat-rules (repeat-field extraction — repeat-rules.ts is the sole owner of that
+ *   grammar/regex; both modules are pure so this stays a one-way, acyclic dependency)
  *
  * Side Effects:
  * - none (pure parsing helpers)
  */
+import { getRepeatFieldValue, REPEAT_FIELD_PRESENT_REGEX } from "./repeat-rules";
+
 // Canonical task-line grammar. This is the single source of truth for what counts as a
 // checkbox task line across the plugin (extraction, first-incomplete lookup, reset,
 // reconciliation, and repeat-task rebuilding all derive from this one parser).
 const TASK_LINE_STRUCTURE_REGEX = /^(\s*[-*+]\s+\[)( |x|X)(\]\s+)(.*)$/;
-const REPEAT_FIELD_REGEX = /\[(?:repeat|repeats)::\s*[^\]]+?\]/i;
-const REPEAT_VALUE_REGEX = /\[(?:repeat|repeats)::\s*(?:every\s+)?([^\]]+?)\s*\]/i;
 const INLINE_FIELD_REGEX = /\s*\[[^\]]+::\s*[^\]]*\]/g;
 const TAG_REGEX = /(^|\s)#[^\s#]+/g;
 const MULTISPACE_REGEX = /\s+/g;
@@ -68,11 +69,12 @@ export function parseTaskLine(line: string): ParsedTaskLine | null {
 }
 
 export function isRecurringTask(taskBody: string): boolean {
-  return REPEAT_FIELD_REGEX.test(taskBody);
+  return REPEAT_FIELD_PRESENT_REGEX.test(taskBody);
 }
 
+/** Raw (unstripped) repeat-field value for display — e.g. "every 2 weeks" or "5th". */
 export function getRecurrenceLabel(taskBody: string): string {
-  return readInlineFieldValue(taskBody, REPEAT_VALUE_REGEX) ?? "none";
+  return getRepeatFieldValue(taskBody) ?? "none";
 }
 
 export function readInlineFieldValue(taskBody: string, fieldRegex: RegExp): string | null {

@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => TaskManagerPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian19 = require("obsidian");
+var import_obsidian18 = require("obsidian");
 
 // src/commands/register-task-commands.ts
 function registerTaskCommands(plugin, handlers) {
@@ -72,11 +72,6 @@ function registerTaskCommands(plugin, handlers) {
     name: "Create Task Bases",
     callback: handlers.createTaskBases
   });
-  plugin.addCommand({
-    id: "open-task-board",
-    name: "Open Task Board",
-    callback: handlers.openTaskBoard
-  });
 }
 
 // src/bases/create-task-bases.ts
@@ -91,6 +86,12 @@ var FILE_NAME = "file.name";
 var STATUS = "note.status";
 var PRIORITY = "note.priority";
 var REVIEWED = "note.reviewed";
+var DISPLAY_NAMES = {
+  [NEXT_DUE]: "Next due",
+  [NEXT_ACTION]: "Next action",
+  [OPEN_TASKS]: "Open tasks",
+  [WAITING_SINCE]: "Waiting since"
+};
 function buildTaskBaseFileContent(settings) {
   const views = buildViewSpecs(settings);
   const lines = [
@@ -101,8 +102,16 @@ function buildTaskBaseFileContent(settings) {
   for (const view of views) {
     lines.push(...renderView(view));
   }
+  lines.push("properties:", ...renderDisplayNames());
   return `${lines.join("\n")}
 `;
+}
+function renderDisplayNames() {
+  const lines = [];
+  for (const [property, displayName] of Object.entries(DISPLAY_NAMES)) {
+    lines.push(`  ${property}:`, `    displayName: "${escapeYamlString(displayName)}"`);
+  }
+  return lines;
 }
 function buildViewSpecs(settings) {
   return [
@@ -420,398 +429,9 @@ async function promptOverwriteConfirm(app, path) {
   });
 }
 
-// src/canvas/board-sync.ts
-var import_obsidian3 = require("obsidian");
-
-// src/tasks/frontmatter-utils.ts
-var FRONTMATTER_BLOCK_REGEX = /^---\r?\n([\s\S]*?)\r?\n---/;
-function readFrontmatterField(content, fieldName) {
-  const frontmatterMatch = content.match(FRONTMATTER_BLOCK_REGEX);
-  if (!frontmatterMatch) {
-    return null;
-  }
-  const fieldRegex = new RegExp(`^\\s*${escapeRegExp(fieldName)}\\s*:\\s*(.*?)\\s*$`, "i");
-  const lines = frontmatterMatch[1].split(/\r?\n/);
-  for (const line of lines) {
-    const match = line.match(fieldRegex);
-    if (!match) {
-      continue;
-    }
-    return match[1].replace(/^['"]|['"]$/g, "").trim();
-  }
-  return null;
-}
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-// src/routing/status-routing.ts
-var ROUTABLE_STATUSES = ["todo", "completed", "waiting", "someday-maybe", "scheduled", "archived"];
-function isRoutableStatus(value) {
-  return ROUTABLE_STATUSES.includes(value);
-}
-function readStatusValue(content, statusField) {
-  const value = readFrontmatterField(content, statusField);
-  return value === null ? null : value.toLowerCase();
-}
-function predictFinalStatus(currentStatus, hasOpenTasks) {
-  if (hasOpenTasks) {
-    if (currentStatus !== null && currentStatus !== "completed") {
-      return currentStatus;
-    }
-    return "todo";
-  }
-  return "completed";
-}
-function assertConfiguredDestinationForStatus(status, settings) {
-  if (!status || !isRoutableStatus(status)) {
-    return;
-  }
-  const destinationRoot = getDestinationRootForStatus(settings, status);
-  if (!destinationRoot) {
-    throw new Error(`Set destination folder for status '${status}' in Task Manager settings.`);
-  }
-}
-
-// src/tasks/file-priority.ts
-var PRIORITY_FRONTMATTER_FIELD = "priority";
-var DEFAULT_PRIORITY = 3;
-function readFilePriority(content) {
-  var _a;
-  return (_a = readFrontmatterPriority(content)) != null ? _a : DEFAULT_PRIORITY;
-}
-function readFrontmatterPriority(content) {
-  const priorityValue = readFrontmatterField(content, PRIORITY_FRONTMATTER_FIELD);
-  return priorityValue === null ? null : parsePriorityValue(priorityValue);
-}
-function parsePriorityValue(value) {
-  const parsed = Number.parseInt(value, 10);
-  if (parsed === 1 || parsed === 2 || parsed === 3) {
-    return parsed;
-  }
-  return DEFAULT_PRIORITY;
-}
-
-// src/canvas/canvas-model.ts
-var MANAGED_NODE_PREFIX = "tm-";
-var STATUS_COLUMNS = [
-  { status: "todo", label: "Active" },
-  { status: "waiting", label: "Waiting" },
-  { status: "someday-maybe", label: "Someday-Maybe" },
-  { status: "scheduled", label: "Scheduled" }
-];
-var PADDING = 20;
-var HEADER_HEIGHT = 60;
-var CARD_WIDTH = 400;
-var CARD_HEIGHT = 140;
-var CARD_GUTTER = 20;
-var GROUP_WIDTH = CARD_WIDTH + PADDING * 2;
-var COLUMN_SPACING = GROUP_WIDTH + 40;
-var MIN_GROUP_HEIGHT = 600;
-function isManagedId(id) {
-  return id.startsWith(MANAGED_NODE_PREFIX);
-}
-function isFileNode(node) {
-  return node.type === "file";
-}
-function isGroupNode(node) {
-  return node.type === "group";
-}
-function groupNodeId(status) {
-  return `${MANAGED_NODE_PREFIX}group-${status}`;
-}
-function fileNodeId(path) {
-  return `${MANAGED_NODE_PREFIX}file-${hashPath(path)}`;
-}
-function hashPath(path) {
-  let hash = 5381;
-  for (let index = 0; index < path.length; index += 1) {
-    hash = (hash << 5) + hash + path.charCodeAt(index) >>> 0;
-  }
-  return hash.toString(36);
-}
-function buildBoardData(projects, existing) {
-  var _a, _b;
-  const preservedNodes = ((_a = existing == null ? void 0 : existing.nodes) != null ? _a : []).filter((node) => !isManagedId(node.id));
-  const preservedEdges = (_b = existing == null ? void 0 : existing.edges) != null ? _b : [];
-  const managedNodes = [];
-  STATUS_COLUMNS.forEach((column, columnIndex) => {
-    const columnProjects = projects.filter((project) => project.status === column.status).sort((left, right) => left.priority - right.priority || left.basename.localeCompare(right.basename));
-    const groupX = columnIndex * COLUMN_SPACING;
-    const groupHeight = Math.max(
-      MIN_GROUP_HEIGHT,
-      HEADER_HEIGHT + columnProjects.length * (CARD_HEIGHT + CARD_GUTTER) + PADDING
-    );
-    managedNodes.push({
-      id: groupNodeId(column.status),
-      type: "group",
-      label: column.label,
-      x: groupX,
-      y: 0,
-      width: GROUP_WIDTH,
-      height: groupHeight
-    });
-    columnProjects.forEach((project, cardIndex) => {
-      managedNodes.push({
-        id: fileNodeId(project.path),
-        type: "file",
-        file: project.path,
-        x: groupX + PADDING,
-        y: HEADER_HEIGHT + cardIndex * (CARD_HEIGHT + CARD_GUTTER),
-        width: CARD_WIDTH,
-        height: CARD_HEIGHT
-      });
-    });
-  });
-  return {
-    nodes: [...preservedNodes, ...managedNodes],
-    edges: preservedEdges
-  };
-}
-function parseCanvas(json) {
-  try {
-    const parsed = JSON.parse(json);
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
-    const nodes = Array.isArray(parsed.nodes) ? parsed.nodes : [];
-    const edges = Array.isArray(parsed.edges) ? parsed.edges : [];
-    return { nodes, edges };
-  } catch (e) {
-    return null;
-  }
-}
-function serializeCanvas(data) {
-  return `${JSON.stringify(data, null, "	")}
-`;
-}
-function findNodeGroupStatus(node, groups) {
-  const centerX = node.x + node.width / 2;
-  const centerY = node.y + node.height / 2;
-  for (const group of groups) {
-    const withinX = centerX >= group.x && centerX <= group.x + group.width;
-    const withinY = centerY >= group.y && centerY <= group.y + group.height;
-    if (withinX && withinY && isManagedId(group.id) && group.id.startsWith(`${MANAGED_NODE_PREFIX}group-`)) {
-      return group.id.slice(`${MANAGED_NODE_PREFIX}group-`.length);
-    }
-  }
-  return null;
-}
-function diffBoardStatuses(data, statusByPath) {
-  var _a;
-  const groups = data.nodes.filter(isGroupNode);
-  const managedFileNodesByPath = /* @__PURE__ */ new Map();
-  for (const node of data.nodes) {
-    if (!isFileNode(node) || !isManagedId(node.id)) {
-      continue;
-    }
-    const existingList = (_a = managedFileNodesByPath.get(node.file)) != null ? _a : [];
-    existingList.push(node);
-    managedFileNodesByPath.set(node.file, existingList);
-  }
-  const changes = [];
-  const duplicatePaths = [];
-  for (const [path, nodes] of managedFileNodesByPath) {
-    if (nodes.length > 1) {
-      duplicatePaths.push(path);
-      continue;
-    }
-    const currentStatus = statusByPath.get(path);
-    if (currentStatus === void 0) {
-      continue;
-    }
-    const groupStatus = findNodeGroupStatus(nodes[0], groups);
-    if (groupStatus === null || groupStatus === currentStatus) {
-      continue;
-    }
-    changes.push({ path, newStatus: groupStatus });
-  }
-  return { changes, duplicatePaths };
-}
-
-// src/canvas/board-sync.ts
-var REGENERATE_DEBOUNCE_MS = 300;
-var BoardSyncController = class {
-  constructor(options) {
-    this.regenerateHandle = null;
-    /** Own-write guard: the board file is outside TaskStateStore's domain (non-.md), so this controller tracks its own last write. */
-    this.lastWrittenJson = null;
-    this.app = options.app;
-    this.getSettings = options.getSettings;
-  }
-  onload(plugin) {
-    plugin.registerEvent(this.app.vault.on("modify", (file) => {
-      if (!(file instanceof import_obsidian3.TFile)) {
-        return;
-      }
-      if (this.isBoardFile(file)) {
-        void this.handleBoardFileModified(file);
-        return;
-      }
-      if (this.isTrackedProjectFile(file)) {
-        this.queueRegenerate();
-      }
-    }));
-    plugin.registerEvent(this.app.vault.on("create", (file) => {
-      if (file instanceof import_obsidian3.TFile && this.isTrackedProjectFile(file)) {
-        this.queueRegenerate();
-      }
-    }));
-    plugin.registerEvent(this.app.vault.on("rename", (file) => {
-      if (file instanceof import_obsidian3.TFile) {
-        this.queueRegenerate();
-      }
-    }));
-    plugin.registerEvent(this.app.vault.on("delete", (file) => {
-      if (file instanceof import_obsidian3.TFile) {
-        this.queueRegenerate();
-      }
-    }));
-  }
-  onunload() {
-    if (this.regenerateHandle !== null) {
-      window.clearTimeout(this.regenerateHandle);
-      this.regenerateHandle = null;
-    }
-  }
-  /** Creates the board file from a live vault scan if it doesn't exist yet, then opens it. */
-  async openBoard() {
-    const settings = this.getSettings();
-    if (!settings.boardFilePath) {
-      new import_obsidian3.Notice("Set Board File Path in plugin settings first.");
-      return;
-    }
-    let file = this.app.vault.getAbstractFileByPath(settings.boardFilePath);
-    if (file && !(file instanceof import_obsidian3.TFile)) {
-      new import_obsidian3.Notice(`'${settings.boardFilePath}' is a folder, not a file.`);
-      return;
-    }
-    if (!file) {
-      const projects = await this.collectTrackedProjects(settings);
-      const json = serializeCanvas(buildBoardData(projects, null));
-      await ensureParentFoldersExist(this.app, settings.boardFilePath);
-      file = await this.app.vault.create(settings.boardFilePath, json);
-      this.lastWrittenJson = json;
-    }
-    await this.app.workspace.getLeaf(true).openFile(file);
-  }
-  isBoardFile(file) {
-    const settings = this.getSettings();
-    return !!settings.boardFilePath && file.path === settings.boardFilePath;
-  }
-  isTrackedProjectFile(file) {
-    if (file.extension !== "md") {
-      return false;
-    }
-    const settings = this.getSettings();
-    return this.statusFolderRoots(settings).some((root) => file.path === root || file.path.startsWith(`${root}/`));
-  }
-  statusFolderRoots(settings) {
-    return STATUS_COLUMNS.map((column) => this.folderForStatus(settings, column.status)).filter(
-      (folder) => !!folder
-    );
-  }
-  folderForStatus(settings, status) {
-    switch (status) {
-      case "todo":
-        return settings.projectsFolder;
-      case "waiting":
-        return settings.waitingProjectsFolder;
-      case "someday-maybe":
-        return settings.somedayMaybeProjectsFolder;
-      case "scheduled":
-        return settings.scheduledProjectsFolder;
-      default:
-        return "";
-    }
-  }
-  queueRegenerate() {
-    if (this.regenerateHandle !== null) {
-      window.clearTimeout(this.regenerateHandle);
-    }
-    this.regenerateHandle = window.setTimeout(() => {
-      this.regenerateHandle = null;
-      void this.regenerate();
-    }, REGENERATE_DEBOUNCE_MS);
-  }
-  /** No-op when the board file doesn't exist yet — the board is opt-in. */
-  async regenerate() {
-    const settings = this.getSettings();
-    if (!settings.boardFilePath) {
-      return;
-    }
-    const boardFile = this.app.vault.getAbstractFileByPath(settings.boardFilePath);
-    if (!(boardFile instanceof import_obsidian3.TFile)) {
-      return;
-    }
-    const existingJson = await this.app.vault.read(boardFile);
-    const existingData = parseCanvas(existingJson);
-    const projects = await this.collectTrackedProjects(settings);
-    const nextJson = serializeCanvas(buildBoardData(projects, existingData));
-    if (nextJson === existingJson) {
-      return;
-    }
-    this.lastWrittenJson = nextJson;
-    await this.app.vault.modify(boardFile, nextJson);
-  }
-  async handleBoardFileModified(file) {
-    const content = await this.app.vault.read(file);
-    if (content === this.lastWrittenJson) {
-      return;
-    }
-    const data = parseCanvas(content);
-    if (!data) {
-      return;
-    }
-    const settings = this.getSettings();
-    const projects = await this.collectTrackedProjects(settings);
-    const statusByPath = new Map(projects.map((project) => [project.path, project.status]));
-    const { changes, duplicatePaths } = diffBoardStatuses(data, statusByPath);
-    if (duplicatePaths.length > 0) {
-      new import_obsidian3.Notice(
-        `Task Board: ${duplicatePaths.length} project${duplicatePaths.length === 1 ? " appears" : "s appear"} on more than one card \u2014 delete the duplicate card(s) and edit the board again.`
-      );
-    }
-    for (const change of changes) {
-      const target = this.app.vault.getAbstractFileByPath(change.path);
-      if (target instanceof import_obsidian3.TFile) {
-        await this.setProjectStatus(target, change.newStatus, settings);
-      }
-    }
-    this.queueRegenerate();
-  }
-  async setProjectStatus(file, status, settings) {
-    await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
-      frontmatter[settings.statusField] = status;
-    });
-  }
-  async collectTrackedProjects(settings) {
-    const roots = this.statusFolderRoots(settings);
-    if (roots.length === 0) {
-      return [];
-    }
-    const files = this.app.vault.getMarkdownFiles().filter((file) => roots.some((root) => file.path === root || file.path.startsWith(`${root}/`)));
-    const projects = [];
-    for (const file of files) {
-      const content = await this.app.vault.read(file);
-      const status = readStatusValue(content, settings.statusField);
-      if (!status) {
-        continue;
-      }
-      projects.push({
-        path: file.path,
-        status,
-        priority: readFilePriority(content),
-        basename: file.basename
-      });
-    }
-    return projects;
-  }
-};
-
 // src/projects/add-project-modal.ts
+var import_obsidian3 = require("obsidian");
 var import_obsidian4 = require("obsidian");
-var import_obsidian5 = require("obsidian");
 var SECTION_SPACING_STYLES = {
   marginBottom: "14px"
 };
@@ -847,7 +467,7 @@ var SECONDARY_BUTTON_STYLES = {
 var STATUS_OPTIONS = ["todo", "waiting", "someday-maybe", "scheduled"];
 var PRIORITY_OPTIONS = ["1", "2", "3"];
 var SCHEDULED_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
-var AddProjectModal = class extends import_obsidian4.Modal {
+var AddProjectModal = class extends import_obsidian3.Modal {
   constructor(options) {
     var _a;
     super(options.app);
@@ -862,7 +482,7 @@ var AddProjectModal = class extends import_obsidian4.Modal {
     this.settings = options.settings;
     this.onSubmit = options.onSubmit;
     this.initialTasks = (_a = options.initialTasks) != null ? _a : [];
-    this.folderSuggestions = this.app.vault.getAllLoadedFiles().filter((file) => file instanceof import_obsidian5.TFolder).map((folder) => folder.path).sort((left, right) => left.localeCompare(right));
+    this.folderSuggestions = this.app.vault.getAllLoadedFiles().filter((file) => file instanceof import_obsidian4.TFolder).map((folder) => folder.path).sort((left, right) => left.localeCompare(right));
   }
   onOpen() {
     const { contentEl } = this;
@@ -1015,23 +635,23 @@ var AddProjectModal = class extends import_obsidian4.Modal {
     const status = (_h = (_g = this.statusSelect) == null ? void 0 : _g.value) != null ? _h : "todo";
     const tasks = parseTaskLines((_j = (_i = this.tasksInput) == null ? void 0 : _i.value) != null ? _j : "");
     if (!name) {
-      new import_obsidian4.Notice("Enter a project name.");
+      new import_obsidian3.Notice("Enter a project name.");
       return;
     }
     const priority = Number.parseInt(priorityValue, 10);
     if (priority !== 1 && priority !== 2 && priority !== 3) {
-      new import_obsidian4.Notice("Choose priority 1, 2, or 3.");
+      new import_obsidian3.Notice("Choose priority 1, 2, or 3.");
       return;
     }
     let scheduledDate = null;
     if (status === "scheduled") {
       scheduledDate = (_l = (_k = this.scheduledDateInput) == null ? void 0 : _k.value.trim()) != null ? _l : "";
       if (!SCHEDULED_DATE_REGEX.test(scheduledDate)) {
-        new import_obsidian4.Notice("Enter a Scheduled Date in YYYY-MM-DD format.");
+        new import_obsidian3.Notice("Enter a Scheduled Date in YYYY-MM-DD format.");
         return;
       }
       if (tasks.length === 0) {
-        new import_obsidian4.Notice("Add at least one task when Status is scheduled \u2014 the Scheduled Date is attached to the first task as its due date.");
+        new import_obsidian3.Notice("Add at least one task when Status is scheduled \u2014 the Scheduled Date is attached to the first task as its due date.");
         return;
       }
     }
@@ -1046,7 +666,7 @@ var AddProjectModal = class extends import_obsidian4.Modal {
       });
       this.close();
     } catch (error) {
-      new import_obsidian4.Notice(error instanceof Error ? error.message : "Failed to create project.");
+      new import_obsidian3.Notice(error instanceof Error ? error.message : "Failed to create project.");
     }
   }
 };
@@ -1094,7 +714,7 @@ function applyStyles(element, styles) {
 }
 
 // src/dashboard/date-dashboard.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/date/date-utils.ts
 var ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
@@ -1149,11 +769,547 @@ function crossesThresholdWithinCurrentWeek(startDateString, thresholdDays, refer
 }
 
 // src/dashboard/dashboard-task-data.ts
-var import_obsidian6 = require("obsidian");
+var import_obsidian5 = require("obsidian");
+
+// src/tasks/frontmatter-utils.ts
+var FRONTMATTER_BLOCK_REGEX = /^---\r?\n([\s\S]*?)\r?\n---/;
+function readFrontmatterField(content, fieldName) {
+  const frontmatterMatch = content.match(FRONTMATTER_BLOCK_REGEX);
+  if (!frontmatterMatch) {
+    return null;
+  }
+  const fieldRegex = new RegExp(`^\\s*${escapeRegExp(fieldName)}\\s*:\\s*(.*?)\\s*$`, "i");
+  const lines = frontmatterMatch[1].split(/\r?\n/);
+  for (const line of lines) {
+    const match = line.match(fieldRegex);
+    if (!match) {
+      continue;
+    }
+    return match[1].replace(/^['"]|['"]$/g, "").trim();
+  }
+  return null;
+}
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// src/tasks/file-priority.ts
+var PRIORITY_FRONTMATTER_FIELD = "priority";
+var DEFAULT_PRIORITY = 3;
+function readFilePriority(content) {
+  var _a;
+  return (_a = readFrontmatterPriority(content)) != null ? _a : DEFAULT_PRIORITY;
+}
+function readFrontmatterPriority(content) {
+  const priorityValue = readFrontmatterField(content, PRIORITY_FRONTMATTER_FIELD);
+  return priorityValue === null ? null : parsePriorityValue(priorityValue);
+}
+function parsePriorityValue(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (parsed === 1 || parsed === 2 || parsed === 3) {
+    return parsed;
+  }
+  return DEFAULT_PRIORITY;
+}
+
+// src/tasks/repeat-rules.ts
+var REPEAT_FIELD_VALUE_REGEX = /\[(?:repeat|repeats)::\s*([^\]]+?)\s*\]/i;
+var ISO_DATE_REGEX2 = /^\d{4}-\d{2}-\d{2}$/;
+var DAY_MS = 24 * 60 * 60 * 1e3;
+var MAX_MONTH_ITERATIONS = 1200;
+var MAX_SET_MONTH_ITERATIONS = 48;
+var MAX_NTH_WEEKDAY_MONTH_ITERATIONS = 24;
+var MAX_YEARLY_ITERATIONS = 8;
+var REPEAT_KEYWORD_TO_UNIT = {
+  day: { unit: "day", multiplier: 1 },
+  days: { unit: "day", multiplier: 1 },
+  daily: { unit: "day", multiplier: 1 },
+  week: { unit: "week", multiplier: 1 },
+  weeks: { unit: "week", multiplier: 1 },
+  weekly: { unit: "week", multiplier: 1 },
+  month: { unit: "month", multiplier: 1 },
+  months: { unit: "month", multiplier: 1 },
+  monthly: { unit: "month", multiplier: 1 },
+  quarter: { unit: "month", multiplier: 3 },
+  quarters: { unit: "month", multiplier: 3 },
+  quarterly: { unit: "month", multiplier: 3 },
+  year: { unit: "year", multiplier: 1 },
+  years: { unit: "year", multiplier: 1 },
+  yearly: { unit: "year", multiplier: 1 },
+  annual: { unit: "year", multiplier: 1 },
+  annually: { unit: "year", multiplier: 1 }
+};
+var WEEKDAY_KEYWORD_TO_INDEX = {
+  sunday: 0,
+  sun: 0,
+  monday: 1,
+  mon: 1,
+  tuesday: 2,
+  tue: 2,
+  tues: 2,
+  wednesday: 3,
+  wed: 3,
+  thursday: 4,
+  thu: 4,
+  thur: 4,
+  thurs: 4,
+  friday: 5,
+  fri: 5,
+  saturday: 6,
+  sat: 6
+};
+var MONTH_NAME_TO_INDEX = {
+  jan: 0,
+  january: 0,
+  feb: 1,
+  february: 1,
+  mar: 2,
+  march: 2,
+  apr: 3,
+  april: 3,
+  may: 4,
+  jun: 5,
+  june: 5,
+  jul: 6,
+  july: 6,
+  aug: 7,
+  august: 7,
+  sep: 8,
+  sept: 8,
+  september: 8,
+  oct: 9,
+  october: 9,
+  nov: 10,
+  november: 10,
+  dec: 11,
+  december: 11
+};
+var MONTH_MAX_DAY = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+function getRepeatFieldValue(line) {
+  const match = line.match(REPEAT_FIELD_VALUE_REGEX);
+  return match ? match[1].trim() : null;
+}
+function parseRepeatRule(line) {
+  const rawValue = getRepeatFieldValue(line);
+  if (rawValue === null) {
+    return null;
+  }
+  return parseRepeatExpression(rawValue);
+}
+function getNextRepeatDate(rule, options) {
+  var _a, _b;
+  const now = (_a = options.now) != null ? _a : /* @__PURE__ */ new Date();
+  const today = startOfDay(now);
+  const dueAnchor = rule.anchor === "due" ? parseIsoDate((_b = options.previousDueDate) != null ? _b : "") : null;
+  const anchor = dueAnchor != null ? dueAnchor : today;
+  const floor = anchor.getTime() > today.getTime() ? anchor : today;
+  const next = computeNextOccurrence(rule.spec, anchor, floor);
+  if (next === null) {
+    return null;
+  }
+  const nextString = getCurrentDateString(next);
+  if (rule.until !== null && nextString > rule.until) {
+    return null;
+  }
+  return nextString;
+}
+function parseRepeatExpression(rawValue) {
+  const normalized = rawValue.trim().toLowerCase().replace(/\s+/g, " ");
+  if (normalized.length === 0) {
+    return null;
+  }
+  let rest = normalized;
+  let anchor = "due";
+  let requireIntervalOnly = false;
+  const bangEveryMatch = rest.match(/^(?:every!|ev!)\s+(.+)$/);
+  const afterMatch = rest.match(/^after\s+(.+)$/);
+  const plainEveryMatch = rest.match(/^(?:every|ev)\s+(.+)$/);
+  if (bangEveryMatch) {
+    anchor = "completion";
+    rest = bangEveryMatch[1].trim();
+  } else if (afterMatch) {
+    anchor = "completion";
+    requireIntervalOnly = true;
+    rest = afterMatch[1].trim();
+  } else if (plainEveryMatch) {
+    anchor = "due";
+    rest = plainEveryMatch[1].trim();
+  } else if (/^(every!|ev!|every|ev|after)$/.test(rest)) {
+    return null;
+  }
+  if (rest.length === 0) {
+    return null;
+  }
+  let until = null;
+  const boundMatch = rest.match(/^(.*?)\s+(?:until|ending)\s+(\S+)$/);
+  if (boundMatch) {
+    const boundValue = boundMatch[2];
+    if (!ISO_DATE_REGEX2.test(boundValue)) {
+      return null;
+    }
+    until = boundValue;
+    rest = boundMatch[1].trim();
+    if (rest.length === 0) {
+      return null;
+    }
+  }
+  const spec = matchExpression(rest);
+  if (spec === null) {
+    return null;
+  }
+  if (requireIntervalOnly && spec.kind !== "interval" && spec.kind !== "workday-interval") {
+    return null;
+  }
+  return { spec, anchor, until, raw: rawValue.trim() };
+}
+function matchExpression(expression) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  const hasComma = expression.includes(",");
+  const tokens = expression.split(/[,\s]+/).filter((token) => token.length > 0);
+  if (tokens.length === 0) {
+    return null;
+  }
+  if (hasComma) {
+    return matchSetExpression(tokens);
+  }
+  return (_i = (_h = (_g = (_f = (_e = (_d = (_c = (_b = (_a = matchOtherInterval(tokens)) != null ? _a : matchWorkdayKeyword(tokens)) != null ? _b : matchCountedInterval(tokens)) != null ? _c : matchLastDay(tokens)) != null ? _d : matchLastWorkday(tokens)) != null ? _e : matchNthWeekdayOfMonth(tokens)) != null ? _f : matchMonthDate(tokens)) != null ? _g : matchSingleUnitKeyword(tokens)) != null ? _h : matchSingleWeekday(tokens)) != null ? _i : matchSingleOrdinalDay(tokens);
+}
+function matchSetExpression(tokens) {
+  if (tokens.length < 2) {
+    return null;
+  }
+  const weekdays = tokens.map((token) => WEEKDAY_KEYWORD_TO_INDEX[token]);
+  if (weekdays.every((weekday) => weekday !== void 0)) {
+    const unique = Array.from(new Set(weekdays)).sort((a, b) => a - b);
+    return { kind: "weekday-set", weekdays: unique };
+  }
+  const days = tokens.map((token) => parseOrdinalOrPlainDay(token));
+  if (days.every((day) => day !== null)) {
+    const unique = Array.from(new Set(days)).sort((a, b) => a - b);
+    return { kind: "month-day-set", daysOfMonth: unique };
+  }
+  return null;
+}
+function matchOtherInterval(tokens) {
+  if (tokens.length !== 2 || tokens[0] !== "other") {
+    return null;
+  }
+  const resolution = REPEAT_KEYWORD_TO_UNIT[tokens[1]];
+  if (!resolution) {
+    return null;
+  }
+  return { kind: "interval", interval: 2 * resolution.multiplier, unit: resolution.unit };
+}
+function matchWorkdayKeyword(tokens) {
+  if (tokens.length !== 1) {
+    return null;
+  }
+  if (tokens[0] === "weekday" || tokens[0] === "workday" || tokens[0] === "workdays") {
+    return { kind: "workday-interval", interval: 1 };
+  }
+  return null;
+}
+function matchCountedInterval(tokens) {
+  if (tokens.length !== 2 || !/^\d+$/.test(tokens[0])) {
+    return null;
+  }
+  const interval = Number.parseInt(tokens[0], 10);
+  if (!Number.isFinite(interval) || interval < 1) {
+    return null;
+  }
+  if (tokens[1] === "workday" || tokens[1] === "workdays") {
+    return { kind: "workday-interval", interval };
+  }
+  const resolution = REPEAT_KEYWORD_TO_UNIT[tokens[1]];
+  if (!resolution) {
+    return null;
+  }
+  return { kind: "interval", interval: interval * resolution.multiplier, unit: resolution.unit };
+}
+function matchLastDay(tokens) {
+  if (tokens.length === 2 && tokens[0] === "last" && tokens[1] === "day") {
+    return { kind: "last-day" };
+  }
+  return null;
+}
+function matchLastWorkday(tokens) {
+  if (tokens.length === 2 && tokens[0] === "last" && (tokens[1] === "workday" || tokens[1] === "weekday")) {
+    return { kind: "last-workday" };
+  }
+  return null;
+}
+function matchNthWeekdayOfMonth(tokens) {
+  if (tokens.length < 2 || tokens.length > 4) {
+    return null;
+  }
+  const nth = parseNthToken(tokens[0]);
+  if (nth === null) {
+    return null;
+  }
+  const weekday = WEEKDAY_KEYWORD_TO_INDEX[tokens[1]];
+  if (weekday === void 0) {
+    return null;
+  }
+  if (tokens.length === 2) {
+    return { kind: "nth-weekday", nth, weekday };
+  }
+  const monthToken = tokens.length === 4 ? tokens[2] === "of" ? tokens[3] : null : tokens[2];
+  if (monthToken === null) {
+    return null;
+  }
+  const month = MONTH_NAME_TO_INDEX[monthToken];
+  if (month === void 0) {
+    return null;
+  }
+  return { kind: "yearly-nth-weekday", nth, weekday, month };
+}
+function matchMonthDate(tokens) {
+  if (tokens.length !== 2) {
+    return null;
+  }
+  let month = MONTH_NAME_TO_INDEX[tokens[0]];
+  let dayToken = tokens[1];
+  if (month === void 0) {
+    month = MONTH_NAME_TO_INDEX[tokens[1]];
+    dayToken = tokens[0];
+  }
+  if (month === void 0) {
+    return null;
+  }
+  const day = parseOrdinalOrPlainDay(dayToken);
+  if (day === null || day > MONTH_MAX_DAY[month]) {
+    return null;
+  }
+  return { kind: "yearly-date", month, day };
+}
+function matchSingleUnitKeyword(tokens) {
+  if (tokens.length !== 1) {
+    return null;
+  }
+  const resolution = REPEAT_KEYWORD_TO_UNIT[tokens[0]];
+  return resolution ? { kind: "interval", interval: resolution.multiplier, unit: resolution.unit } : null;
+}
+function matchSingleWeekday(tokens) {
+  if (tokens.length !== 1) {
+    return null;
+  }
+  const weekday = WEEKDAY_KEYWORD_TO_INDEX[tokens[0]];
+  return weekday !== void 0 ? { kind: "weekday-set", weekdays: [weekday] } : null;
+}
+function matchSingleOrdinalDay(tokens) {
+  if (tokens.length !== 1) {
+    return null;
+  }
+  const day = parseOrdinalDay(tokens[0]);
+  return day !== null ? { kind: "month-day-set", daysOfMonth: [day] } : null;
+}
+function parseNthToken(token) {
+  if (token === "last") {
+    return "last";
+  }
+  const match = token.match(/^([1-5])(st|nd|rd|th)$/);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+function parseOrdinalDay(token) {
+  const match = token.match(/^([1-9]|[12][0-9]|3[01])(st|nd|rd|th)$/);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+function parseOrdinalOrPlainDay(token) {
+  const ordinal = parseOrdinalDay(token);
+  if (ordinal !== null) {
+    return ordinal;
+  }
+  return /^([1-9]|[12][0-9]|3[01])$/.test(token) ? Number.parseInt(token, 10) : null;
+}
+function computeNextOccurrence(spec, anchor, floor) {
+  switch (spec.kind) {
+    case "interval":
+      if (spec.unit === "day") {
+        return nextByDayStep(anchor, floor, spec.interval);
+      }
+      if (spec.unit === "week") {
+        return nextByDayStep(anchor, floor, spec.interval * 7);
+      }
+      if (spec.unit === "month") {
+        return nextByMonthStep(anchor, floor, spec.interval);
+      }
+      return nextByMonthStep(anchor, floor, spec.interval * 12);
+    case "workday-interval":
+      return nextWorkdayStep(floor, spec.interval);
+    case "weekday-set":
+      return nextInWeekdaySet(floor, spec.weekdays);
+    case "month-day-set":
+      return nextInMonthDaySet(floor, spec.daysOfMonth);
+    case "last-day":
+      return nextLastDay(floor);
+    case "last-workday":
+      return nextLastWorkday(floor);
+    case "nth-weekday":
+      return nextNthWeekdayMonthly(floor, spec.nth, spec.weekday);
+    case "yearly-nth-weekday":
+      return nextYearlyNthWeekday(floor, spec.nth, spec.weekday, spec.month);
+    case "yearly-date":
+      return nextYearlyDate(floor, spec.month, spec.day);
+  }
+}
+function nextByDayStep(anchor, floor, stepDays) {
+  const diffDays = Math.round((floor.getTime() - anchor.getTime()) / DAY_MS);
+  const k = Math.floor(diffDays / stepDays) + 1;
+  return addDays(anchor, k * stepDays);
+}
+function nextByMonthStep(anchor, floor, stepMonths) {
+  for (let k = 1; k <= MAX_MONTH_ITERATIONS; k += 1) {
+    const candidate = addMonthsClamped(anchor, k * stepMonths);
+    if (candidate.getTime() > floor.getTime()) {
+      return candidate;
+    }
+  }
+  return null;
+}
+function nextWorkdayStep(floor, count) {
+  let current = floor;
+  let remaining = count;
+  while (remaining > 0) {
+    current = addDays(current, 1);
+    if (isWeekday(current)) {
+      remaining -= 1;
+    }
+  }
+  return current;
+}
+function nextInWeekdaySet(floor, weekdays) {
+  for (let offset = 1; offset <= 7; offset += 1) {
+    const candidate = addDays(floor, offset);
+    if (weekdays.includes(candidate.getDay())) {
+      return candidate;
+    }
+  }
+  return null;
+}
+function nextInMonthDaySet(floor, daysOfMonth) {
+  let year = floor.getFullYear();
+  let month = floor.getMonth();
+  for (let i = 0; i < MAX_SET_MONTH_ITERATIONS; i += 1) {
+    const candidates = daysOfMonth.map((day) => clampedMonthDate(year, month, day)).filter((candidate) => candidate.getTime() > floor.getTime()).sort((a, b) => a.getTime() - b.getTime());
+    if (candidates.length > 0) {
+      return candidates[0];
+    }
+    month += 1;
+    if (month > 11) {
+      month = 0;
+      year += 1;
+    }
+  }
+  return null;
+}
+function nextLastDay(floor) {
+  const candidate = lastDayOfMonth(floor.getFullYear(), floor.getMonth());
+  if (candidate.getTime() > floor.getTime()) {
+    return candidate;
+  }
+  const nextMonth = addMonthsClamped(new Date(floor.getFullYear(), floor.getMonth(), 1), 1);
+  return lastDayOfMonth(nextMonth.getFullYear(), nextMonth.getMonth());
+}
+function nextLastWorkday(floor) {
+  const candidate = lastWorkdayOfMonth(floor.getFullYear(), floor.getMonth());
+  if (candidate.getTime() > floor.getTime()) {
+    return candidate;
+  }
+  const nextMonth = addMonthsClamped(new Date(floor.getFullYear(), floor.getMonth(), 1), 1);
+  return lastWorkdayOfMonth(nextMonth.getFullYear(), nextMonth.getMonth());
+}
+function nextNthWeekdayMonthly(floor, nth, weekday) {
+  let year = floor.getFullYear();
+  let month = floor.getMonth();
+  for (let i = 0; i < MAX_NTH_WEEKDAY_MONTH_ITERATIONS; i += 1) {
+    const candidate = nthWeekdayOfMonth(year, month, nth, weekday);
+    if (candidate !== null && candidate.getTime() > floor.getTime()) {
+      return candidate;
+    }
+    month += 1;
+    if (month > 11) {
+      month = 0;
+      year += 1;
+    }
+  }
+  return null;
+}
+function nextYearlyNthWeekday(floor, nth, weekday, month) {
+  let year = floor.getFullYear();
+  for (let i = 0; i < MAX_YEARLY_ITERATIONS; i += 1) {
+    const candidate = nthWeekdayOfMonth(year, month, nth, weekday);
+    if (candidate !== null && candidate.getTime() > floor.getTime()) {
+      return candidate;
+    }
+    year += 1;
+  }
+  return null;
+}
+function nextYearlyDate(floor, month, day) {
+  let year = floor.getFullYear();
+  for (let i = 0; i < MAX_YEARLY_ITERATIONS; i += 1) {
+    const candidate = clampedMonthDate(year, month, day);
+    if (candidate.getTime() > floor.getTime()) {
+      return candidate;
+    }
+    year += 1;
+  }
+  return null;
+}
+function nthWeekdayOfMonth(year, month, nth, weekday) {
+  if (nth === "last") {
+    let date = lastDayOfMonth(year, month);
+    while (date.getDay() !== weekday) {
+      date = addDays(date, -1);
+    }
+    return date;
+  }
+  const first = new Date(year, month, 1);
+  const firstWeekdayOffset = (weekday - first.getDay() + 7) % 7;
+  const day = 1 + firstWeekdayOffset + (nth - 1) * 7;
+  const lastDay = lastDayOfMonth(year, month).getDate();
+  return day <= lastDay ? new Date(year, month, day) : null;
+}
+function lastWorkdayOfMonth(year, month) {
+  let date = lastDayOfMonth(year, month);
+  while (!isWeekday(date)) {
+    date = addDays(date, -1);
+  }
+  return date;
+}
+function lastDayOfMonth(year, month) {
+  return new Date(year, month + 1, 0);
+}
+function clampedMonthDate(year, month, day) {
+  const lastDay = lastDayOfMonth(year, month).getDate();
+  return new Date(year, month, Math.min(day, lastDay));
+}
+function isWeekday(date) {
+  const day = date.getDay();
+  return day !== 0 && day !== 6;
+}
+function startOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+function addDays(baseDate, days) {
+  const nextDate = new Date(baseDate);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+}
+function addMonthsClamped(baseDate, monthsToAdd) {
+  const startYear = baseDate.getFullYear();
+  const startMonth = baseDate.getMonth();
+  const targetMonthIndex = startMonth + monthsToAdd;
+  const targetYear = startYear + Math.floor(targetMonthIndex / 12);
+  const targetMonth = (targetMonthIndex % 12 + 12) % 12;
+  const day = baseDate.getDate();
+  const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const clampedDay = Math.min(day, lastDayOfTargetMonth);
+  return new Date(targetYear, targetMonth, clampedDay);
+}
 
 // src/tasks/task-line-metadata.ts
 var TASK_LINE_STRUCTURE_REGEX = /^(\s*[-*+]\s+\[)( |x|X)(\]\s+)(.*)$/;
-var REPEAT_VALUE_REGEX = /\[(?:repeat|repeats)::\s*(?:every\s+)?([^\]]+?)\s*\]/i;
 var INLINE_FIELD_REGEX = /\s*\[[^\]]+::\s*[^\]]*\]/g;
 var TAG_REGEX = /(^|\s)#[^\s#]+/g;
 var MULTISPACE_REGEX = /\s+/g;
@@ -1183,7 +1339,7 @@ function parseTaskLine(line) {
 }
 function getRecurrenceLabel(taskBody) {
   var _a;
-  return (_a = readInlineFieldValue(taskBody, REPEAT_VALUE_REGEX)) != null ? _a : "none";
+  return (_a = getRepeatFieldValue(taskBody)) != null ? _a : "none";
 }
 function readInlineFieldValue(taskBody, fieldRegex) {
   const match = taskBody.match(fieldRegex);
@@ -1245,7 +1401,7 @@ async function collectTasksForDate(app, taskFolderRoots, inboxFile, dateString) 
 async function collectInboxTasks(app, inboxFile) {
   if (!inboxFile) return [];
   const file = app.vault.getAbstractFileByPath(inboxFile);
-  if (!file || !(file instanceof import_obsidian6.TFile)) return [];
+  if (!file || !(file instanceof import_obsidian5.TFile)) return [];
   const content = await app.vault.read(file);
   const priority = readFilePriority(content);
   const lines = content.split(/\r?\n/);
@@ -1629,7 +1785,7 @@ var _DateDashboardController = class _DateDashboardController {
     this.appendTaskTableContent(container, rows, sourcePath, true);
   }
   isRelevantFile(file) {
-    if (!(file instanceof import_obsidian7.TFile)) return false;
+    if (!(file instanceof import_obsidian6.TFile)) return false;
     if (!MARKDOWN_EXTENSION_REGEX3.test(file.name)) return false;
     const roots = this.getTaskFolderRoots().filter(Boolean);
     const inboxFile = this.getInboxFile();
@@ -1760,7 +1916,7 @@ var _DateDashboardController = class _DateDashboardController {
 };
 _DateDashboardController.VIEW_TYPE = "task-manager-date-dashboard";
 var DateDashboardController = _DateDashboardController;
-var DateDashboardView = class extends import_obsidian7.ItemView {
+var DateDashboardView = class extends import_obsidian6.ItemView {
   constructor(leaf, controller) {
     super(leaf);
     this.controller = controller;
@@ -1780,7 +1936,7 @@ var DateDashboardView = class extends import_obsidian7.ItemView {
 };
 
 // src/editor/due-date-suggest.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 
 // src/date/date-suggestions.ts
 var DEFAULT_LOOKAHEAD_DAYS = 30;
@@ -1788,10 +1944,10 @@ var weekdayFormatter = new Intl.DateTimeFormat("en-US", {
   weekday: "long"
 });
 function buildDateSuggestions(lookaheadDays = DEFAULT_LOOKAHEAD_DAYS) {
-  const today = startOfDay(/* @__PURE__ */ new Date());
+  const today = startOfDay2(/* @__PURE__ */ new Date());
   const suggestions = [];
   for (let offset = 0; offset <= lookaheadDays; offset += 1) {
-    const date = addDays(today, offset);
+    const date = addDays2(today, offset);
     const value = formatDate(date);
     const label = getDateLabel(date, offset);
     suggestions.push({
@@ -1830,12 +1986,12 @@ function getDateLabel(date, offset) {
   }
   return weekdayFormatter.format(date);
 }
-function startOfDay(date) {
+function startOfDay2(date) {
   const copy = new Date(date);
   copy.setHours(0, 0, 0, 0);
   return copy;
 }
-function addDays(date, days) {
+function addDays2(date, days) {
   const copy = new Date(date);
   copy.setDate(copy.getDate() + days);
   return copy;
@@ -1859,7 +2015,7 @@ function isValidIsoDate(value) {
 }
 
 // src/editor/due-date-suggest.ts
-var DateFieldEditorSuggest = class extends import_obsidian8.EditorSuggest {
+var DateFieldEditorSuggest = class extends import_obsidian7.EditorSuggest {
   constructor(app, fieldName, suggestionFactory) {
     super(app);
     this.triggerInfo = null;
@@ -2000,7 +2156,7 @@ function pickRandomFile(files) {
 }
 
 // src/review/projects-summary-view.ts
-var import_obsidian12 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 
 // src/ui/collapsible-section.ts
 function appendCollapsibleSection(container, title, count, isOpen, onToggle) {
@@ -2172,7 +2328,7 @@ function stripResetTaskFields(taskBody) {
 }
 
 // src/tasks/task-processor.ts
-var import_obsidian11 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 
 // src/tasks/derived-frontmatter.ts
 var NEXT_DUE_FIELD = "next-due";
@@ -2221,7 +2377,7 @@ function normalizeStoredValue(value) {
 }
 
 // src/tasks/reconciler.ts
-var import_obsidian10 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 
 // src/tasks/next-actions.ts
 function findActionableTaskLines(lines) {
@@ -2234,151 +2390,36 @@ function findActionableTaskLines(lines) {
   return [];
 }
 
-// src/tasks/due-date-modal.ts
-var import_obsidian9 = require("obsidian");
-
-// src/tasks/repeat-rules.ts
-var REPEAT_FIELD_REGEX = /\[(?:repeat|repeats)::\s*(?:every\s+)?([^\]]+?)\s*\]/i;
-var COUNT_AND_KEYWORD_REGEX = /^(\d+)\s+([a-z-]+)$/i;
-var KEYWORD_ONLY_REGEX = /^([a-z-]+)$/i;
-var REPEAT_KEYWORD_TO_UNIT = {
-  day: "day",
-  days: "day",
-  daily: "day",
-  week: "week",
-  weeks: "week",
-  weekly: "week",
-  month: "month",
-  months: "month",
-  monthly: "month",
-  year: "year",
-  years: "year",
-  yearly: "year",
-  annual: "year",
-  annually: "year"
-};
-var WEEKDAY_KEYWORD_TO_INDEX = {
-  sunday: 0,
-  sun: 0,
-  monday: 1,
-  mon: 1,
-  tuesday: 2,
-  tue: 2,
-  tues: 2,
-  wednesday: 3,
-  wed: 3,
-  thursday: 4,
-  thu: 4,
-  thur: 4,
-  thurs: 4,
-  friday: 5,
-  fri: 5,
-  saturday: 6,
-  sat: 6
-};
-function parseRepeatRule(line) {
-  const fieldMatch = line.match(REPEAT_FIELD_REGEX);
-  if (!fieldMatch) {
-    return null;
-  }
-  return parseRepeatExpression(fieldMatch[1]);
+// src/routing/status-routing.ts
+var ROUTABLE_STATUSES = ["todo", "completed", "waiting", "someday-maybe", "scheduled", "archived"];
+function isRoutableStatus(value) {
+  return ROUTABLE_STATUSES.includes(value);
 }
-function getRepeatDueDate(rule, baseDate = /* @__PURE__ */ new Date()) {
-  switch (rule.kind) {
-    case "interval":
-      switch (rule.unit) {
-        case "day":
-          return formatDate2(addDays2(baseDate, rule.interval));
-        case "week":
-          return formatDate2(addDays2(baseDate, rule.interval * 7));
-        case "month":
-          return formatDate2(addMonthsClamped(baseDate, rule.interval));
-        case "year":
-          return formatDate2(addMonthsClamped(baseDate, rule.interval * 12));
-      }
-    case "weekday":
-      return formatDate2(getNextWeekday(baseDate, rule.weekday));
-    case "month-day":
-      return formatDate2(getNextMonthDay(baseDate, rule.dayOfMonth));
-  }
+function readStatusValue(content, statusField) {
+  const value = readFrontmatterField(content, statusField);
+  return value === null ? null : value.toLowerCase();
 }
-function parseRepeatExpression(expression) {
-  const normalized = expression.trim().toLowerCase();
-  const countedMatch = normalized.match(COUNT_AND_KEYWORD_REGEX);
-  if (countedMatch) {
-    const interval = Number.parseInt(countedMatch[1], 10);
-    const unit = REPEAT_KEYWORD_TO_UNIT[countedMatch[2]];
-    if (!Number.isFinite(interval) || interval < 1 || !unit) {
-      return null;
+function predictFinalStatus(currentStatus, hasOpenTasks) {
+  if (hasOpenTasks) {
+    if (currentStatus !== null && currentStatus !== "completed") {
+      return currentStatus;
     }
-    return { kind: "interval", interval, unit };
+    return "todo";
   }
-  const keywordMatch = normalized.match(KEYWORD_ONLY_REGEX);
-  if (keywordMatch) {
-    const intervalUnit = REPEAT_KEYWORD_TO_UNIT[keywordMatch[1]];
-    if (intervalUnit) {
-      return { kind: "interval", interval: 1, unit: intervalUnit };
-    }
-    const weekday = WEEKDAY_KEYWORD_TO_INDEX[keywordMatch[1]];
-    if (weekday !== void 0) {
-      return { kind: "weekday", weekday };
-    }
-    const ordinalDay = parseOrdinalDay(keywordMatch[1]);
-    if (ordinalDay !== null) {
-      return { kind: "month-day", dayOfMonth: ordinalDay };
-    }
+  return "completed";
+}
+function assertConfiguredDestinationForStatus(status, settings) {
+  if (!status || !isRoutableStatus(status)) {
+    return;
   }
-  return null;
-}
-function addDays2(baseDate, days) {
-  const nextDate = new Date(baseDate);
-  nextDate.setDate(nextDate.getDate() + days);
-  return nextDate;
-}
-function addMonthsClamped(baseDate, monthsToAdd) {
-  const startYear = baseDate.getFullYear();
-  const startMonth = baseDate.getMonth();
-  const targetMonthIndex = startMonth + monthsToAdd;
-  const targetYear = startYear + Math.floor(targetMonthIndex / 12);
-  const targetMonth = (targetMonthIndex % 12 + 12) % 12;
-  const day = baseDate.getDate();
-  const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
-  const clampedDay = Math.min(day, lastDayOfTargetMonth);
-  return new Date(targetYear, targetMonth, clampedDay);
-}
-function getNextWeekday(baseDate, weekday) {
-  const currentWeekday = baseDate.getDay();
-  const delta = (weekday - currentWeekday + 7) % 7 || 7;
-  return addDays2(baseDate, delta);
-}
-function getNextMonthDay(baseDate, dayOfMonth) {
-  const currentDay = baseDate.getDate();
-  if (currentDay < dayOfMonth) {
-    return buildMonthDayDate(baseDate.getFullYear(), baseDate.getMonth(), dayOfMonth);
+  const destinationRoot = getDestinationRootForStatus(settings, status);
+  if (!destinationRoot) {
+    throw new Error(`Set destination folder for status '${status}' in Task Manager settings.`);
   }
-  const nextMonth = addMonthsClamped(new Date(baseDate.getFullYear(), baseDate.getMonth(), 1), 1);
-  return buildMonthDayDate(nextMonth.getFullYear(), nextMonth.getMonth(), dayOfMonth);
-}
-function buildMonthDayDate(year, month, dayOfMonth) {
-  const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
-  return new Date(year, month, Math.min(dayOfMonth, lastDayOfMonth));
-}
-function parseOrdinalDay(value) {
-  const match = value.match(/^([1-9]|[12][0-9]|3[01])(st|nd|rd|th)$/);
-  if (!match) {
-    return null;
-  }
-  const day = Number.parseInt(match[1], 10);
-  return Number.isFinite(day) ? day : null;
-}
-function formatDate2(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
 
 // src/tasks/due-date-modal.ts
+var import_obsidian8 = require("obsidian");
 var spacingStyles = {
   description: { marginBottom: "20px" },
   taskPreview: {
@@ -2433,9 +2474,9 @@ var buttonStyles = {
     cursor: "pointer"
   }
 };
-var DueDateModal = class extends import_obsidian9.Modal {
+var DueDateModal = class extends import_obsidian8.Modal {
   constructor(options) {
-    var _a, _b;
+    var _a, _b, _c, _d;
     super(options.app);
     this.dateSuggestions = buildDateSuggestions();
     this.inputElement = null;
@@ -2445,6 +2486,7 @@ var DueDateModal = class extends import_obsidian9.Modal {
     this.taskLineIndex = options.taskLineIndex;
     this.initialPriority = options.initialPriority;
     this.initialDueDate = (_b = (_a = options.initialDueDate) == null ? void 0 : _a.trim()) != null ? _b : "";
+    this.initialRepeat = (_d = (_c = options.initialRepeat) == null ? void 0 : _c.trim()) != null ? _d : "";
     this.onSubmit = options.onSubmit;
   }
   onOpen() {
@@ -2534,8 +2576,8 @@ var DueDateModal = class extends import_obsidian9.Modal {
     this.createSectionLabel(repeatContainer, "Repeat (optional):");
     this.repeatInputElement = repeatContainer.createEl("input", {
       type: "text",
-      placeholder: "e.g., daily, 2 weeks, Monday, 5th",
-      value: ""
+      placeholder: "e.g., daily, 2 weeks, mon, wed, fri, 1st wed, last workday, jan 27",
+      value: this.initialRepeat
     });
     applyStyles2(this.repeatInputElement, inputStyles);
   }
@@ -2588,19 +2630,21 @@ var DueDateModal = class extends import_obsidian9.Modal {
     }
     const resolvedDate = resolveDateInput(dateValue);
     if (!resolvedDate) {
-      new import_obsidian9.Notice("Enter YYYY-MM-DD or a natural date like today, tomorrow, or a weekday.");
+      new import_obsidian8.Notice("Enter YYYY-MM-DD or a natural date like today, tomorrow, or a weekday.");
       return;
     }
     const repeat = repeatValue.length > 0 ? repeatValue : null;
-    if (repeat !== null && parseRepeatRule(`${this.taskLine} [repeat:: ${repeat}]`) === null) {
-      new import_obsidian9.Notice("Enter a valid repeat rule like daily, 2 weeks, Monday, or 5th.");
+    if (repeat !== null && parseRepeatRule(`- [ ] x [repeat:: ${repeat}]`) === null) {
+      new import_obsidian8.Notice(
+        "Enter a valid repeat rule like daily, every! 3 days, mon, fri, 1st wed, last workday, or jan 27 until 2026-12-31."
+      );
       return;
     }
     try {
       await this.onSubmit(this.taskLineIndex, this.taskLine, resolvedDate, priority, repeat);
       this.close();
     } catch (error) {
-      new import_obsidian9.Notice(error instanceof Error ? error.message : "Failed to add due date.");
+      new import_obsidian8.Notice(error instanceof Error ? error.message : "Failed to add due date.");
     }
   }
 };
@@ -2627,12 +2671,14 @@ async function showDueDateModalForFirstIncompleteTask(file, taskLineIndex, updat
   const initialPriority = String(readFilePriority(modalContent));
   const initialDueDateMatch = taskLine.match(/\[due::\s*([^\]]*?)\s*\]/i);
   const initialDueDate = initialDueDateMatch ? initialDueDateMatch[1].trim() : null;
+  const initialRepeat = getRepeatFieldValue(taskLine);
   const modal = new DueDateModal({
     app,
     taskLine,
     taskLineIndex,
     initialPriority,
     initialDueDate,
+    initialRepeat,
     onSubmit: async (targetLineIndex, taskLine2, dueDate, priority, repeat) => {
       var _a, _b;
       if (!isValidDateFormat(dueDate)) {
@@ -2648,7 +2694,7 @@ async function showDueDateModalForFirstIncompleteTask(file, taskLineIndex, updat
         targetIndex = fallbackIndex === -1 ? null : fallbackIndex;
       }
       if (targetIndex === null) {
-        new import_obsidian10.Notice(`Could not find "${taskLine2.trim()}" in ${file.name}; the due date was not saved.`);
+        new import_obsidian9.Notice(`Could not find "${taskLine2.trim()}" in ${file.name}; the due date was not saved.`);
         return;
       }
       if (updatedLines[targetIndex].includes("[due::")) {
@@ -2685,17 +2731,28 @@ async function applyCompletionRules(context) {
   const previousActionableBodies = new Set(
     previousActionableLines.filter((index) => index !== completedLine).map((index) => getLineBody(previousLines[index]))
   );
-  const repeatRule = parseRepeatRule(sourceTaskLine);
-  if (repeatRule !== null) {
-    const repeatedTaskLine = buildRepeatedTaskLine(sourceTaskLine, repeatRule);
-    if (repeatedTaskLine !== null) {
-      const noteBlockEnd = findNoteBlockEnd(lines, completedLine);
-      const noteBlockLines = lines.slice(completedLine + 1, noteBlockEnd);
-      const repeatedBlock = [repeatedTaskLine, ...noteBlockLines];
-      nextLines.splice(completedLine, 0, ...repeatedBlock);
-      completedLineIndex += repeatedBlock.length;
-      if (noteBlockLines.length > 0) {
-        nextLines.splice(completedLineIndex + 1, noteBlockLines.length);
+  const repeatFieldValue = getRepeatFieldValue(sourceTaskLine);
+  if (repeatFieldValue !== null) {
+    const repeatRule = parseRepeatRule(sourceTaskLine);
+    if (repeatRule === null) {
+      new import_obsidian9.Notice(`Unrecognized repeat rule "${repeatFieldValue}" \u2014 no recurring copy created.`);
+    } else {
+      const previousDueDate = readInlineFieldValue(sourceTaskLine, DUE_FIELD_REGEX2);
+      const nextDate = getNextRepeatDate(repeatRule, { previousDueDate });
+      if (nextDate === null) {
+        new import_obsidian9.Notice(`Recurrence ended (until ${repeatRule.until}) \u2014 no new copy created.`);
+      } else {
+        const repeatedTaskLine = buildRepeatedTaskLine(sourceTaskLine, nextDate);
+        if (repeatedTaskLine !== null) {
+          const noteBlockEnd = findNoteBlockEnd(lines, completedLine);
+          const noteBlockLines = lines.slice(completedLine + 1, noteBlockEnd);
+          const repeatedBlock = [repeatedTaskLine, ...noteBlockLines];
+          nextLines.splice(completedLine, 0, ...repeatedBlock);
+          completedLineIndex += repeatedBlock.length;
+          if (noteBlockLines.length > 0) {
+            nextLines.splice(completedLineIndex + 1, noteBlockLines.length);
+          }
+        }
       }
     }
   }
@@ -2791,7 +2848,7 @@ function getLineBody(line) {
   var _a, _b;
   return (_b = (_a = parseTaskLineStructured(line)) == null ? void 0 : _a.body) != null ? _b : line;
 }
-function buildRepeatedTaskLine(completedLine, repeatRule) {
+function buildRepeatedTaskLine(completedLine, nextDueDate) {
   const cleaned = stripCompletionFields(completedLine);
   const structured = parseTaskLineStructured(cleaned);
   if (!structured) {
@@ -2799,8 +2856,7 @@ function buildRepeatedTaskLine(completedLine, repeatRule) {
   }
   const openTask = `${structured.prefix} ${structured.bracketSuffix}${structured.body}`;
   const taskBodyWithoutDue = openTask.replace(/\s*\[due::\s*[^\]]*\]/g, "").trimEnd();
-  const dueDate = getRepeatDueDate(repeatRule);
-  return `${taskBodyWithoutDue} [due:: ${dueDate}]`;
+  return `${taskBodyWithoutDue} [due:: ${nextDueDate}]`;
 }
 function isValidDateFormat(dateStr) {
   const trimmed = dateStr.trim();
@@ -3029,13 +3085,13 @@ var TaskProcessor = class {
       assertConfiguredDestinationForStatus(latestStatus, settings);
       await this.routeFileByStatus(file, settings, latestStatus);
     } catch (error) {
-      new import_obsidian11.Notice(error instanceof Error ? error.message : "Failed to route file after status change.");
+      new import_obsidian10.Notice(error instanceof Error ? error.message : "Failed to route file after status change.");
     }
     await this.stampDerivedFrontmatter(file, settings);
     try {
       await ((_a = this.onFileStatusChanged) == null ? void 0 : _a.call(this));
     } catch (error) {
-      new import_obsidian11.Notice(error instanceof Error ? error.message : "Failed to update summary files after status change.");
+      new import_obsidian10.Notice(error instanceof Error ? error.message : "Failed to update summary files after status change.");
     }
   }
   /**
@@ -3155,13 +3211,13 @@ var TaskProcessor = class {
       assertConfiguredDestinationForStatus("todo", settings);
       await this.routeFileByStatus(file, settings, "todo");
     } catch (error) {
-      new import_obsidian11.Notice(error instanceof Error ? error.message : "Failed to route promoted scheduled file.");
+      new import_obsidian10.Notice(error instanceof Error ? error.message : "Failed to route promoted scheduled file.");
     }
     await this.stampDerivedFrontmatter(file, settings);
     try {
       await ((_a = this.onFileStatusChanged) == null ? void 0 : _a.call(this));
     } catch (error) {
-      new import_obsidian11.Notice(error instanceof Error ? error.message : "Failed to update summary files after promotion.");
+      new import_obsidian10.Notice(error instanceof Error ? error.message : "Failed to update summary files after promotion.");
     }
     return true;
   }
@@ -3210,10 +3266,10 @@ var TaskProcessor = class {
     }
     await ensureParentFoldersExist(this.app, destinationPath);
     const destinationEntry = this.app.vault.getAbstractFileByPath(destinationPath);
-    if (destinationEntry instanceof import_obsidian11.TFolder) {
+    if (destinationEntry instanceof import_obsidian10.TFolder) {
       throw new Error(`Cannot move '${file.path}' because '${destinationPath}' is a folder.`);
     }
-    if (destinationEntry instanceof import_obsidian11.TFile) {
+    if (destinationEntry instanceof import_obsidian10.TFile) {
       const shouldMerge = await promptMergeOrSkip(this.app, file.path, destinationPath);
       if (!shouldMerge) {
         return `Skipped ${file.name} (destination exists).`;
@@ -3515,7 +3571,7 @@ var _ProjectsSummaryController = class _ProjectsSummaryController {
     await leaf.setViewState({ type: _ProjectsSummaryController.VIEW_TYPE, active: true });
   }
   isRelevantFile(file) {
-    if (!(file instanceof import_obsidian12.TFile)) return false;
+    if (!(file instanceof import_obsidian11.TFile)) return false;
     const settings = this.getSettings();
     const roots = [
       settings.projectsFolder,
@@ -3552,7 +3608,7 @@ var _ProjectsSummaryController = class _ProjectsSummaryController {
     title.textContent = "Projects Summary";
     section.appendChild(title);
     const weekLabel = document.createElement("p");
-    weekLabel.textContent = `Week ending ${formatDate3(getEndOfWeek(/* @__PURE__ */ new Date()))}`;
+    weekLabel.textContent = `Week ending ${formatDate2(getEndOfWeek(/* @__PURE__ */ new Date()))}`;
     section.appendChild(weekLabel);
     this.appendPriorityFilterControl(section);
     this.appendSearchFilter(section);
@@ -3814,7 +3870,7 @@ var _ProjectsSummaryController = class _ProjectsSummaryController {
 };
 _ProjectsSummaryController.VIEW_TYPE = "task-manager-projects-summary";
 var ProjectsSummaryController = _ProjectsSummaryController;
-function formatDate3(date) {
+function formatDate2(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
@@ -3826,7 +3882,7 @@ function formatDaysUntil(daysUntil) {
   if (daysUntil < 0) return `${-daysUntil} day${daysUntil === -1 ? "" : "s"} overdue`;
   return `in ${daysUntil} day${daysUntil === 1 ? "" : "s"}`;
 }
-var ProjectsSummaryView = class extends import_obsidian12.ItemView {
+var ProjectsSummaryView = class extends import_obsidian11.ItemView {
   constructor(leaf, controller) {
     super(leaf);
     this.controller = controller;
@@ -3860,8 +3916,7 @@ var DEFAULT_SETTINGS = {
   dashboardHideKeywords: "",
   somedayMaybeReviewCadenceDays: "30",
   waitingStalenessThresholdDays: "7",
-  basesFilePath: "Tasks/Tasks.base",
-  boardFilePath: "Tasks/Board.canvas"
+  basesFilePath: "Tasks/Tasks.base"
 };
 function normalizeStatusField(field) {
   const trimmedField = String(field || "").trim();
@@ -3890,13 +3945,12 @@ function normalizeSettings(rawSettings) {
     dashboardHideKeywords: String((_a = rawSettings.dashboardHideKeywords) != null ? _a : ""),
     somedayMaybeReviewCadenceDays: normalizePositiveIntegerString(rawSettings.somedayMaybeReviewCadenceDays, DEFAULT_SETTINGS.somedayMaybeReviewCadenceDays),
     waitingStalenessThresholdDays: normalizePositiveIntegerString(rawSettings.waitingStalenessThresholdDays, DEFAULT_SETTINGS.waitingStalenessThresholdDays),
-    basesFilePath: normalizeFolder(rawSettings.basesFilePath) || DEFAULT_SETTINGS.basesFilePath,
-    boardFilePath: normalizeFolder(rawSettings.boardFilePath) || DEFAULT_SETTINGS.boardFilePath
+    basesFilePath: normalizeFolder(rawSettings.basesFilePath) || DEFAULT_SETTINGS.basesFilePath
   };
 }
 
 // src/tasks/quick-capture-modal.ts
-var import_obsidian13 = require("obsidian");
+var import_obsidian12 = require("obsidian");
 var INPUT_STYLES2 = {
   width: "100%",
   boxSizing: "border-box",
@@ -3936,7 +3990,7 @@ function parseQuickCaptureShorthand(rawInput) {
   }
   return { text: remaining, dueDate: null };
 }
-var QuickCaptureModal = class extends import_obsidian13.Modal {
+var QuickCaptureModal = class extends import_obsidian12.Modal {
   constructor(options) {
     super(options.app);
     this.inputElement = null;
@@ -3986,14 +4040,14 @@ var QuickCaptureModal = class extends import_obsidian13.Modal {
     }
     const result = parseQuickCaptureShorthand(rawInput);
     if (!result.text) {
-      new import_obsidian13.Notice("Enter some task text.");
+      new import_obsidian12.Notice("Enter some task text.");
       return;
     }
     try {
       await this.onSubmit(result);
       this.close();
     } catch (error) {
-      new import_obsidian13.Notice(error instanceof Error ? error.message : "Failed to capture task.");
+      new import_obsidian12.Notice(error instanceof Error ? error.message : "Failed to capture task.");
     }
   }
 };
@@ -4002,10 +4056,10 @@ function applyStyles3(element, styles) {
 }
 
 // src/summary/tasks-summary-view.ts
-var import_obsidian16 = require("obsidian");
+var import_obsidian15 = require("obsidian");
 
 // src/summary/tasks-summary.ts
-var import_obsidian14 = require("obsidian");
+var import_obsidian13 = require("obsidian");
 var DUE_FIELD_REGEX3 = /\[due::\s*([^\]]+?)\s*\]/i;
 async function collectTaskSummarySections(app, settings) {
   const sectionSources = [
@@ -4038,7 +4092,7 @@ async function collectAllOpenRowsForInbox(app, inboxFilePath) {
     return [];
   }
   const inboxFile = app.vault.getAbstractFileByPath(inboxFilePath);
-  if (!(inboxFile instanceof import_obsidian14.TFile)) {
+  if (!(inboxFile instanceof import_obsidian13.TFile)) {
     return [];
   }
   const content = await app.vault.read(inboxFile);
@@ -4110,13 +4164,13 @@ function compareSummaryRows(left, right) {
 }
 
 // src/summary/inbox-actions.ts
-var import_obsidian15 = require("obsidian");
+var import_obsidian14 = require("obsidian");
 async function removeInboxLines(app, settings, linesToRemove) {
   if (!settings.inboxFile || linesToRemove.length === 0) {
     return;
   }
   const inboxFile = app.vault.getAbstractFileByPath(settings.inboxFile);
-  if (!(inboxFile instanceof import_obsidian15.TFile)) {
+  if (!(inboxFile instanceof import_obsidian14.TFile)) {
     return;
   }
   const content = await app.vault.read(inboxFile);
@@ -4135,9 +4189,9 @@ async function removeInboxLines(app, settings, linesToRemove) {
   }
   await app.vault.modify(inboxFile, keptLines.join("\n"));
   if (pending.length > 0) {
-    new import_obsidian15.Notice(`${pending.length} inbox task(s) had already changed and were left in place.`);
+    new import_obsidian14.Notice(`${pending.length} inbox task(s) had already changed and were left in place.`);
   } else if (removedCount === 0) {
-    new import_obsidian15.Notice("Selected inbox task(s) had already changed and were left in place.");
+    new import_obsidian14.Notice("Selected inbox task(s) had already changed and were left in place.");
   }
 }
 async function appendTasksToProject(app, file, linesToAppend) {
@@ -4441,7 +4495,7 @@ var _TasksSummaryController = class _TasksSummaryController {
         await this.createProject(input);
         await removeInboxLines(this.app, settings, rawLines);
         this.selectedInboxLines.clear();
-        new import_obsidian16.Notice(`Created project from ${selectedRows.length} inbox task${selectedRows.length === 1 ? "" : "s"}.`);
+        new import_obsidian15.Notice(`Created project from ${selectedRows.length} inbox task${selectedRows.length === 1 ? "" : "s"}.`);
         this.refreshSoon();
       }
     });
@@ -4460,7 +4514,7 @@ var _TasksSummaryController = class _TasksSummaryController {
     ].filter(Boolean);
     const files = this.app.vault.getMarkdownFiles().filter((file) => roots.some((root) => isInFolder(file.path, root))).sort((left, right) => left.path.localeCompare(right.path));
     if (files.length === 0) {
-      new import_obsidian16.Notice("No project files found to move tasks into.");
+      new import_obsidian15.Notice("No project files found to move tasks into.");
       return;
     }
     const rawLines = selectedRows.map((row) => row.rawLine);
@@ -4469,7 +4523,7 @@ var _TasksSummaryController = class _TasksSummaryController {
         await appendTasksToProject(this.app, file, rawLines);
         await removeInboxLines(this.app, settings, rawLines);
         this.selectedInboxLines.clear();
-        new import_obsidian16.Notice(`Moved ${selectedRows.length} task${selectedRows.length === 1 ? "" : "s"} to ${file.basename}.`);
+        new import_obsidian15.Notice(`Moved ${selectedRows.length} task${selectedRows.length === 1 ? "" : "s"} to ${file.basename}.`);
         this.refreshSoon();
       })();
     }).open();
@@ -4499,7 +4553,7 @@ var _TasksSummaryController = class _TasksSummaryController {
     return taskCell;
   }
   isRelevantFile(file) {
-    if (!(file instanceof import_obsidian16.TFile)) return false;
+    if (!(file instanceof import_obsidian15.TFile)) return false;
     const settings = this.getSettings();
     const roots = [settings.projectsFolder, settings.waitingProjectsFolder].filter(Boolean);
     const inTaskFolder = roots.some((root) => isInFolder(file.path, root));
@@ -4526,7 +4580,7 @@ var _TasksSummaryController = class _TasksSummaryController {
 };
 _TasksSummaryController.VIEW_TYPE = "task-manager-tasks-summary";
 var TasksSummaryController = _TasksSummaryController;
-var TasksSummaryView = class extends import_obsidian16.ItemView {
+var TasksSummaryView = class extends import_obsidian15.ItemView {
   constructor(leaf, controller) {
     super(leaf);
     this.controller = controller;
@@ -4544,7 +4598,7 @@ var TasksSummaryView = class extends import_obsidian16.ItemView {
     await this.controller.renderContent(this.contentEl);
   }
 };
-var ProjectFileSuggestModal = class extends import_obsidian16.FuzzySuggestModal {
+var ProjectFileSuggestModal = class extends import_obsidian15.FuzzySuggestModal {
   constructor(app, files, onChoose) {
     super(app);
     this.files = files;
@@ -4563,25 +4617,25 @@ var ProjectFileSuggestModal = class extends import_obsidian16.FuzzySuggestModal 
 };
 
 // src/settings/settings-ui.ts
-var import_obsidian18 = require("obsidian");
+var import_obsidian17 = require("obsidian");
 
 // src/settings/folder-picker.ts
-var import_obsidian17 = require("obsidian");
+var import_obsidian16 = require("obsidian");
 function openFilePicker(app, onChoose) {
-  if (typeof import_obsidian17.FuzzySuggestModal !== "function") {
-    new import_obsidian17.Notice("File picker is not available in this Obsidian version.");
+  if (typeof import_obsidian16.FuzzySuggestModal !== "function") {
+    new import_obsidian16.Notice("File picker is not available in this Obsidian version.");
     return;
   }
   new FileSuggestModal(app, onChoose).open();
 }
-var FileSuggestModal = class extends import_obsidian17.FuzzySuggestModal {
+var FileSuggestModal = class extends import_obsidian16.FuzzySuggestModal {
   constructor(app, onChoose) {
     super(app);
     this.onChoose = onChoose;
     this.setPlaceholder("Select a file");
   }
   getItems() {
-    return this.app.vault.getAllLoadedFiles().filter((file) => file instanceof import_obsidian17.TFile).map((file) => file.path).sort((left, right) => left.localeCompare(right));
+    return this.app.vault.getAllLoadedFiles().filter((file) => file instanceof import_obsidian16.TFile).map((file) => file.path).sort((left, right) => left.localeCompare(right));
   }
   getItemText(filePath) {
     return filePath;
@@ -4591,20 +4645,20 @@ var FileSuggestModal = class extends import_obsidian17.FuzzySuggestModal {
   }
 };
 function openFolderPicker(app, onChoose) {
-  if (typeof import_obsidian17.FuzzySuggestModal !== "function") {
-    new import_obsidian17.Notice("Folder picker is not available in this Obsidian version.");
+  if (typeof import_obsidian16.FuzzySuggestModal !== "function") {
+    new import_obsidian16.Notice("Folder picker is not available in this Obsidian version.");
     return;
   }
   new FolderSuggestModal(app, onChoose).open();
 }
-var FolderSuggestModal = class extends import_obsidian17.FuzzySuggestModal {
+var FolderSuggestModal = class extends import_obsidian16.FuzzySuggestModal {
   constructor(app, onChoose) {
     super(app);
     this.onChoose = onChoose;
     this.setPlaceholder("Select a folder");
   }
   getItems() {
-    const folders = this.app.vault.getAllLoadedFiles().filter((file) => file instanceof import_obsidian17.TFolder).map((folder) => folder.path).sort((left, right) => left.localeCompare(right));
+    const folders = this.app.vault.getAllLoadedFiles().filter((file) => file instanceof import_obsidian16.TFolder).map((folder) => folder.path).sort((left, right) => left.localeCompare(right));
     return ["", ...folders];
   }
   getItemText(folderPath) {
@@ -4709,14 +4763,6 @@ function getTextSettingConfigs(settings) {
       key: "basesFilePath",
       value: settings.basesFilePath,
       multiLine: false
-    },
-    {
-      name: "Board File Path",
-      description: `Vault-relative path for the Task Board canvas ("Open Task Board" command). Dragging a card between columns changes that project's status. Requires the Canvas core plugin.`,
-      placeholder: "Tasks/Board.canvas",
-      key: "boardFilePath",
-      value: settings.boardFilePath,
-      multiLine: false
     }
   ];
 }
@@ -4740,7 +4786,7 @@ var TaskManagerSettingTabRenderer = class {
   }
   addFolderSetting(containerEl, config) {
     const isFilePathSetting = config.key === "inboxFile";
-    new import_obsidian18.Setting(containerEl).setName(config.name).setDesc(`${config.description} Use Browse to pick a vault ${isFilePathSetting ? "file" : "path"}.`).addText((text) => {
+    new import_obsidian17.Setting(containerEl).setName(config.name).setDesc(`${config.description} Use Browse to pick a vault ${isFilePathSetting ? "file" : "path"}.`).addText((text) => {
       this.configureFolderTextInput(text, config.key, config.value, config.placeholder);
     }).addButton((button) => {
       button.setButtonText("Browse").onClick(() => {
@@ -4759,7 +4805,7 @@ var TaskManagerSettingTabRenderer = class {
     });
   }
   addTextSetting(containerEl, config) {
-    const setting = new import_obsidian18.Setting(containerEl).setName(config.name).setDesc(config.description);
+    const setting = new import_obsidian17.Setting(containerEl).setName(config.name).setDesc(config.description);
     if (config.multiLine) {
       setting.addTextArea((textArea) => {
         textArea.setPlaceholder(config.placeholder).setValue(config.value).onChange(async (value) => {
@@ -4782,14 +4828,13 @@ var TaskManagerSettingTabRenderer = class {
 };
 
 // main.ts
-var TaskManagerPlugin = class extends import_obsidian19.Plugin {
+var TaskManagerPlugin = class extends import_obsidian18.Plugin {
   constructor() {
     super(...arguments);
     this.taskProcessor = null;
     this.dateDashboard = null;
     this.projectsSummary = null;
     this.tasksSummary = null;
-    this.boardSync = null;
     this.dueDateSuggest = null;
     this.createdDateSuggest = null;
     this.pluginSettings = normalizeSettings({});
@@ -4821,10 +4866,6 @@ var TaskManagerPlugin = class extends import_obsidian19.Plugin {
       createProject: (input) => this.createProjectFile(input)
     });
     this.projectsSummary = new ProjectsSummaryController({
-      app: this.app,
-      getSettings: () => this.getSettings()
-    });
-    this.boardSync = new BoardSyncController({
       app: this.app,
       getSettings: () => this.getSettings()
     });
@@ -4862,10 +4903,6 @@ var TaskManagerPlugin = class extends import_obsidian19.Plugin {
       },
       createTaskBases: () => {
         void runCreateTaskBases(this.app, this.getSettings());
-      },
-      openTaskBoard: () => {
-        var _a;
-        void ((_a = this.boardSync) == null ? void 0 : _a.openBoard());
       }
     });
     this.addRibbonIcon("shuffle", "Open Random Someday-Maybe Project", () => {
@@ -4876,41 +4913,40 @@ var TaskManagerPlugin = class extends import_obsidian19.Plugin {
     });
     this.registerEvent(this.app.vault.on("create", (file) => {
       var _a;
-      if (!(file instanceof import_obsidian19.TFile)) {
+      if (!(file instanceof import_obsidian18.TFile)) {
         return;
       }
       void ((_a = this.taskProcessor) == null ? void 0 : _a.handleFileCreate(file));
     }));
     this.registerEvent(this.app.vault.on("modify", (file) => {
       var _a;
-      if (!(file instanceof import_obsidian19.TFile)) {
+      if (!(file instanceof import_obsidian18.TFile)) {
         return;
       }
       void ((_a = this.taskProcessor) == null ? void 0 : _a.handleFileModify(file));
     }));
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
       var _a;
-      if (!(file instanceof import_obsidian19.TFile)) {
+      if (!(file instanceof import_obsidian18.TFile)) {
         return;
       }
       (_a = this.taskProcessor) == null ? void 0 : _a.handleFileRename(file, oldPath);
     }));
     this.registerEvent(this.app.vault.on("delete", (file) => {
       var _a;
-      if (!(file instanceof import_obsidian19.TFile)) {
+      if (!(file instanceof import_obsidian18.TFile)) {
         return;
       }
       (_a = this.taskProcessor) == null ? void 0 : _a.handleFileDelete(file);
     }));
     this.projectsSummary.onload(this);
     this.tasksSummary.onload(this);
-    this.boardSync.onload(this);
     await this.taskProcessor.primeState();
     await this.taskProcessor.checkScheduledPromotions();
     await this.dateDashboard.onload(this);
   }
   onunload() {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d;
     (_a = this.taskProcessor) == null ? void 0 : _a.onunload();
     this.taskProcessor = null;
     (_b = this.dateDashboard) == null ? void 0 : _b.onunload();
@@ -4919,8 +4955,6 @@ var TaskManagerPlugin = class extends import_obsidian19.Plugin {
     this.projectsSummary = null;
     (_d = this.tasksSummary) == null ? void 0 : _d.onunload();
     this.tasksSummary = null;
-    (_e = this.boardSync) == null ? void 0 : _e.onunload();
-    this.boardSync = null;
     this.dueDateSuggest = null;
     this.createdDateSuggest = null;
     console.log("Unloading Task Manager plugin");
@@ -4946,9 +4980,9 @@ var TaskManagerPlugin = class extends import_obsidian19.Plugin {
   async runResetCurrentFileTasks() {
     try {
       const result = await this.taskProcessor.resetCurrentFileTasks();
-      new import_obsidian19.Notice(result);
+      new import_obsidian18.Notice(result);
     } catch (error) {
-      new import_obsidian19.Notice(error instanceof Error ? error.message : "Failed to reset tasks.");
+      new import_obsidian18.Notice(error instanceof Error ? error.message : "Failed to reset tasks.");
     }
   }
   /**
@@ -4980,7 +5014,7 @@ var TaskManagerPlugin = class extends import_obsidian19.Plugin {
       onSubmit: async (input) => {
         const file = await this.createProjectFile(input);
         await this.app.workspace.getLeaf(true).openFile(file);
-        new import_obsidian19.Notice(`Created ${file.path}.`);
+        new import_obsidian18.Notice(`Created ${file.path}.`);
       }
     });
     modal.open();
@@ -4988,7 +5022,7 @@ var TaskManagerPlugin = class extends import_obsidian19.Plugin {
   runQuickCapture() {
     const settings = this.getSettings();
     if (!settings.inboxFile) {
-      new import_obsidian19.Notice("Set Inbox File in plugin settings before capturing tasks.");
+      new import_obsidian18.Notice("Set Inbox File in plugin settings before capturing tasks.");
       return;
     }
     const modal = new QuickCaptureModal({
@@ -4997,7 +5031,7 @@ var TaskManagerPlugin = class extends import_obsidian19.Plugin {
         const dueSuffix = result.dueDate ? ` [due:: ${result.dueDate}]` : "";
         const taskLine = `- [ ] ${result.text}${dueSuffix}`;
         const existingEntry = this.app.vault.getAbstractFileByPath(settings.inboxFile);
-        if (existingEntry instanceof import_obsidian19.TFile) {
+        if (existingEntry instanceof import_obsidian18.TFile) {
           const content = await this.app.vault.read(existingEntry);
           await this.app.vault.modify(existingEntry, prependTaskLine(content, taskLine));
         } else if (existingEntry) {
@@ -5007,7 +5041,7 @@ var TaskManagerPlugin = class extends import_obsidian19.Plugin {
           await this.app.vault.create(settings.inboxFile, `${taskLine}
 `);
         }
-        new import_obsidian19.Notice(`Captured: ${result.text}`);
+        new import_obsidian18.Notice(`Captured: ${result.text}`);
       }
     });
     modal.open();
@@ -5015,12 +5049,12 @@ var TaskManagerPlugin = class extends import_obsidian19.Plugin {
   async runOpenRandomSomedayMaybeProject() {
     const settings = this.getSettings();
     if (!settings.somedayMaybeProjectsFolder) {
-      new import_obsidian19.Notice("Set Someday-Maybe Projects Folder in plugin settings first.");
+      new import_obsidian18.Notice("Set Someday-Maybe Projects Folder in plugin settings first.");
       return;
     }
     const file = pickRandomFile(getSomedayMaybeProjectFiles(this.app, settings));
     if (!file) {
-      new import_obsidian19.Notice("No project files found in the Someday-Maybe Projects Folder.");
+      new import_obsidian18.Notice("No project files found in the Someday-Maybe Projects Folder.");
       return;
     }
     await stampReviewedDate(this.app, file);
@@ -5029,17 +5063,17 @@ var TaskManagerPlugin = class extends import_obsidian19.Plugin {
   async runBackfillWaitingSince() {
     try {
       const result = await this.taskProcessor.backfillWaitingSince();
-      new import_obsidian19.Notice(result);
+      new import_obsidian18.Notice(result);
     } catch (error) {
-      new import_obsidian19.Notice(error instanceof Error ? error.message : "Failed to stamp waiting-since.");
+      new import_obsidian18.Notice(error instanceof Error ? error.message : "Failed to stamp waiting-since.");
     }
   }
   async runBackfillDerivedFrontmatter() {
     try {
       const result = await this.taskProcessor.backfillDerivedFrontmatter();
-      new import_obsidian19.Notice(result);
+      new import_obsidian18.Notice(result);
     } catch (error) {
-      new import_obsidian19.Notice(error instanceof Error ? error.message : "Failed to stamp derived fields.");
+      new import_obsidian18.Notice(error instanceof Error ? error.message : "Failed to stamp derived fields.");
     }
   }
 };
@@ -5059,7 +5093,7 @@ ${afterBlankLines}`;
 ${content}` : `${taskLine}
 `;
 }
-var BaseTaskManagerSettingTab = class extends import_obsidian19.PluginSettingTab {
+var BaseTaskManagerSettingTab = class extends import_obsidian18.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.renderer = new TaskManagerSettingTabRenderer(this, plugin);

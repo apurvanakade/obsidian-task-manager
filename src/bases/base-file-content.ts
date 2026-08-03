@@ -15,17 +15,19 @@
  *   write — lives in main.ts, following the pattern of createProjectFile()/runQuickCapture())
  *
  * Notes:
- * - The .base YAML schema (https://obsidian.md/help/bases/syntax,
- *   /bases/functions) was cross-checked at the time this module was written. High
- *   confidence: top-level `views`/`filters` structure, and/or/not filter grouping,
- *   `file.inFolder()`, `note.field` / `note["hyphenated-field"]` property access. Lower
- *   confidence / unconfirmed by the public docs: whether a per-view `sort:` key (used
- *   below as a single-entry list of `{property, direction}`) is honored, and whether
- *   `order:` accepts bracket-notation property paths for hyphenated fields the same way
- *   filters do. Deliberately kept simple to limit the blast radius of a wrong guess: no
- *   `formulas:` block, no `properties:` display-name overrides — both are cosmetic and
- *   can be added by hand (or via the Bases UI itself) after generation. If a view fails
- *   to render, Bases shows a visible error banner scoped to this one generated file;
+ * - The .base YAML schema (https://obsidian.md/help/bases/syntax, /bases/functions) was
+ *   cross-checked when this module was written, and confirmed against a live, Bases-UI-
+ *   edited file afterward: `views`/`filters` structure, and/or/not filter grouping,
+ *   `file.inFolder()`, `note.field` / `note["hyphenated-field"]` property access, the
+ *   per-view `sort:` key (a list of `{property, direction}`), and bracket-notation
+ *   property paths in `order:` are all genuinely honored by Bases — Bases' own UI
+ *   round-trips them unchanged and even adds its own `sort:` entries on bracket-notation
+ *   properties when the user sorts by clicking a column header.
+ * - What bracket-notation properties DON'T get for free is a readable column header —
+ *   with no override, Bases displays the raw `note["next-action"]`-style expression as
+ *   the header text. `properties:` displayName overrides (below) fix that; still no
+ *   `formulas:` block, which stays genuinely cosmetic/optional. If a view fails to
+ *   render, Bases shows a visible error banner scoped to this one generated file;
  *   nothing else in the plugin depends on it parsing correctly.
  */
 import { TaskManagerSettings } from "../settings/settings-utils";
@@ -53,6 +55,19 @@ const STATUS = "note.status";
 const PRIORITY = "note.priority";
 const REVIEWED = "note.reviewed";
 
+/**
+ * Bracket-notation properties render with no friendly header by default — Bases just
+ * shows the raw expression (e.g. `note["next-action"]`) as the column title. Bare
+ * dotted properties (priority, status, reviewed, file.name) already read fine and don't
+ * need an entry here.
+ */
+const DISPLAY_NAMES: Record<string, string> = {
+  [NEXT_DUE]: "Next due",
+  [NEXT_ACTION]: "Next action",
+  [OPEN_TASKS]: "Open tasks",
+  [WAITING_SINCE]: "Waiting since",
+};
+
 export function buildTaskBaseFileContent(settings: TaskManagerSettings): string {
   const views = buildViewSpecs(settings);
   const lines: string[] = [
@@ -65,7 +80,17 @@ export function buildTaskBaseFileContent(settings: TaskManagerSettings): string 
     lines.push(...renderView(view));
   }
 
+  lines.push("properties:", ...renderDisplayNames());
+
   return `${lines.join("\n")}\n`;
+}
+
+function renderDisplayNames(): string[] {
+  const lines: string[] = [];
+  for (const [property, displayName] of Object.entries(DISPLAY_NAMES)) {
+    lines.push(`  ${property}:`, `    displayName: "${escapeYamlString(displayName)}"`);
+  }
+  return lines;
 }
 
 function buildViewSpecs(settings: TaskManagerSettings): BaseViewSpec[] {

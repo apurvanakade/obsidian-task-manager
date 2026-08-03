@@ -31,7 +31,7 @@ export type TextSettingConfig = {
   name: string;
   description: string;
   placeholder: string;
-  key: keyof Pick<TaskManagerSettings, "statusField" | "dashboardHideKeywords" | "somedayMaybeReviewCadenceDays" | "waitingStalenessThresholdDays" | "basesFilePath" | "boardFilePath">;
+  key: keyof Pick<TaskManagerSettings, "statusField" | "dashboardHideKeywords" | "somedayMaybeReviewCadenceDays" | "waitingStalenessThresholdDays" | "basesFilePath">;
   value: string;
   multiLine?: boolean;
 };
@@ -129,14 +129,6 @@ export function getTextSettingConfigs(settings: TaskManagerSettings): TextSettin
       placeholder: "Tasks/Tasks.base",
       key: "basesFilePath",
       value: settings.basesFilePath,
-      multiLine: false,
-    },
-    {
-      name: "Board File Path",
-      description: "Vault-relative path for the Task Board canvas (\"Open Task Board\" command). Dragging a card between columns changes that project's status. Requires the Canvas core plugin.",
-      placeholder: "Tasks/Board.canvas",
-      key: "boardFilePath",
-      value: settings.boardFilePath,
       multiLine: false,
     },
   ];

@@ -29,7 +29,6 @@ export type TaskManagerSettings = {
   somedayMaybeReviewCadenceDays: string;
   waitingStalenessThresholdDays: string;
   basesFilePath: string;
-  boardFilePath: string;
 };
 
 export type FolderSettingKey = keyof Pick<
@@ -50,7 +49,6 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   somedayMaybeReviewCadenceDays: "30",
   waitingStalenessThresholdDays: "7",
   basesFilePath: "Tasks/Tasks.base",
-  boardFilePath: "Tasks/Board.canvas",
 };
 
 function normalizeStatusField(field: string | null | undefined): string {
@@ -83,6 +81,5 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
     somedayMaybeReviewCadenceDays: normalizePositiveIntegerString(rawSettings.somedayMaybeReviewCadenceDays, DEFAULT_SETTINGS.somedayMaybeReviewCadenceDays),
     waitingStalenessThresholdDays: normalizePositiveIntegerString(rawSettings.waitingStalenessThresholdDays, DEFAULT_SETTINGS.waitingStalenessThresholdDays),
     basesFilePath: normalizeFolder(rawSettings.basesFilePath) || DEFAULT_SETTINGS.basesFilePath,
-    boardFilePath: normalizeFolder(rawSettings.boardFilePath) || DEFAULT_SETTINGS.boardFilePath,
   };
 }

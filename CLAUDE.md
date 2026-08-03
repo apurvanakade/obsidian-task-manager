@@ -11,9 +11,10 @@ An Obsidian plugin (Task Manager) that automates task lifecycle management: stat
 ```bash
 npm run dev      # watch mode — rebuilds main.js on file changes via esbuild
 npm run build    # type-check (tsc --noEmit --skipLibCheck) + production bundle → main.js
+npm test         # runs tests/repeat-rules.test.ts via tsx (node:assert/strict, no framework)
 ```
 
-There are no test or lint commands in this repo. After any build, reload the plugin in Obsidian to verify behavior — the `verify` skill or manual reload is the only way to confirm runtime correctness here.
+There is no lint command in this repo. `npm test` is the only test suite — plain table-driven tests over the pure repeat-rule parser and date math in `src/tasks/repeat-rules.ts` (see Recurring Tasks below); nothing else in the codebase has test coverage. After any build, reload the plugin in Obsidian to verify behavior — the `verify` skill or manual reload is the only way to confirm runtime correctness here.
 
 Bundling: `esbuild.config.mjs` bundles `main.ts` → `main.js` (CommonJS, ES2018). `obsidian`, `electron`, `@codemirror/*`, `@lezer/*`, and Node builtins are marked external and must never be bundled.
 
@@ -28,10 +29,10 @@ src/
     task-processor.ts            ← Primary orchestrator; vault.modify handler + command runner
     reconciler.ts                ← Task transition logic (completion, uncompletion, deletion, recurring)
     file-priority.ts             ← Pure file-priority parser
-    task-line-metadata.ts        ← Canonical task-line parser (parseTaskLineStructured) + display-text helpers; task-utils.ts and reconciler.ts build on this instead of their own regexes
+    task-line-metadata.ts        ← Canonical task-line parser (parseTaskLineStructured) + display-text helpers; task-utils.ts and reconciler.ts build on this instead of their own regexes; repeat-field extraction delegates to repeat-rules.ts
     frontmatter-utils.ts         ← Pure single-field frontmatter parser over a content string (shared by status-routing.ts and file-priority.ts; deliberately NOT metadataCache-based, see Obsidian API Usage below)
     derived-frontmatter.ts       ← Pure computeDerivedFields()/derivedFieldsMatchContent()/applyDerivedFields(): mirrors next-due/next-action/open-tasks from task lines into frontmatter so Bases/Dataview/search can see them — see Derived Frontmatter Fields below
-    repeat-rules.ts              ← Pure recurring-rule parser, alias normalizer, and due-date calculator
+    repeat-rules.ts              ← Pure Todoist-level recurring-rule parser (intervals, weekday/month-day sets, nth-weekday, yearly dates, every/every!/until modifiers), alias normalizer, and next-occurrence calculator — see Recurring Tasks below
     task-utils.ts                ← Pure parsing/diffing utilities (no side effects); task-line parsing delegates to task-line-metadata.ts
     next-actions.ts              ← Pure findActionableTaskLines(): the file's first open task line, if any
     task-state-store.ts          ← In-memory snapshot cache (tasks + status per file)
@@ -63,13 +64,10 @@ src/
     settings-field-definitions.ts← Declarative metadata for settings controls
     folder-picker.ts             ← FuzzySuggestModal wrappers for vault folder/file pickers
   bases/
-    base-file-content.ts         ← Pure buildTaskBaseFileContent(): the .base YAML string (five table views over the configured folders) — see Bases Integration below
+    base-file-content.ts         ← Pure buildTaskBaseFileContent(): the .base YAML string (five table views over the configured folders, plus properties: displayName overrides) — see Bases Integration below
     create-task-bases.ts         ← I/O for the "Create Task Bases" command: Bases-core-plugin detection (undocumented `App.internalPlugins`), overwrite-confirm modal (same promise-wrapped-Modal pattern as task-routing.ts's promptMergeOrSkip), vault write
-  canvas/
-    canvas-model.ts               ← Pure JSON Canvas (jsoncanvas.org 1.0) layout/diff model: buildBoardData(), parseCanvas()/serializeCanvas(), findNodeGroupStatus() (geometric group membership), diffBoardStatuses() — see Canvas Integration below
-    board-sync.ts                 ← BoardSyncController: debounced plugin→canvas regenerate, canvas→plugin status writes on card drags, "Open Task Board" command
   commands/
-    register-task-commands.ts    ← Registers "Reset Tasks", "Open Tasks Summary", "Add New Project", "Open Random Someday-Maybe Project", "Quick Capture Task", "Open Projects Summary", "Stamp Waiting-Since For Existing Waiting Projects", "Stamp Derived Fields For All Projects", "Create Task Bases", "Open Task Board"
+    register-task-commands.ts    ← Registers "Reset Tasks", "Open Tasks Summary", "Add New Project", "Open Random Someday-Maybe Project", "Quick Capture Task", "Open Projects Summary", "Stamp Waiting-Since For Existing Waiting Projects", "Stamp Derived Fields For All Projects", "Create Task Bases"
   review/
     projects-summary-view.ts     ← On-demand main-panel ItemView controller/renderer for the Projects Summary tab (priority filter + collapsible sections, Someday-Maybe collapsed by default); auto-refreshes (debounced) on relevant vault modify/rename/delete events while a tab is open
     projects-summary-data.ts     ← Collects Active Projects/Waiting/Someday-Maybe/Scheduled rows; stamps the `reviewed` field, promotes Scheduled items early, and sets a project's status directly (Someday-Maybe's Promote to Active/Archive row actions)
@@ -103,7 +101,6 @@ src/
 - **Stamp Waiting-Since For Existing Waiting Projects** — one-time backfill via `TaskProcessor.backfillWaitingSince()`: scans `settings.waitingProjectsFolder` and stamps `waiting-since` (today's date) on any file missing it. Idempotent — already-stamped files are skipped.
 - **Stamp Derived Fields For All Projects** — resync via `TaskProcessor.backfillDerivedFrontmatter()`: iterates every file `shouldTrackFile()` accepts (minus the Inbox File), calling the same `stampDerivedFrontmatter()` the modify pipeline uses, and reports how many were actually stamped vs. already current. Unlike the waiting-since backfill, this is framed as a general resync rather than a one-time migration, since derived fields can drift any time task lines are edited outside the plugin's own write paths (e.g. bulk find/replace, sync from another device before this file was reconciled) — see Derived Frontmatter Fields below.
 - **Create Task Bases** — `src/bases/create-task-bases.ts`'s `runCreateTaskBases()`: checks whether the Bases core plugin is enabled (Notice-only warning, doesn't block), prompts to overwrite if `settings.basesFilePath` already exists (same promise-wrapped-`Modal` pattern as `task-routing.ts`'s `promptMergeOrSkip`), then writes `buildTaskBaseFileContent(settings)`'s output via `ensureParentFoldersExist()` + `vault.create()`/`vault.modify()`. See Bases Integration below.
-- **Open Task Board** — `BoardSyncController.openBoard()`: creates `settings.boardFilePath` from a live vault scan if it doesn't exist (via `buildBoardData(projects, null)`), then opens it in a new leaf either way. See Canvas Integration below.
 
 ### Settings Persistence
 
@@ -111,7 +108,7 @@ Settings live in `data.json` (loaded/saved via `plugin.loadData()` / `plugin.sav
 
 Configurable paths: Projects Folder, Completed Projects Folder, Waiting Projects Folder, Someday-Maybe Projects Folder, Scheduled Projects Folder, Archived Projects Folder, Inbox File (file picker, not folder).
 
-Other settings: Completed Status Field (default `status`), Dashboard Filename Hide Keywords (comma-separated keywords stripped from display names in the dashboard and Tasks Summary tab), Someday-Maybe Review Cadence Days and Waiting Staleness Threshold Days (both stored as strings, default `"30"`/`"7"`, normalized via `normalizePositiveIntegerString()` and parsed at the Projects Summary's point of use — see Projects Summary below), Bases File Path (default `Tasks/Tasks.base`, normalized via `normalizeFolder()` like the folder settings even though it's a file path, since the same trim/no-leading-or-trailing-slash treatment applies — see Bases Integration below), Board File Path (default `Tasks/Board.canvas`, normalized the same way — see Canvas Integration below).
+Other settings: Completed Status Field (default `status`), Dashboard Filename Hide Keywords (comma-separated keywords stripped from display names in the dashboard and Tasks Summary tab), Someday-Maybe Review Cadence Days and Waiting Staleness Threshold Days (both stored as strings, default `"30"`/`"7"`, normalized via `normalizePositiveIntegerString()` and parsed at the Projects Summary's point of use — see Projects Summary below), Bases File Path (default `Tasks/Tasks.base`, normalized via `normalizeFolder()` like the folder settings even though it's a file path, since the same trim/no-leading-or-trailing-slash treatment applies — see Bases Integration below).
 
 There is deliberately no persisted priority-filter or collapsed-section setting for any of the three views (date dashboard, Tasks Summary, Projects Summary) — selection/collapse state is session-only UI state held on each controller instance (`selectedMaxPriority`, `collapsedSections`), not written to `data.json`. Same rationale as the removed Context filter used to follow.
 
@@ -153,25 +150,10 @@ The plugin can generate an [Obsidian Bases](https://help.obsidian.md/bases) file
 
 - `src/bases/base-file-content.ts`'s `buildTaskBaseFileContent(settings)` is a pure string builder (no Obsidian imports) producing five `type: table` views: **Active projects** (`status == "todo"` in the Projects folder, sorted by priority ascending), **Next actions** (any Projects-folder file with a non-null `next-due`, sorted by `next-due` ascending), **Waiting** (sorted by `waiting-since` ascending), **Someday-Maybe review** (sorted by `reviewed` ascending), **Scheduled** (sorted by `next-due` ascending). Folder paths are always interpolated from `settings` — never hardcoded — so the generated file tracks whatever the user has configured. A view's folder filter is simply omitted if that folder setting is blank, rather than producing broken YAML.
 - Property references consistently use the `note.field` / `note["hyphenated-field"]` forms throughout filters, `order` (the visible-column list), and `sort` — bracket notation is required for hyphenated fields like `next-due`/`waiting-since`/`open-tasks` since a bare `next-due` would parse as a subtraction expression in Bases' filter/formula language.
-- **Schema confidence caveat** (see the doc comment at the top of `base-file-content.ts` for the full note): the top-level `views`/`filters` structure, `and`/`or`/`not` filter grouping, `file.inFolder()`, and `note.field` property access are documented and used with confidence. The per-view `sort:` key (a list of `{property, direction}` entries, one per view here) and whether `order:` accepts bracket-notation property paths the same way filters do are **not** confirmed by Obsidian's public docs as of when this was written — if a generated view's sort or a hyphenated column doesn't render as expected, that's the first thing to check against current docs, not a sign the rest of the file is wrong. Deliberately no `formulas:` block and no `properties:` display-name overrides in v1 — both are cosmetic, both can be added later by hand or from the Bases UI itself, and both would only add more unverified-schema surface for no functional gain.
+- **Schema confidence, updated from a live example**: the top-level `views`/`filters` structure, `and`/`or`/`not` filter grouping, `file.inFolder()`, `note.field` property access, the per-view `sort:` key (a list of `{property, direction}` entries), and bracket-notation property paths in `order:` are all genuinely honored by Bases — confirmed by inspecting a real `Tasks.base` after the user customized it through Bases' own UI (it round-tripped the generator's bracket-notation `order`/`sort` entries unchanged, and even added its own `sort:` entries on bracket-notation properties when the user clicked a column header to sort). What bracket-notation properties do **not** get for free is a readable column header — with no override, Bases displays the raw expression (e.g. `note["next-action"]`) as the header text itself. That was reported as a bug ("I only see the text `note["next-action"]` instead of what the next action is") before `properties:` displayName overrides were added to fix it — see the next bullet. `formulas:` remains genuinely omitted (cosmetic, no functional gap).
+- `properties:` (top-level, sibling to `views:`) maps each bracket-notation property to a `displayName` override — `DISPLAY_NAMES` in `base-file-content.ts` covers all four hyphenated fields used anywhere in the generated views (`next-due`, `next-action`, `open-tasks`, `waiting-since`). Bare dotted properties (`priority`, `status`, `reviewed`, `file.name`) already render with a clean header and don't need an entry.
 - `src/bases/create-task-bases.ts`'s `runCreateTaskBases()` is the I/O shell: Notice-only (non-blocking) warning via `isBasesCorePluginEnabled()` — which reaches past the public `App` typings into `(app as unknown as {...}).internalPlugins?.plugins?.bases?.enabled`, since Bases' enabled/disabled state isn't part of the typed API surface — then an overwrite-confirm `Modal` (same promise-wrapped-class pattern as `task-routing.ts`'s `promptMergeOrSkip`) if the target file already exists, then the write via `ensureParentFoldersExist()` (reused from `task-routing.ts`) + `vault.create()`/`vault.modify()`.
 - Because the generated views reference `next-due`/`next-action`/`open-tasks`, this feature is functionally downstream of [Derived Frontmatter Fields](#derived-frontmatter-fields) below — a vault that's never had `stampDerivedFrontmatter()` run against it (e.g. right after upgrading) should run **Stamp Derived Fields For All Projects** before **Create Task Bases** for the generated views to show non-empty data immediately, though this isn't enforced — the fields will simply populate on the next natural edit to each file either way.
-
-## Canvas Integration (Task Board)
-
-Unlike the Bases scaffold above, the Task Board (`settings.boardFilePath`, default `Tasks/Board.canvas`) is a **plugin-synced** file: `BoardSyncController` (`src/canvas/board-sync.ts`) keeps it current in both directions for as long as it exists, and does nothing at all when it doesn't (opt-in — nothing is created behind the user's back except via the explicit **Open Task Board** command).
-
-- **Model** (`src/canvas/canvas-model.ts`, pure, no Obsidian imports): one JSON Canvas `type: "group"` node per status column — `STATUS_COLUMNS` is `todo`("Active")/`waiting`/`someday-maybe`/`scheduled`, deliberately no `completed` column (unbounded growth) — and one `type: "file"` node per project inside its column, stacked by priority ascending then basename. Layout constants (card size, padding, column spacing, minimum group height) are module-level. Every managed node/group id is prefixed `tm-` (`MANAGED_NODE_PREFIX`) and otherwise **deterministic**: group ids are `tm-group-<status>`, file-card ids are `tm-file-<djb2-hash-of-path>` (`hashPath()`). Determinism means regenerating with an unchanged project set reproduces byte-identical ids — unrelated to a card's status, since the hash is over the file path alone — which keeps Sync from seeing node churn on every resync and makes "is this our node" a plain `isManagedId()` prefix test.
-- **Group membership is purely geometric** — JSON Canvas has no membership field. `findNodeGroupStatus()` takes a card's center point and finds the first managed group whose bounding box contains it, returning that group's status (parsed back out of its `tm-group-<status>` id) or `null` if the card sits outside every group (dragged to empty canvas space).
-- `buildBoardData(projects, existing)` rebuilds every `tm-`-prefixed node from `projects` on each call; every node/edge in `existing` that **isn't** `tm`-prefixed is carried forward untouched — user sticky notes, other file references, manually drawn edges all survive every resync, since this module never generates edges itself (there's nothing for an edge to encode when membership is geometric).
-- `parseCanvas()`/`serializeCanvas()` are the JSON round-trip; `parseCanvas()` returns `null` on malformed input rather than throwing, tolerating a canvas mid-edit.
-- `diffBoardStatuses(data, statusByPath)` buckets managed file nodes by their `file` path; a path claimed by more than one managed card is reported in `duplicatePaths` and produces no status write for that project (ambiguous — user must delete the duplicate); otherwise, if the card's current group status differs from `statusByPath`'s value for that path, it's reported as a `BoardStatusChange`. A card whose path isn't in `statusByPath` at all (file renamed/deleted out from under it) or sitting in no group is silently skipped, not errored — both cases self-heal on the next regenerate.
-- **`BoardSyncController`** (`src/canvas/board-sync.ts`) is the I/O half, constructed and wired in `main.ts` alongside `ProjectsSummaryController`/`TasksSummaryController`:
-  - **Plugin → canvas**: `queueRegenerate()` (300ms debounce — heavier than the 50ms view-refresh debounces elsewhere, since this is a full-folder scan + whole-file write) fires on vault `modify` (filtered to tracked project files under any of the four status folders — see `isTrackedProjectFile()`), `create`, and unconditionally on `rename`/`delete` (mirrors `ProjectsSummaryController`'s listener pattern — a file could be moving into or out of a tracked folder). `regenerate()` no-ops immediately if the board file doesn't exist yet (opt-in), otherwise reads the existing canvas, rebuilds via `buildBoardData()`, and writes only if the serialized JSON actually differs from what's on disk — this diff-then-write is the idempotency gate that keeps a no-op regenerate from producing a `modify` event at all.
-  - **Canvas → plugin**: a `modify` listener on the board file itself calls `handleBoardFileModified()`, which first checks the read content against `this.lastWrittenJson` (the controller's own-write guard — the board file is non-`.md`, so it's outside `TaskStateStore`'s pending-path domain entirely; `BoardSyncController` owns this guard independently) and returns early if it matches (our own write, or a byte-identical no-op edit). Otherwise it parses the canvas, computes `statusByPath` from a fresh project scan, calls `diffBoardStatuses()`, shows a Notice for any `duplicatePaths`, and for each `BoardStatusChange` calls a **plain `processFrontMatter()` status write** — deliberately mirroring `projects-summary-data.ts`'s `setProjectStatus()`/`promoteScheduledFileNow()` rather than calling routing directly. The resulting vault `modify` event on the project file flows through `TaskProcessor.handleFileModify()`'s ordinary status-change routing (folder move, `waiting-since` stamping, derived-frontmatter stamp, etc.) exactly like any other manual frontmatter edit. `handleBoardFileModified()` always ends by calling `queueRegenerate()` regardless of whether anything changed — the follow-up regenerate reconciles layout/positions and heals any now-stale `file` reference from a routing move, since `buildBoardData()` rebuilds every card's `file` path from a live vault scan rather than trusting the canvas's prior value.
-  - **No dependence on Obsidian's link-updating behavior for `.canvas` files** — whether or not `alwaysUpdateLinks` covers canvas file references, a stale `file` path self-heals on the very next regenerate either way.
-  - `openBoard()`: if `settings.boardFilePath` doesn't exist, builds it fresh (`buildBoardData(projects, null)`) via `ensureParentFoldersExist()` + `vault.create()`, tracking the written JSON in `lastWrittenJson` before opening; if it already exists, just opens it (`workspace.getLeaf(true).openFile()`).
-- `.canvas` files are non-`.md`, so `TaskProcessor.handleFileModify()` (which gates on `file.extension !== "md"`) never sees them — the board's own reconciliation lives entirely in `BoardSyncController`, independent of the task-processing pipeline.
 
 ## Task Reconciliation Rules
 
@@ -182,7 +164,7 @@ Tasks use standard markdown checkboxes. Inline fields use Dataview-style double-
 - `[due:: YYYY-MM-DD]` — due date
 - `[completion-date:: YYYY-MM-DD]` — stamped on completion
 - `[completion-time:: HH:MM:SS]` — stamped on completion
-- `[repeat:: X]` / `[repeats:: X]` — recurring interval; accepts singular/plural aliases, adjective aliases (`daily`, `weekly`, `monthly`, `yearly`), numeric intervals like `2 weeks`, weekday names like `Monday`, and ordinal month-days like `5th`; `every` is optional for backward compatibility
+- `[repeat:: X]` / `[repeats:: X]` — recurring rule; a Todoist-level grammar (see **Recurring Tasks** below) covering intervals, weekday/month-day sets, nth-weekday-of-month, and yearly dates, with `every`/`every!`/`until` modifiers for anchoring and end bounds. `repeat-rules.ts` is the sole owner of this field's extraction regex — `task-line-metadata.ts` imports `getRepeatFieldValue()`/`REPEAT_FIELD_PRESENT_REGEX` from it rather than keeping its own copy
 - `[created:: YYYY-MM-DD]` — creation date (editor suggest only; not used by reconciler)
 
 Project priority is stored in file frontmatter as `priority: N`, where `1` is highest and missing/invalid values default to `3`.
@@ -223,29 +205,30 @@ The first incomplete task in a file is always treated as the current actionable 
 
 ### Recurring Tasks
 
-On completion of a task with `[repeat:: X]` or `[repeats:: X]`, a new open copy is inserted above the completed task with a computed due date:
+`src/tasks/repeat-rules.ts` is a pure module (no Obsidian API, only imports `date-utils.ts`) that parses `[repeat:: X]`/`[repeats:: X]` into a `RepeatRule = { spec: RepeatSpec; anchor: "due" | "completion"; until: string | null; raw: string }` and computes the next occurrence via `getNextRepeatDate(rule, { previousDueDate, now? })`. It's also the sole owner of the field's extraction regex (`getRepeatFieldValue()`, `REPEAT_FIELD_PRESENT_REGEX`) — `task-line-metadata.ts` imports from here rather than duplicating it, which matters because the old duplicated-regex version used to half-strip an `every!` prefix down to `!`.
 
-- `day` → tomorrow
-- `2 days` → +2 days
-- `week` → +7 days
-- `2 weeks` → +14 days
-- `month` → +1 month (date clamped to last day of month)
-- `3 months` → +3 months (date clamped to last day of month)
-- `year` → +1 year (date clamped)
-- `2 years` → +2 years (date clamped)
-- `Monday` / `Mon` → next matching weekday
-- `1st` / `5th` → next occurrence of that day-of-month (clamped to the last day when needed)
+**Grammar** (`RepeatSpec` kind, matched via an ordered token-matcher pipeline in `matchExpression()` — comma-separated input always means a set; matcher order resolves ambiguity, e.g. `1st wed` (nth-weekday) vs bare `1st` (month-day), or `27 jan` (yearly-date) vs a malformed counted-interval):
 
-Accepted aliases are normalized automatically:
+| `RepeatSpec.kind` | Example | Computed next date |
+|---|---|---|
+| `interval` | `daily`, `2 weeks`, `other month`, `quarterly`, `2 quarters` | anchor + N units (`other X` = 2×; quarter/quarters/quarterly resolve to 3 months via `REPEAT_KEYWORD_TO_UNIT`'s multiplier) |
+| `workday-interval` | `weekday`/`workday`, `3 workdays` | Nth workday (Mon–Fri) strictly after the floor date |
+| `weekday-set` | `Monday`, `mon, wed, fri` | next day in the set, scanned floor+1..floor+7 |
+| `month-day-set` | `5th`, `2, 15, 27` | next day-of-month in the set, clamped per month, scanned up to 48 months |
+| `last-day` / `last-workday` | `last day`, `last workday` | end of month (last-workday walks back to Friday if it lands on a weekend) |
+| `nth-weekday` | `1st wed`, `last friday` | that weekday's Nth (or last) occurrence, monthly, scanned up to 24 months |
+| `yearly-nth-weekday` | `3rd thu jul`, `3rd thursday of july` | same, restricted to one named month, scanned up to 8 years |
+| `yearly-date` | `jan 27`, `27 jan`, `january 27th` | that calendar date each year, clamped (`feb 29` → `feb 28` in non-leap years), scanned up to 8 years |
 
-- Day: `day`, `days`, `daily`
-- Week: `week`, `weeks`, `weekly`
-- Month: `month`, `months`, `monthly`
-- Year: `year`, `years`, `yearly`, `annual`, `annually`
-- Weekdays: full or short names like `monday` / `mon`
-- Month days: ordinal forms `1st` through `31st`
+**Anchoring** (`RepeatAnchorMode`): a plain rule, or an explicit `every`/`ev` prefix, anchors to the task's **previous `[due:: ...]` value** (`anchor: "due"`) — `reconciler.ts`'s `applyCompletionRules` reads this off `sourceTaskLine` via `readInlineFieldValue(sourceTaskLine, DUE_FIELD_REGEX)` (`DUE_FIELD_REGEX` exported from `task-utils.ts`) *before* the line is stripped for the clone. An `every!`/`ev!` prefix, or `after N <unit>` (which additionally requires the parsed spec to be `interval`/`workday-interval`, enforced by `requireIntervalOnly` in `parseRepeatExpression`), anchors to the completion date (`anchor: "completion"`) instead. `getNextRepeatDate()`'s algorithm: `anchor = (mode === "due") ? parseIsoDate(previousDueDate) ?? today : today`; `floor = max(anchor, today)`; the next occurrence is the first one strictly after `floor`. This guarantees a long-overdue recurring task never spawns an already-overdue clone, and a due-anchored task completed early still keeps its original cadence (floor becomes the future anchor itself). For month/year `interval` specs, catch-up is computed as `anchor + k*step` directly (`nextByMonthStep` iterates `k` from 1, not chaining through intermediate clamped dates), so a monthly task due Jan 31 caught up in April lands on Apr 30, not a drifted Apr 28.
 
-Weekday and ordinal repeats resolve to the **next future occurrence**. So `Monday` completed on a Monday becomes next Monday, and `5th` completed on the 5th becomes next month's 5th.
+**End bound**: an optional trailing `until YYYY-MM-DD` / `ending YYYY-MM-DD` (ISO only — parsed in `parseRepeatExpression`'s suffix pass, stored as `RepeatRule.until`) makes `getNextRepeatDate()` return `null` once the computed next date would exceed it (inclusive: `next === until` still recurs). Both the anchor prefix and the until suffix are stripped before the core expression is tokenized, so `every! 3 days until 2026-12-31` parses prefix → suffix → `3 days`.
+
+**Failure handling in `applyCompletionRules`**: if `getRepeatFieldValue(sourceTaskLine)` is non-null but `parseRepeatRule()` returns null, a `Notice` names the unrecognized raw value and no clone is created (completion stamping/routing proceeds normally either way). If the rule parses but `getNextRepeatDate()` returns null (the `until` bound was reached), a different `Notice` reports the recurrence ended. `buildRepeatedTaskLine(completedLine, nextDueDate)` takes the already-computed date string rather than a `RepeatRule`, so the two null-outcomes stay distinguishable at the call site in `applyCompletionRules`.
+
+Weekday, month-day, nth-weekday, and yearly-date specs always resolve to the **next future occurrence** relative to the anchor (never the anchor date itself, since the scan is strictly-after). So `Monday` completed on a Monday becomes next Monday, and `5th` completed on the 5th becomes next month's 5th.
+
+`tests/repeat-rules.test.ts` (run via `npm test`, uses `tsx` + `node:assert/strict`, no framework) is the only test file in the repo — table-driven coverage of the parse grammar and the anchoring/clamping/bound date math described above.
 
 ### First-Incomplete Assignment & DueDateModal
 
@@ -255,7 +238,7 @@ When a task newly becomes actionable after completion or uncompletion, a `DueDat
 - A project priority dropdown (values 1–3, default 3)
 - Suggested dates from today through +30 days with Today/Tomorrow/weekday labels — clicking one immediately applies it
 - A text input for custom YYYY-MM-DD or natural-language terms (today, tomorrow, weekday names); Enter submits. If the task already has a due date, it is prefilled there.
-- A Repeat text field with no default value for rules like `daily`, `2 weeks`, `Monday`, or `5th`
+- A Repeat text field for rules like `daily`, `2 weeks`, `mon, fri`, `1st wed`, `last workday`, or `jan 27` (see Recurring Tasks above for the full grammar) — prefilled from `getRepeatFieldValue(taskLine)` when the task already carries a repeat value (the modal only opens when that value is absent or failed to parse, so this surfaces a broken value for repair); validated on submit by round-tripping through `parseRepeatRule()` against a standalone synthetic line (`- [ ] x [repeat:: ${repeat}]`), not `this.taskLine` itself — using `this.taskLine` would match its own pre-existing (broken) repeat field first and reject every entry
 - Input autocomplete sourced from the shared `buildDateSuggestions()` list
 - A Skip option to dismiss without adding a due date
 
@@ -406,13 +389,15 @@ Do not defer README updates to a follow-up task — keep them in the same commit
 
 Run after meaningful logic changes:
 
-1. `npm run build` succeeds
+1. `npm run build` succeeds; `npm test` passes
 2. Event-driven reconciliation updates first-incomplete selection/status correctly for complete, uncomplete, and delete cases; when the last task is completed, `completion-date` and `completion-time` are stamped in both the task line and the file frontmatter
 3. Task completion triggers the DueDateModal for the newly exposed first incomplete task
 4. Modal shows task text preview; clicking a suggested date immediately applies it; manual date input (YYYY-MM-DD or natural-language) works via Add Due Date / Enter
 5. Submitted due date written as `[due:: YYYY-MM-DD]`; priority written as `priority: N` in file frontmatter (default 3)
 6. Modal Skip dismisses without modifying the task
-7. Recurring completion inserts new open task above completed task with correct due date for legacy, alias, and numeric repeat forms; if the completed task had a note block, it moves onto the new open clone and is not left behind on the completed task in `## Completed Tasks`
+7. Recurring completion inserts new open task above completed task with correct due date for legacy, alias, numeric, workday, set (weekday/month-day), last-day/last-workday, nth-weekday, and yearly-date repeat forms (`5th` in particular — previously broken); if the completed task had a note block, it moves onto the new open clone and is not left behind on the completed task in `## Completed Tasks`
+7a. A due-anchored repeat (`every`/`ev`, or no prefix) computes the next date from the task's previous `[due:: ...]`, not the completion date — completing early keeps the original cadence, and completing an overdue task never produces an already-past due date on the clone; an `every!`/`ev!`/`after N ...` prefix anchors to the completion date instead; a long-overdue monthly/yearly interval catches up directly from the anchor without accumulating clamp drift
+7b. A `[repeat:: ...]` field with an `until`/`ending YYYY-MM-DD` bound stops recurring (no clone, completion still stamps normally) once the computed next date exceeds it, with a Notice; an unparseable `[repeat:: ...]` value likewise produces no clone and a distinct Notice naming the bad value, and the Due Date Modal's Repeat field prefills that value the next time it opens for that task
 8. Status change routes file to correct destination folder
 9. Move preserves sub-path; files do not flatten to destination root
 10. Merge conflict prompt appears when destination file exists
@@ -456,11 +441,5 @@ Run after meaningful logic changes:
 48. In the Tasks Summary tab's Inbox section: each row has a selection checkbox; checking one or more enables "Create project from selected" and "Move to existing project" (both show a running count and are disabled at zero selections); "Create project from selected" opens the Add New Project modal prefilled with the selected tasks' text (checkbox prefix stripped, inline fields like `[due:: ...]` kept) and, on successful creation, removes the originals from the Inbox file and refreshes the tab; "Move to existing project" opens a fuzzy picker over markdown files under the Projects/Waiting/Someday-Maybe/Scheduled folders and, on pick, appends the selected tasks above `## Completed Tasks` in that file (or at the end if no such section) and removes the originals from the Inbox; if a selected task line was edited or removed elsewhere before either action completes, that one line is safely skipped (reported via a Notice) instead of corrupting an unrelated line, and the rest of the selection still proceeds
 49. Editing a tracked project file's first open task's due date, text, or completion state updates `next-due`/`next-action`/`open-tasks` in its frontmatter within that same modify pass; re-triggering a modify event with nothing task-relevant changed writes nothing (watch mtime — idempotent); a file with zero open tasks has no `next-due`/`next-action` fields and `open-tasks: 0`; the Inbox File never receives any of the three fields, including via the backfill command below. Critically, **after** a derived-field stamp, a plain checkbox toggle on the same file still triggers the completion/uncompletion path and pops the DueDateModal when applicable — this is the regression a broken state-store re-snapshot after stamping would cause, and it must be checked explicitly, not just the frontmatter values themselves
 50. "Stamp Derived Fields For All Projects" reports a count of stamped vs. already-current files, is safe to re-run (a second run reports 0 stamped), and doesn't trigger routing, the DueDateModal, or any other reconciliation side effect
-51. "Create Task Bases" with the Bases core plugin disabled still creates/overwrites the configured `.base` file and shows an "enable Bases" Notice rather than failing or silently no-oping; with Bases enabled, opening the generated file renders five named views with no schema-error banner, using folder paths from the plugin's actual settings (not hardcoded paths); re-running the command when the file already exists shows an overwrite-confirm modal, and canceling leaves the file byte-identical
+51. "Create Task Bases" with the Bases core plugin disabled still creates/overwrites the configured `.base` file and shows an "enable Bases" Notice rather than failing or silently no-oping; with Bases enabled, opening the generated file renders five named views with no schema-error banner, using folder paths from the plugin's actual settings (not hardcoded paths); re-running the command when the file already exists shows an overwrite-confirm modal, and canceling leaves the file byte-identical; hyphenated-field columns (Next due, Next action, Open tasks, Waiting since) show their friendly `displayName`, not the raw `note["..."]` expression
 52. Changing Bases File Path in settings and re-running "Create Task Bases" creates/targets the file at the new path, not the old default
-53. "Open Task Board" creates the configured `.canvas` file (if missing) with four labeled columns and one card per tracked project, priority-stacked, then opens it; re-running the command doesn't duplicate columns or cards
-54. Dragging a card from one column to another: within ~1s (debounce + write) the underlying project's `status` frontmatter changes, it's routed to the corresponding folder (and `waiting-since` stamped/cleared if the move is into/out of Waiting), and the board settles — no repeated/oscillating writes to either the board file or the project file
-55. Dropping a card in empty canvas space (outside every column) does not change that project's status; the next regenerate snaps the card back into its actual column
-56. Completing a project's last task (status → `completed`) removes its card from the board on the next regenerate (there is no Completed column); creating a new project or deleting one adds/removes its card without reopening the board
-57. A manually added sticky note or extra file card on the board survives repeated regenerates untouched; duplicating a project's card into two columns produces a Notice and does not write a status for that project until the duplicate is removed
-58. Editing a project file's tasks (not its status) while the board is open does not spuriously change its column; normal checkbox reconciliation (completion/uncompletion/recurring-task insertion) in a project file is unaffected by the board being open, since `.canvas` files are outside `TaskProcessor`'s markdown-only modify handling entirely

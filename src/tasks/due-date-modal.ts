@@ -83,6 +83,7 @@ type DueDateModalOptions = {
   taskLineIndex: number;
   initialPriority: "1" | "2" | "3";
   initialDueDate?: string | null;
+  initialRepeat?: string | null;
   onSubmit: (taskLineIndex: number, taskLine: string, dueDate: string, priority: "1" | "2" | "3", repeat: string | null) => Promise<void>;
 };
 
@@ -91,6 +92,7 @@ export class DueDateModal extends Modal {
   private readonly taskLineIndex: number;
   private readonly initialPriority: "1" | "2" | "3";
   private readonly initialDueDate: string;
+  private readonly initialRepeat: string;
   private readonly onSubmit: (taskLineIndex: number, taskLine: string, dueDate: string, priority: "1" | "2" | "3", repeat: string | null) => Promise<void>;
   private readonly dateSuggestions = buildDateSuggestions();
   private inputElement: HTMLInputElement | null = null;
@@ -103,6 +105,7 @@ export class DueDateModal extends Modal {
     this.taskLineIndex = options.taskLineIndex;
     this.initialPriority = options.initialPriority;
     this.initialDueDate = options.initialDueDate?.trim() ?? "";
+    this.initialRepeat = options.initialRepeat?.trim() ?? "";
     this.onSubmit = options.onSubmit;
   }
 
@@ -217,8 +220,8 @@ export class DueDateModal extends Modal {
 
     this.repeatInputElement = repeatContainer.createEl("input", {
       type: "text",
-      placeholder: "e.g., daily, 2 weeks, Monday, 5th",
-      value: "",
+      placeholder: "e.g., daily, 2 weeks, mon, wed, fri, 1st wed, last workday, jan 27",
+      value: this.initialRepeat,
     });
     applyStyles(this.repeatInputElement, inputStyles);
   }
@@ -285,8 +288,14 @@ export class DueDateModal extends Modal {
     }
 
     const repeat = repeatValue.length > 0 ? repeatValue : null;
-    if (repeat !== null && parseRepeatRule(`${this.taskLine} [repeat:: ${repeat}]`) === null) {
-      new Notice("Enter a valid repeat rule like daily, 2 weeks, Monday, or 5th.");
+    // Validate against a standalone synthetic line, not one built from this.taskLine —
+    // when repairing an already-broken repeat value, this.taskLine still carries the old
+    // (unparseable) [repeat::] field, and the regex would match that one first, making
+    // every entry fail validation.
+    if (repeat !== null && parseRepeatRule(`- [ ] x [repeat:: ${repeat}]`) === null) {
+      new Notice(
+        "Enter a valid repeat rule like daily, every! 3 days, mon, fri, 1st wed, last workday, or jan 27 until 2026-12-31.",
+      );
       return;
     }
 

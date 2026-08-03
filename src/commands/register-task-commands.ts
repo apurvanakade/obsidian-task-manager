@@ -27,7 +27,6 @@ type TaskCommandHandlers = {
   backfillWaitingSince: () => void;
   backfillDerivedFrontmatter: () => void;
   createTaskBases: () => void;
-  openTaskBoard: () => void;
 };
 
 export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandlers): void {
@@ -83,11 +82,5 @@ export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandle
     id: "create-task-bases",
     name: "Create Task Bases",
     callback: handlers.createTaskBases,
-  });
-
-  plugin.addCommand({
-    id: "open-task-board",
-    name: "Open Task Board",
-    callback: handlers.openTaskBoard,
   });
 }
