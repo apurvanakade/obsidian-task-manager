@@ -48,7 +48,7 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   dashboardHideKeywords: "",
   somedayMaybeReviewCadenceDays: "30",
   waitingStalenessThresholdDays: "7",
-  basesFilePath: "Tasks/Tasks.base",
+  basesFilePath: "Tasks/Tasks Summary.base",
 };
 
 function normalizeStatusField(field: string | null | undefined): string {

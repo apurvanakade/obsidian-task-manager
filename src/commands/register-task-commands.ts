@@ -19,14 +19,14 @@ import { Plugin } from "obsidian";
 
 type TaskCommandHandlers = {
   resetCurrentFileTasks: () => void;
-  openTasksSummary: () => void;
+  openInbox: () => void;
   addNewProject: () => void;
   openRandomSomedayMaybeProject: () => void;
   quickCapture: () => void;
   openProjectsSummary: () => void;
   backfillWaitingSince: () => void;
   backfillDerivedFrontmatter: () => void;
-  createTaskBases: () => void;
+  createTasksSummary: () => void;
 };
 
 export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandlers): void {
@@ -37,9 +37,9 @@ export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandle
   });
 
   plugin.addCommand({
-    id: "open-tasks-summary",
-    name: "Open Tasks Summary",
-    callback: handlers.openTasksSummary,
+    id: "open-inbox",
+    name: "Open Inbox",
+    callback: handlers.openInbox,
   });
 
   plugin.addCommand({
@@ -79,8 +79,8 @@ export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandle
   });
 
   plugin.addCommand({
-    id: "create-task-bases",
-    name: "Create Task Bases",
-    callback: handlers.createTaskBases,
+    id: "create-tasks-summary",
+    name: "Create Tasks Summary",
+    callback: handlers.createTasksSummary,
   });
 }

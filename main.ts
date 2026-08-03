@@ -17,7 +17,7 @@
  */
 import { App, Notice, Plugin, PluginSettingTab, TFile } from "obsidian";
 import { registerTaskCommands } from "./src/commands/register-task-commands";
-import { runCreateTaskBases } from "./src/bases/create-task-bases";
+import { runCreateTasksSummary } from "./src/bases/create-tasks-summary";
 import { AddProjectInput, AddProjectModal, buildProjectFileContent, buildProjectFilePath } from "./src/projects/add-project-modal";
 import { DateDashboardController } from "./src/dashboard/date-dashboard";
 import { CreatedDateEditorSuggest, DueDateEditorSuggest } from "./src/editor/due-date-suggest";
@@ -26,7 +26,7 @@ import { ProjectsSummaryController } from "./src/review/projects-summary-view";
 import { stampReviewedDate } from "./src/review/projects-summary-data";
 import { normalizeSettings, TaskManagerSettings } from "./src/settings/settings-utils";
 import { QuickCaptureModal } from "./src/tasks/quick-capture-modal";
-import { TasksSummaryController } from "./src/summary/tasks-summary-view";
+import { InboxController } from "./src/summary/inbox-view";
 import { TaskManagerSettingTabRenderer } from "./src/settings/settings-ui";
 import { ensureParentFoldersExist, getSurfacedTaskFolderRoots } from "./src/routing/task-routing";
 import { TaskProcessor } from "./src/tasks/task-processor";
@@ -35,7 +35,7 @@ export default class TaskManagerPlugin extends Plugin {
   private taskProcessor: TaskProcessor | null = null;
   private dateDashboard: DateDashboardController | null = null;
   private projectsSummary: ProjectsSummaryController | null = null;
-  private tasksSummary: TasksSummaryController | null = null;
+  private inbox: InboxController | null = null;
   private dueDateSuggest: DueDateEditorSuggest | null = null;
   private createdDateSuggest: CreatedDateEditorSuggest | null = null;
 
@@ -48,10 +48,10 @@ export default class TaskManagerPlugin extends Plugin {
       app: this.app,
       getSettings: () => this.getSettings(),
       onFileStatusChanged: async () => {
-        this.tasksSummary?.refreshSoon();
+        this.inbox?.refreshSoon();
       },
       onTaskPropertiesChanged: async () => {
-        this.tasksSummary?.refreshSoon();
+        this.inbox?.refreshSoon();
       },
     });
     this.dateDashboard = new DateDashboardController({
@@ -60,7 +60,7 @@ export default class TaskManagerPlugin extends Plugin {
       getInboxFile: () => this.pluginSettings.inboxFile,
       getHideKeywords: () => this.pluginSettings.dashboardHideKeywords,
     });
-    this.tasksSummary = new TasksSummaryController({
+    this.inbox = new InboxController({
       app: this.app,
       getSettings: () => this.getSettings(),
       createProject: (input) => this.createProjectFile(input),
@@ -78,8 +78,8 @@ export default class TaskManagerPlugin extends Plugin {
       resetCurrentFileTasks: () => {
         void this.runResetCurrentFileTasks();
       },
-      openTasksSummary: () => {
-        void this.tasksSummary?.openView();
+      openInbox: () => {
+        void this.inbox?.openView();
       },
       addNewProject: () => {
         this.runAddNewProject();
@@ -99,8 +99,8 @@ export default class TaskManagerPlugin extends Plugin {
       backfillDerivedFrontmatter: () => {
         void this.runBackfillDerivedFrontmatter();
       },
-      createTaskBases: () => {
-        void runCreateTaskBases(this.app, this.getSettings());
+      createTasksSummary: () => {
+        void runCreateTasksSummary(this.app, this.getSettings());
       },
     });
     this.addRibbonIcon("shuffle", "Open Random Someday-Maybe Project", () => {
@@ -138,7 +138,7 @@ export default class TaskManagerPlugin extends Plugin {
       this.taskProcessor?.handleFileDelete(file);
     }));
     this.projectsSummary.onload(this);
-    this.tasksSummary.onload(this);
+    this.inbox.onload(this);
     await this.taskProcessor.primeState();
     await this.taskProcessor.checkScheduledPromotions();
     await this.dateDashboard.onload(this);
@@ -151,8 +151,8 @@ export default class TaskManagerPlugin extends Plugin {
     this.dateDashboard = null;
     this.projectsSummary?.onunload();
     this.projectsSummary = null;
-    this.tasksSummary?.onunload();
-    this.tasksSummary = null;
+    this.inbox?.onunload();
+    this.inbox = null;
     this.dueDateSuggest = null;
     this.createdDateSuggest = null;
     console.log("Unloading Task Manager plugin");
@@ -192,7 +192,7 @@ export default class TaskManagerPlugin extends Plugin {
    * Creates a project file from AddProjectModal's submitted input: resolves the
    * destination path, writes frontmatter/starter tasks, and primes the task-state store
    * via handleFileCreate() so subsequent reconciliation on this file has a baseline
-   * snapshot. Shared by the "Add New Project" command and the Tasks Summary tab's
+   * snapshot. Shared by the "Add New Project" command and the Inbox tab's
    * "Create project from selected" inbox action.
    */
   private async createProjectFile(input: AddProjectInput): Promise<TFile> {

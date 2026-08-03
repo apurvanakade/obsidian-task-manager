@@ -125,8 +125,8 @@ export function getTextSettingConfigs(settings: TaskManagerSettings): TextSettin
     },
     {
       name: "Bases File Path",
-      description: "Vault-relative path for the generated Obsidian Bases file (\"Create Task Bases\" command). Requires the Bases core plugin.",
-      placeholder: "Tasks/Tasks.base",
+      description: "Vault-relative path for the generated Obsidian Bases file (\"Create Tasks Summary\" command). Requires the Bases core plugin.",
+      placeholder: "Tasks/Tasks Summary.base",
       key: "basesFilePath",
       value: settings.basesFilePath,
       multiLine: false,

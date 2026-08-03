@@ -1,6 +1,6 @@
 # Task Manager Plugin
 
-Automates task lifecycle management in Obsidian: state transitions, completion metadata stamping, recurring task creation, file routing by status, editor autocomplete for date fields, a right-sidebar date dashboard, and live, searchable Tasks Summary and Projects Summary tabs.
+Automates task lifecycle management in Obsidian: state transitions, completion metadata stamping, recurring task creation, file routing by status, editor autocomplete for date fields, a right-sidebar date dashboard, a live, searchable Inbox tab, a live, searchable Projects Summary tab, and a generated Obsidian Bases "Tasks Summary" file for reviewing Projects/Waiting/Someday-Maybe/Scheduled.
 
 > For developer/agent architecture reference, see [`CLAUDE.md`](CLAUDE.md).
 
@@ -15,14 +15,14 @@ Automates task lifecycle management in Obsidian: state transitions, completion m
    | Completed Projects Folder | Destination for completed projects | — |
    | Waiting Projects Folder | Destination for waiting projects | — |
    | Someday-Maybe Projects Folder | Destination for someday-maybe projects | — |
-   | Scheduled Projects Folder | Destination for scheduled (tickler) projects — deferred via the due date on the first task, hidden from the dashboard/Tasks Summary until then | — |
-   | Archived Projects Folder | Destination for archived Someday-Maybe projects — a one-way exit from the review rotation, excluded from the dashboard, Tasks Summary, and Projects Summary entirely | — |
-   | Inbox File | File whose tasks appear in the dashboard Inbox section and the Tasks Summary tab | — |
+   | Scheduled Projects Folder | Destination for scheduled (tickler) projects — deferred via the due date on the first task, hidden from the dashboard/Tasks Summary Base until then | — |
+   | Archived Projects Folder | Destination for archived Someday-Maybe projects — a one-way exit from the review rotation, excluded from the dashboard, the Tasks Summary Base, and Projects Summary entirely | — |
+   | Inbox File | File whose tasks appear in the dashboard Inbox section and the Inbox tab | — |
    | Completed Status Field | Frontmatter field name written on completion | `status` |
-   | Dashboard Filename Hide Keywords | Comma-separated keywords stripped from display names in the dashboard and Tasks Summary tab | — |
+   | Dashboard Filename Hide Keywords | Comma-separated keywords stripped from display names in the dashboard | — |
    | Someday-Maybe Review Cadence (days) | Days a Someday-Maybe project can go unreviewed before the Projects Summary flags it | `30` |
    | Waiting Staleness Threshold (days) | Days a project can stay in Waiting before the Projects Summary flags it as stale | `7` |
-   | Bases File Path | Vault-relative path for the generated Obsidian Bases file (**Create Task Bases** command) | `Tasks/Tasks.base` |
+   | Bases File Path | Vault-relative path for the generated Obsidian Bases file (**Create Tasks Summary** command) | `Tasks/Tasks Summary.base` |
 
 ## Commands
 
@@ -32,28 +32,13 @@ In the active file:
 - Removes `[due:: ...]`, `[completion-date:: ...]`, `[completion-time:: ...]`, and `[created:: ...]` from task lines.
 - Then re-runs the same task reconciliation and routing flow for the file.
 
-### Open Tasks Summary
-Opens a **Tasks Summary** tab (a full main-panel tab, not a generated note or sidebar panel — same placement pattern as Projects Summary), reusing an already-open tab instead of duplicating it. It renders task tables for **Projects**, **Waiting**, and **Inbox**, live from the vault — there is nothing to generate, overwrite, or keep in sync. Someday-Maybe is deliberately excluded — that's backlog review material, which lives in the **Projects Summary** tab instead, keeping this tab a lean "do" view. The Scheduled folder is likewise excluded — see [Scheduled Projects](#scheduled-projects).
+### Open Inbox
+Opens an **Inbox** tab (a full main-panel tab, not a generated note or sidebar panel — same placement pattern as Projects Summary), reusing an already-open tab instead of duplicating it. It shows *every* open task in the configured Inbox File, each with a selection checkbox, so you can bundle related captures into a project in one pass. Reviewing your actual Projects/Waiting/Someday-Maybe/Scheduled folders lives in the generated **Tasks Summary** Bases file instead (see [Create Tasks Summary](#create-tasks-summary)) — this tab exists specifically for the one thing Bases can't do: writing new files from raw inbox captures.
 
-While a Tasks Summary tab is open, it auto-refreshes (debounced) whenever a relevant project file is modified, renamed, or deleted elsewhere — including project status changes and Due Date Modal submits. There's no separate "regenerate" step.
+While the Inbox tab is open, it auto-refreshes (debounced) whenever the Inbox File is modified, renamed, or deleted elsewhere — including Due Date Modal submits for an Inbox task. There's no separate "regenerate" step.
 
-For Projects and Waiting, each file contributes its **first incomplete task** — every open task regardless of due date, unlike the dashboard's Due section which only shows tasks due on the active date. Each of those sections renders a grouped table with:
-- Folder
-- Project
-- Task
-- Priority
-- Recurrence
-- Due (`MM-DD`)
+The table has columns Task | Priority | Recurrence | Due (`MM-DD`), in file order (not sorted by priority or due date, since every capture needs to stay individually selectable). The section is collapsible — click its heading to collapse or expand it; the heading shows the total row count (e.g. "Inbox (12)"). A priority filter and a search box above the table narrow it the same way as the date dashboard and Projects Summary (both per-session UI state, not saved to settings) — since every row shares the Inbox file's own single frontmatter priority, the priority filter here is effectively all-or-nothing rather than per-row.
 
-Rows are ordered with priority 1 first, then due date, then file path. Folder and filename display use the same hide-keyword cleanup as the date dashboard. The recurrence column shows the repeat value or `none` for non-recurring tasks. The **Project** cell's link is rendered as **bold** for priority 1, *italic* for priority 2, and default styling for priority 3, using the file's frontmatter priority — priority is a project property, so the decoration is on the project name, not the task text; this is the same styling used in the date dashboard and Projects Summary.
-
-**Every section is collapsible** — click a section's heading to collapse or expand it; the heading shows the section's total row count (e.g. "Projects (12)") so a collapsed section still tells you its size. Collapse state is per-session and survives auto-refreshes.
-
-**Priority filter**: a dropdown above the sections narrows every table to priority 1 only, or priority 1–2, hiding lower-priority noise on demand. Selection is per-session UI state, not saved to settings.
-
-**Search**: a search box above the sections narrows every row to those matching the typed text (task text or file path — case-insensitive).
-
-**Inbox** shows *every* open task in the configured Inbox File (not just the first), each with a selection checkbox, so you can bundle related captures into a project in one pass:
 - **Create project from selected** opens the **Add New Project** modal prefilled with the checked tasks' text; submitting creates the project and removes the originals from the Inbox.
 - **Move to existing project** opens a fuzzy file picker over your Projects/Waiting/Someday-Maybe/Scheduled folders; picking a file appends the checked tasks to it (above `## Completed Tasks` if present, else at the end of the file) and removes the originals from the Inbox.
 
@@ -80,7 +65,7 @@ Opens a single-line capture modal from anywhere in the vault — no need to open
 End the input with `due:` followed by a date to attach a due date at capture time, e.g. `Call the dentist due:tomorrow` or `Renew passport due:2026-08-01` — accepts the same values as the `due::` editor autocomplete (ISO dates, `today`/`tomorrow`, weekday names). The recognized trailing token is stripped from the task text and written as a `[due:: ...]` inline field; an unrecognized trailing `due:` token is left in place as part of the task text instead of being dropped. If the Inbox File setting is empty, a notice explains why the modal didn't open.
 
 ### Open Projects Summary
-Opens a **Projects Summary** tab (a full main-panel tab, not a generated note or sidebar panel) with four sections. Every section's **Project** column links to the file styled by the file's frontmatter priority — **bold** for priority 1, *italic* for priority 2, default for priority 3, same convention as the date dashboard and Tasks Summary — and each table also has a plain numeric **Priority** column:
+Opens a **Projects Summary** tab (a full main-panel tab, not a generated note or sidebar panel) with four sections. Every section's **Project** column links to the file styled by the file's frontmatter priority — **bold** for priority 1, *italic* for priority 2, default for priority 3, same convention as the date dashboard — and each table also has a plain numeric **Priority** column:
 
 - **Active Projects** — every project in the configured **Projects Folder**, with Priority, Days Since Review, and Last Reviewed columns, sorted least-recently-reviewed first, ties broken by priority ascending — no filtering or threshold, the full list is always shown. Never-reviewed projects sort first. Each row has a **Mark Reviewed** button that stamps today's date; the project then sorts toward the bottom of the list on the next refresh, since the list is always ordered stalest-first.
 - **Waiting** — every project in the configured **Waiting Projects Folder**, with Priority, Days Waiting, and Waiting Since columns, sorted most-stale-first, ties broken by priority ascending. Projects with no `waiting-since` stamp yet (e.g. from before this feature existed) sort first; run **Stamp Waiting-Since For Existing Waiting Projects** (below) to backfill them. A project is marked **Newly stale** when it crosses the **Waiting Staleness Threshold** setting within the current week (Monday through Sunday).
@@ -103,10 +88,10 @@ A one-time backfill command: stamps today's date on any file in the Waiting Proj
 ### Stamp Derived Fields For All Projects
 Resyncs [derived frontmatter fields](#derived-frontmatter-fields) (`next-due`, `next-action`, `open-tasks`) on every tracked project file. Unlike the waiting-since backfill, this isn't a one-time migration — it's safe to re-run any time, e.g. after bulk-editing files outside Obsidian. Reports how many files were stamped and how many were already current.
 
-### Create Task Bases
-Generates an [Obsidian Bases](https://help.obsidian.md/bases) file at the configured **Bases File Path**, with five table views wired to your configured folders: **Active projects**, **Next actions** (any file with a `next-due`), **Waiting**, **Someday-Maybe review**, and **Scheduled**. Every view's first column is Folder (the file's parent path), matching the Folder-first convention used by the date dashboard, Tasks Summary, and Projects Summary. Requires the **Bases** core plugin (Settings → Core plugins) — if it's disabled, the command still generates the file but shows a Notice reminding you to enable it.
+### Create Tasks Summary
+Generates an [Obsidian Bases](https://help.obsidian.md/bases) file at the configured **Bases File Path** (default `Tasks/Tasks Summary.base`), with five table views wired to your configured folders: **Active projects**, **Next actions** (any file with a `next-due`), **Waiting**, **Someday-Maybe review**, and **Scheduled**. Every view's first column is Folder (the file's parent path), matching the Folder-first convention used by the date dashboard and Projects Summary. Requires the **Bases** core plugin (Settings → Core plugins) — if it's disabled, the command still generates the file but shows a Notice reminding you to enable it. This is the review surface for Projects/Waiting/Someday-Maybe/Scheduled — the Inbox tab covers only the Inbox File (see [Open Inbox](#open-inbox)).
 
-This is a one-time scaffold, not a plugin-managed file: re-running the command when the file already exists asks for confirmation before overwriting, since Bases' whole value is customizing views from its own UI afterward, and the plugin never touches the file again unprompted. The generated views sort and filter using this plugin's own frontmatter fields (`status`, `priority`, `waiting-since`, `reviewed`) plus the [derived fields](#derived-frontmatter-fields) above — so `next-due`/`next-action`/`open-tasks` need to already be flowing (they are, automatically, once you're on this version) for the generated views to show meaningful data. The four hyphenated fields (`next-due`, `next-action`, `open-tasks`, `waiting-since`) are exposed as named formulas (e.g. `formula.nextDue`) with a friendly column label, rather than referenced directly — a plain `note["next-due"]`-style reference renders as a blank column in Bases, even with a display-name override, so this plugin never generates one.
+Re-running the command **overwrites the file immediately, with no confirmation prompt** — it's meant to be a cheap, frequent way to pick up folder-setting changes or a Bases File Path rename, not a one-time scaffold. Any manual view customizations made from Bases' own UI are discarded on re-run. The generated views sort and filter using this plugin's own frontmatter fields (`status`, `priority`, `waiting-since`, `reviewed`) plus the [derived fields](#derived-frontmatter-fields) above — so `next-due`/`next-action`/`open-tasks` need to already be flowing (they are, automatically, once you're on this version) for the generated views to show meaningful data. The four hyphenated fields (`next-due`, `next-action`, `open-tasks`, `waiting-since`) are exposed as named formulas (e.g. `formula.nextDue`) with a friendly column label, rather than referenced directly — a plain `note["next-due"]`-style reference renders as a blank column in Bases, even with a display-name override, so this plugin never generates one.
 
 ## Automatic Behavior (live editing)
 
@@ -164,7 +149,7 @@ When a file's status field changes to a routable value (`todo`, `completed`, `wa
 The configured Inbox File is never moved by status routing, even if all of its tasks are completed. It's also exempt from completion-stamping itself — see above.
 When the plugin edits a project file's frontmatter metadata during this flow, it also writes `priority: 3` if the file does not already have a priority field.
 When a file's status changes to `waiting`, `waiting-since: YYYY-MM-DD` is also stamped into its frontmatter (today's date); when it changes away from `waiting`, that field is removed. This powers the Projects Summary's staleness tracking — see [Open Projects Summary](#open-projects-summary).
-That same status change also refreshes any open Tasks Summary tab, since a status change moves the file.
+That same status change also refreshes any open Inbox tab (a no-op unless the changed file is the configured Inbox File).
 
 ## Scheduled Projects
 
@@ -172,7 +157,7 @@ The `scheduled` status is for projects that don't need review or action right no
 
 - Lives in the configured **Scheduled Projects Folder**, routed there like any other status.
 - Has **no separate scheduling field** — its date comes from the `[due:: YYYY-MM-DD]` on its **first task** (whichever task is currently first/actionable in the file). There's nothing extra to keep in sync: set or change the due date on that task the same way you would for any other task, and the project's schedule follows.
-- Is **excluded** from the date dashboard's Due/Completed sections and from the Tasks Summary tab, so it never demands attention before its date. It still appears in the **Projects Summary**'s Scheduled section for a lightweight glance (see [Open Projects Summary](#open-projects-summary)), and its checkboxes still reconcile normally if you edit it directly.
+- Is **excluded** from the date dashboard's Due/Completed sections and from the Tasks Summary Bases file's views, so it never demands attention before its date. It still appears in the **Projects Summary**'s Scheduled section for a lightweight glance (see [Open Projects Summary](#open-projects-summary)), and its checkboxes still reconcile normally if you edit it directly.
 - **Auto-promotes to `todo`** once today is within **7 days** of that first task's due date — not on the date itself, so it surfaces in your Projects folder with a week of lead time instead of risking getting missed — routing the file to the Projects Folder like any other status change. The due date on the task is left untouched; it just becomes an ordinary task due date once the project is `todo`. This is checked in two places: once at plugin load (so items don't sit un-promoted just because Obsidian was closed when the lead window opened), and again on any edit to the file. You can also jump the queue early with **Promote Now** in the Projects Summary's Scheduled section. A project with no due date on its first task is never auto-promoted — it just sits in Scheduled like a Someday-Maybe item until you add one or promote it manually.
 
 **Add New Project** offers a convenience **Scheduled Date** field when Status is `scheduled` (required, at least one starter task required too) — it's written as the `[due:: YYYY-MM-DD]` on the first starter task, not to frontmatter.
@@ -182,7 +167,7 @@ The `scheduled` status is for projects that don't need review or action right no
 The `archived` status is a one-way exit from the review rotation for Someday-Maybe ideas you've decided not to pursue — distinct from `completed`, which means "done," not "abandoned." An archived project:
 
 - Lives in the configured **Archived Projects Folder**, routed there like any other status.
-- Is **excluded** from the date dashboard, the Tasks Summary tab, and every section of the Projects Summary — it simply disappears from the review rotation rather than continuing to demand a "needs review" decision every cycle.
+- Is **excluded** from the date dashboard, the Tasks Summary Bases file's views, and every section of the Projects Summary — it simply disappears from the review rotation rather than continuing to demand a "needs review" decision every cycle.
 - Its checkboxes still reconcile normally if you edit it directly (completion stamping, recurring tasks, etc. all still work) — it's just not surfaced anywhere until you move it out of that status.
 
 There is no command to create a project directly as `archived` — reach it via the Projects Summary's Someday-Maybe **Archive** button (see [Open Projects Summary](#open-projects-summary)), or by hand-editing the status frontmatter field.
@@ -199,7 +184,7 @@ When a task newly becomes actionable after completion or uncompletion (and that 
 - A **Skip** button to dismiss without adding a due date.
 
 On submit, `[due:: YYYY-MM-DD]` is written to the task line, an optional `[repeat:: X]` is added when provided, and `priority: N` is written to the file frontmatter.
-That update also refreshes any open Tasks Summary tab.
+That update also refreshes any open Inbox tab (a no-op unless the edited file is the configured Inbox File).
 
 ## Inline Field Format
 
@@ -237,7 +222,7 @@ Plain indented lines written directly under a task (no checkbox) are treated as 
   Number is on the fridge whiteboard.
 ```
 
-Note blocks are not tasks: they never appear as rows in the date dashboard, Tasks Summary, or Projects Summary, and they don't affect first-incomplete-task selection. When the task above them is completed, the note block moves into `## Completed Tasks` together with the completed line, directly beneath it — unless the task recurs (`[repeat:: ...]`), in which case the note block moves onto the newly inserted open clone instead, so multi-line context (a checklist, reference info) carries forward into the next occurrence rather than getting buried in completed-task history.
+Note blocks are not tasks: they never appear as rows in the date dashboard, Inbox, or Projects Summary, and they don't affect first-incomplete-task selection. When the task above them is completed, the note block moves into `## Completed Tasks` together with the completed line, directly beneath it — unless the task recurs (`[repeat:: ...]`), in which case the note block moves onto the newly inserted open clone instead, so multi-line context (a checklist, reference info) carries forward into the next occurrence rather than getting buried in completed-task history.
 
 An indented **checkbox** line (`  - [ ]`) under a task is not a note — it's parsed and treated as its own independent task line, same as any top-level task (this plugin has no separate sub-task/child-task concept).
 
@@ -287,10 +272,10 @@ Display notes:
 | `src/projects/add-project-modal.ts` | Modal and helpers for creating a new project note from command input or a prefilled inbox-to-project bundle |
 | `src/projects/random-project.ts` | Lists Someday-Maybe project files and picks one at random |
 | `src/tables/grouped-task-table.ts` | Pure grouped task-table model and shared display formatting for dashboard/summary tables |
-| `src/summary/tasks-summary.ts` | Pure(ish) data layer: collects actionable-task rows for Projects/Waiting (first open task) and every open task for Inbox, for the Tasks Summary tab (no writes) |
-| `src/summary/tasks-summary-view.ts` | On-demand main-panel ItemView controller/renderer for the Tasks Summary tab: priority filter, collapsible sections, Inbox selection checkboxes and inbox-to-project actions, auto-refresh on relevant vault changes |
+| `src/summary/inbox-data.ts` | Pure(ish) data layer: collects every open task from the configured Inbox File for the Inbox tab (no writes) |
+| `src/summary/inbox-view.ts` | On-demand main-panel ItemView controller/renderer for the Inbox tab: priority filter, collapsible section, selection checkboxes and inbox-to-project actions, auto-refresh on relevant vault changes |
 | `src/summary/inbox-actions.ts` | Removes selected lines from the Inbox file and appends task lines into an existing project's open-task area — the inbox-to-project write path |
-| `src/summary/summary-file-io.ts` | Shared pure folder-scan/excluded-file helpers used by the Tasks Summary tab, Projects Summary, and the random-project picker |
+| `src/summary/summary-file-io.ts` | Shared pure folder-scan/excluded-file helpers used by Projects Summary and the random-project picker |
 | `src/routing/status-routing.ts` | Status extraction, validation, routable-status constants (`todo`/`completed`/`waiting`/`someday-maybe`/`scheduled`/`archived`) |
 | `src/routing/task-routing.ts` | File movement: destination resolution, folder creation, merge handling |
 | `src/dashboard/date-dashboard.ts` | Right-sidebar ItemView controller and renderer |
@@ -302,14 +287,14 @@ Display notes:
 | `src/settings/settings-ui.ts` | PluginSettingTab renderer |
 | `src/settings/settings-field-definitions.ts` | Declarative metadata for settings controls |
 | `src/settings/folder-picker.ts` | FuzzySuggestModal wrappers for vault folder/file pickers |
-| `src/commands/register-task-commands.ts` | Registers Reset Tasks, Open Tasks Summary, Add New Project, Open Random Someday-Maybe Project, Quick Capture Task, Open Projects Summary, Stamp Waiting-Since, Stamp Derived Fields, and Create Task Bases commands |
+| `src/commands/register-task-commands.ts` | Registers Reset Tasks, Open Inbox, Add New Project, Open Random Someday-Maybe Project, Quick Capture Task, Open Projects Summary, Stamp Waiting-Since, Stamp Derived Fields, and Create Tasks Summary commands |
 | `src/bases/base-file-content.ts` | Pure YAML string builder for the generated `.base` file — five table views over the configured folders |
-| `src/bases/create-task-bases.ts` | I/O for the Create Task Bases command: Bases-core-plugin detection, overwrite-confirm modal, vault write |
+| `src/bases/create-tasks-summary.ts` | I/O for the Create Tasks Summary command: Bases-core-plugin detection, vault write (overwrites an existing file without confirmation) |
 | `src/review/projects-summary-view.ts` | On-demand main-panel ItemView controller/renderer for the Projects Summary tab: priority filter, collapsible sections (Someday-Maybe collapsed by default), Someday-Maybe row actions (Mark Reviewed/Promote to Active/Archive), auto-refresh on relevant vault changes |
 | `src/review/projects-summary-data.ts` | Collects Active Projects/Waiting/Someday-Maybe staleness rows, stamps the `reviewed` field, and sets a project's status directly (Promote to Active/Archive) |
-| `src/ui/search-filter.ts` | Shared search-box UI, used by the date dashboard, Projects Summary, and Tasks Summary views |
-| `src/ui/priority-filter.ts` | Shared priority-filter dropdown UI and row filter, used by the date dashboard, Tasks Summary, and Projects Summary views |
-| `src/ui/collapsible-section.ts` | Shared `<details>`/`<summary>` collapsible-section UI, used by the Tasks Summary and Projects Summary views |
+| `src/ui/search-filter.ts` | Shared search-box UI, used by the date dashboard, Projects Summary, and Inbox views |
+| `src/ui/priority-filter.ts` | Shared priority-filter dropdown UI and row filter, used by the date dashboard, Inbox, and Projects Summary views |
+| `src/ui/collapsible-section.ts` | Shared `<details>`/`<summary>` collapsible-section UI, used by the Inbox and Projects Summary views |
 | `manifest.json` | Obsidian plugin metadata |
 
 ## Dependency Graph
@@ -347,8 +332,8 @@ graph TD
    TS[task-state-store.ts]
    TU[task-utils.ts]
    NA[next-actions.ts]
-   SUM[tasks-summary.ts]
-   SUMV[tasks-summary-view.ts]
+   INBD[inbox-data.ts]
+   INBV[inbox-view.ts]
    IA[inbox-actions.ts]
    SFIO[summary-file-io.ts]
    CMD[register-task-commands.ts]
@@ -358,7 +343,7 @@ graph TD
    PF[priority-filter.ts]
    CSEC[collapsible-section.ts]
    BFC[base-file-content.ts]
-   CTB[create-task-bases.ts]
+   CTS[create-tasks-summary.ts]
 
     D --> M
     E --> M
@@ -367,7 +352,7 @@ graph TD
     RT --> M
     AP --> M
     TP --> M
-    SUMV --> M
+    INBV --> M
     CMD --> M
     QC --> M
     DS --> QC
@@ -375,12 +360,12 @@ graph TD
 
     SF --> D
     SF --> WRV
-    SF --> SUMV
+    SF --> INBV
     PF --> D
     PF --> WRV
-    PF --> SUMV
+    PF --> INBV
     CSEC --> WRV
-    CSEC --> SUMV
+    CSEC --> INBV
 
     WRD --> WRV
     DU --> WRV
@@ -392,12 +377,12 @@ graph TD
     TP --> WRD
     SU --> WRD
 
-    SUM --> SUMV
-    GT --> SUMV
-    SU --> SUMV
-    SFIO --> SUMV
-    AP --> SUMV
-    IA --> SUMV
+    INBD --> INBV
+    GT --> INBV
+    SU --> INBV
+    SFIO --> INBV
+    AP --> INBV
+    IA --> INBV
     TU --> IA
     SU --> IA
 
@@ -439,10 +424,10 @@ graph TD
    TLM --> DFM
    FMU --> DFM
 
-   BFC --> CTB
+   BFC --> CTS
    SU --> BFC
-   RT --> CTB
-   CTB --> M
+   RT --> CTS
+   CTS --> M
 
     TU --> RC
     DU --> RC
@@ -455,18 +440,18 @@ graph TD
     NA --> RC
     DS --> DDM
     DS --> QC
-    TLM --> SUM
+    TLM --> INBD
     TLM --> TU
     TLM --> NA
-    NA --> SUM
+    NA --> INBD
     DU --> RR
     RR --> TLM
 
     TU --> TS
-    PRI --> SUM
-    SU --> SUM
+    PRI --> INBD
+    SU --> INBD
 
     FMU --> RS
     FMU --> PRI
-    SFIO --> SUM
+    SFIO --> INBD
 ```

@@ -1,22 +1,21 @@
 /**
  * Purpose:
- * - render the on-demand Tasks Summary tab: the first actionable open task across
- *   Projects, Waiting, and the Inbox (Someday-Maybe is deliberately excluded — see
- *   tasks-summary.ts).
+ * - render the on-demand Inbox tab: every open capture in the configured Inbox File,
+ *   with the inbox-to-project bundling flow.
  *
  * Responsibilities:
  * - registers and opens a main-panel ItemView (not a persistent sidebar leaf, and not
- *   a generated markdown note — see CLAUDE.md's Tasks Summary section for why)
- * - renders one grouped task table per section, reusing the same Folder/Filename/Task/
- *   Priority/Recurrence/Due columns and hide-keyword display cleanup as the date dashboard
- * - the Inbox section renders a dedicated per-task table with a selection checkbox per
- *   row, plus "Create project from selected" / "Move to existing project" actions —
- *   the inbox-to-project flow (see inbox-actions.ts)
- * - while a Tasks Summary tab is open, auto-refreshes it (debounced) whenever a
- *   relevant task file is modified/renamed/deleted elsewhere
+ *   a generated markdown note)
+ * - renders a dedicated per-task table with a selection checkbox per row, plus
+ *   "Create project from selected" / "Move to existing project" actions — the
+ *   inbox-to-project flow (see inbox-actions.ts). Project/Waiting review now lives in
+ *   the generated Tasks Summary Base instead (see src/bases/) — this view keeps only
+ *   the write-capable bundling action Bases can't do.
+ * - while the Inbox tab is open, auto-refreshes it (debounced) whenever the Inbox file
+ *   is modified/renamed/deleted elsewhere
  *
  * Dependencies:
- * - depends on tasks-summary.ts for row collection and inbox-actions.ts for the
+ * - depends on inbox-data.ts for row collection and inbox-actions.ts for the
  *   inbox-to-project writes
  * - Obsidian ItemView/workspace/vault APIs
  *
@@ -29,47 +28,46 @@ import { App, FuzzySuggestModal, ItemView, Notice, Plugin, TFile, WorkspaceLeaf 
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { AddProjectInput, AddProjectModal } from "../projects/add-project-modal";
 import { isInFolder } from "./summary-file-io";
-import { collectTaskSummarySections, TaskSummaryRow, TaskSummarySection } from "./tasks-summary";
+import { collectInboxRows, InboxRow } from "./inbox-data";
 import { appendTasksToProject, removeInboxLines } from "./inbox-actions";
-import { applyPriorityStyle, buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
+import { formatMonthDay } from "../tables/grouped-task-table";
 import { appendSearchBox, matchesSearch } from "../ui/search-filter";
 import { appendPriorityFilter, filterByMaxPriority, PriorityFilterValue } from "../ui/priority-filter";
 import { appendCollapsibleSection } from "../ui/collapsible-section";
 
 const INBOX_SECTION_TITLE = "Inbox";
 
-type TasksSummaryControllerOptions = {
+type InboxControllerOptions = {
   app: App;
   getSettings: () => TaskManagerSettings;
   /** Creates a new project file from AddProjectModal's submitted input and returns it. */
   createProject: (input: AddProjectInput) => Promise<TFile>;
 };
 
-export class TasksSummaryController {
-  static readonly VIEW_TYPE = "task-manager-tasks-summary";
+export class InboxController {
+  static readonly VIEW_TYPE = "task-manager-inbox";
 
   private readonly app: App;
   private readonly getSettings: () => TaskManagerSettings;
   private readonly createProject: (input: AddProjectInput) => Promise<TFile>;
   private searchQuery = "";
   private selectedMaxPriority: PriorityFilterValue = null;
-  // Every section starts open; a title is added here only when the user collapses it.
-  private collapsedSections: Set<string> = new Set();
+  private collapsed = false;
   // Raw Inbox task lines currently checked for the inbox-to-project actions.
   private selectedInboxLines: Set<string> = new Set();
-  private lastSections: TaskSummarySection[] = [];
+  private lastRows: InboxRow[] = [];
   private resultsContainer: HTMLElement | null = null;
   private currentSettings: TaskManagerSettings | null = null;
   private refreshHandle: number | null = null;
 
-  constructor(options: TasksSummaryControllerOptions) {
+  constructor(options: InboxControllerOptions) {
     this.app = options.app;
     this.getSettings = options.getSettings;
     this.createProject = options.createProject;
   }
 
   onload(plugin: Plugin): void {
-    plugin.registerView(TasksSummaryController.VIEW_TYPE, (leaf) => new TasksSummaryView(leaf, this));
+    plugin.registerView(InboxController.VIEW_TYPE, (leaf) => new InboxView(leaf, this));
     plugin.registerEvent(this.app.vault.on("modify", (file) => {
       if (this.isRelevantFile(file)) {
         this.queueRefresh();
@@ -90,19 +88,19 @@ export class TasksSummaryController {
     }
   }
 
-  /** Opens the Tasks Summary tab, reusing an existing one if already open. */
+  /** Opens the Inbox tab, reusing an existing one if already open. */
   async openView(): Promise<void> {
-    const existingLeaf = this.app.workspace.getLeavesOfType(TasksSummaryController.VIEW_TYPE)[0];
+    const existingLeaf = this.app.workspace.getLeavesOfType(InboxController.VIEW_TYPE)[0];
     if (existingLeaf) {
       this.app.workspace.revealLeaf(existingLeaf);
-      if (existingLeaf.view instanceof TasksSummaryView) {
+      if (existingLeaf.view instanceof InboxView) {
         await existingLeaf.view.refresh();
       }
       return;
     }
 
     const leaf = this.app.workspace.getLeaf(true);
-    await leaf.setViewState({ type: TasksSummaryController.VIEW_TYPE, active: true });
+    await leaf.setViewState({ type: InboxController.VIEW_TYPE, active: true });
   }
 
   refreshSoon(): void {
@@ -118,7 +116,7 @@ export class TasksSummaryController {
     const section = document.createElement("section");
 
     const title = document.createElement("h2");
-    title.textContent = "Tasks Summary";
+    title.textContent = "Inbox";
     section.appendChild(title);
 
     this.appendPriorityFilterControl(section);
@@ -128,7 +126,7 @@ export class TasksSummaryController {
     section.appendChild(resultsContainer);
     this.resultsContainer = resultsContainer;
 
-    this.lastSections = await collectTaskSummarySections(this.app, settings);
+    this.lastRows = await collectInboxRows(this.app, settings);
     this.pruneSelectedInboxLines();
     this.renderResults();
 
@@ -137,8 +135,7 @@ export class TasksSummaryController {
 
   /** Drops any checked Inbox line that no longer exists in the freshly-fetched data (edited/removed elsewhere). */
   private pruneSelectedInboxLines(): void {
-    const inboxSection = this.lastSections.find((section) => section.title === INBOX_SECTION_TITLE);
-    const currentLines = new Set((inboxSection?.rows ?? []).map((row) => row.rawLine));
+    const currentLines = new Set(this.lastRows.map((row) => row.rawLine));
     for (const line of this.selectedInboxLines) {
       if (!currentLines.has(line)) {
         this.selectedInboxLines.delete(line);
@@ -160,21 +157,15 @@ export class TasksSummaryController {
     });
   }
 
-  /** Re-renders just the section tables from already-fetched data — no refetch, no input rebuild (preserves focus while typing). */
+  /** Re-renders just the section table from already-fetched data — no refetch, no input rebuild (preserves focus while typing). */
   private renderResults(): void {
     if (!this.resultsContainer || !this.currentSettings) return;
 
     this.resultsContainer.innerHTML = "";
-    for (const taskSection of this.lastSections) {
-      if (taskSection.title === INBOX_SECTION_TITLE) {
-        this.appendInboxSection(this.resultsContainer, taskSection, this.currentSettings);
-      } else {
-        this.appendSection(this.resultsContainer, taskSection, this.currentSettings);
-      }
-    }
+    this.appendInboxSection(this.resultsContainer, this.currentSettings);
   }
 
-  private filterBySearch(rows: TaskSummaryRow[]): TaskSummaryRow[] {
+  private filterBySearch(rows: InboxRow[]): InboxRow[] {
     if (!this.searchQuery.trim()) {
       return rows;
     }
@@ -182,97 +173,20 @@ export class TasksSummaryController {
     return rows.filter((row) => matchesSearch(this.searchQuery, row.task, row.file.path));
   }
 
-  private appendSection(container: HTMLElement, taskSection: TaskSummarySection, settings: TaskManagerSettings): void {
-    const rows = this.filterBySearch(filterByMaxPriority(taskSection.rows, this.selectedMaxPriority));
-    const details = appendCollapsibleSection(
-      container,
-      taskSection.title,
-      taskSection.rows.length,
-      !this.collapsedSections.has(taskSection.title),
-      (open) => {
-        if (open) {
-          this.collapsedSections.delete(taskSection.title);
-        } else {
-          this.collapsedSections.add(taskSection.title);
-        }
-      },
-    );
-
-    if (rows.length === 0) {
-      const emptyState = document.createElement("p");
-      emptyState.textContent = this.searchQuery.trim() ? "No matches." : "No tasks.";
-      details.appendChild(emptyState);
-      return;
-    }
-
-    const folderGroups = buildGroupedTaskTable(rows, settings.dashboardHideKeywords);
-
-    const table = document.createElement("table");
-    const thead = document.createElement("thead");
-    const headerRow = document.createElement("tr");
-    for (const label of ["Folder", "Project", "Task", "Priority", "Recurrence", "Due"]) {
-      headerRow.appendChild(this.createTextElement("th", label));
-    }
-    thead.appendChild(headerRow);
-    table.appendChild(thead);
-
-    const tbody = document.createElement("tbody");
-    for (const folderGroup of folderGroups) {
-      let folderCellEmitted = false;
-
-      for (const fileGroup of folderGroup.files) {
-        for (let i = 0; i < fileGroup.rows.length; i++) {
-          const row = fileGroup.rows[i];
-          const tableRow = document.createElement("tr");
-
-          if (!folderCellEmitted) {
-            const folderCell = this.createTextElement("td", folderGroup.displayFolderName);
-            if (folderGroup.rowCount > 1) {
-              folderCell.rowSpan = folderGroup.rowCount;
-            }
-            tableRow.appendChild(folderCell);
-            folderCellEmitted = true;
-          }
-
-          if (i === 0) {
-            const fileCell = this.createFileCell(fileGroup.displayFileName, row.file.path, row.priority);
-            if (fileGroup.rows.length > 1) {
-              fileCell.rowSpan = fileGroup.rows.length;
-            }
-            tableRow.appendChild(fileCell);
-          }
-
-          tableRow.appendChild(this.createTaskCell(row.task));
-          tableRow.appendChild(this.createTextElement("td", String(row.priority)));
-          tableRow.appendChild(this.createTextElement("td", row.recurrence));
-          tableRow.appendChild(this.createTextElement("td", formatMonthDay(row.dueDate)));
-          tbody.appendChild(tableRow);
-        }
-      }
-    }
-
-    table.appendChild(tbody);
-    details.appendChild(table);
-  }
-
   /**
    * Inbox rows get a dedicated per-task table (no Folder/Project columns — every row is
    * the same file) with a leading selection checkbox, plus the inbox-to-project action
    * buttons below the table.
    */
-  private appendInboxSection(container: HTMLElement, taskSection: TaskSummarySection, settings: TaskManagerSettings): void {
-    const rows = this.filterBySearch(filterByMaxPriority(taskSection.rows, this.selectedMaxPriority));
+  private appendInboxSection(container: HTMLElement, settings: TaskManagerSettings): void {
+    const rows = this.filterBySearch(filterByMaxPriority(this.lastRows, this.selectedMaxPriority));
     const details = appendCollapsibleSection(
       container,
-      taskSection.title,
-      taskSection.rows.length,
-      !this.collapsedSections.has(taskSection.title),
+      INBOX_SECTION_TITLE,
+      this.lastRows.length,
+      !this.collapsed,
       (open) => {
-        if (open) {
-          this.collapsedSections.delete(taskSection.title);
-        } else {
-          this.collapsedSections.add(taskSection.title);
-        }
+        this.collapsed = !open;
       },
     );
 
@@ -352,13 +266,8 @@ export class TasksSummaryController {
     container.appendChild(row);
   }
 
-  private getSelectedInboxRows(): TaskSummaryRow[] {
-    const inboxSection = this.lastSections.find((section) => section.title === INBOX_SECTION_TITLE);
-    if (!inboxSection) {
-      return [];
-    }
-
-    return inboxSection.rows.filter((row) => this.selectedInboxLines.has(row.rawLine));
+  private getSelectedInboxRows(): InboxRow[] {
+    return this.lastRows.filter((row) => this.selectedInboxLines.has(row.rawLine));
   }
 
   private openCreateProjectFromSelection(settings: TaskManagerSettings): void {
@@ -417,21 +326,6 @@ export class TasksSummaryController {
     }).open();
   }
 
-  private createFileCell(displayFileName: string, filePath: string, priority: number): HTMLTableCellElement {
-    const fileCell = document.createElement("td");
-    const link = document.createElement("a");
-    link.href = "#";
-    link.textContent = displayFileName;
-    link.classList.add("internal-link");
-    link.addEventListener("click", (event) => {
-      event.preventDefault();
-      void this.app.workspace.openLinkText(filePath, "");
-    });
-    applyPriorityStyle(link, priority);
-    fileCell.appendChild(link);
-    return fileCell;
-  }
-
   private createTextElement<K extends keyof HTMLElementTagNameMap>(tagName: K, text: string): HTMLElementTagNameMap[K] {
     const element = document.createElement(tagName);
     element.textContent = text;
@@ -448,10 +342,7 @@ export class TasksSummaryController {
     if (!(file instanceof TFile)) return false;
 
     const settings = this.getSettings();
-    const roots = [settings.projectsFolder, settings.waitingProjectsFolder].filter(Boolean);
-    const inTaskFolder = roots.some((root) => isInFolder(file.path, root));
-    const isInbox = !!settings.inboxFile && file.path === settings.inboxFile;
-    return inTaskFolder || isInbox;
+    return !!settings.inboxFile && file.path === settings.inboxFile;
   }
 
   private queueRefresh(): void {
@@ -466,29 +357,29 @@ export class TasksSummaryController {
   }
 
   private async refreshOpenViews(): Promise<void> {
-    const leaves = this.app.workspace.getLeavesOfType(TasksSummaryController.VIEW_TYPE);
+    const leaves = this.app.workspace.getLeavesOfType(InboxController.VIEW_TYPE);
     for (const leaf of leaves) {
-      if (leaf.view instanceof TasksSummaryView) {
+      if (leaf.view instanceof InboxView) {
         await leaf.view.refresh();
       }
     }
   }
 }
 
-class TasksSummaryView extends ItemView {
-  private readonly controller: TasksSummaryController;
+class InboxView extends ItemView {
+  private readonly controller: InboxController;
 
-  constructor(leaf: WorkspaceLeaf, controller: TasksSummaryController) {
+  constructor(leaf: WorkspaceLeaf, controller: InboxController) {
     super(leaf);
     this.controller = controller;
   }
 
   getViewType(): string {
-    return TasksSummaryController.VIEW_TYPE;
+    return InboxController.VIEW_TYPE;
   }
 
   getDisplayText(): string {
-    return "Tasks Summary";
+    return "Inbox";
   }
 
   async onOpen(): Promise<void> {
