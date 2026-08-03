@@ -31,7 +31,7 @@ export type TextSettingConfig = {
   name: string;
   description: string;
   placeholder: string;
-  key: keyof Pick<TaskManagerSettings, "statusField" | "dashboardHideKeywords" | "somedayMaybeReviewCadenceDays" | "waitingStalenessThresholdDays">;
+  key: keyof Pick<TaskManagerSettings, "statusField" | "dashboardHideKeywords" | "somedayMaybeReviewCadenceDays" | "waitingStalenessThresholdDays" | "basesFilePath" | "boardFilePath">;
   value: string;
   multiLine?: boolean;
 };
@@ -121,6 +121,22 @@ export function getTextSettingConfigs(settings: TaskManagerSettings): TextSettin
       placeholder: "7",
       key: "waitingStalenessThresholdDays",
       value: settings.waitingStalenessThresholdDays,
+      multiLine: false,
+    },
+    {
+      name: "Bases File Path",
+      description: "Vault-relative path for the generated Obsidian Bases file (\"Create Task Bases\" command). Requires the Bases core plugin.",
+      placeholder: "Tasks/Tasks.base",
+      key: "basesFilePath",
+      value: settings.basesFilePath,
+      multiLine: false,
+    },
+    {
+      name: "Board File Path",
+      description: "Vault-relative path for the Task Board canvas (\"Open Task Board\" command). Dragging a card between columns changes that project's status. Requires the Canvas core plugin.",
+      placeholder: "Tasks/Board.canvas",
+      key: "boardFilePath",
+      value: settings.boardFilePath,
       multiLine: false,
     },
   ];

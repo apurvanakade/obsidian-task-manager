@@ -17,6 +17,8 @@
  */
 import { App, Notice, Plugin, PluginSettingTab, TFile } from "obsidian";
 import { registerTaskCommands } from "./src/commands/register-task-commands";
+import { runCreateTaskBases } from "./src/bases/create-task-bases";
+import { BoardSyncController } from "./src/canvas/board-sync";
 import { AddProjectInput, AddProjectModal, buildProjectFileContent, buildProjectFilePath } from "./src/projects/add-project-modal";
 import { DateDashboardController } from "./src/dashboard/date-dashboard";
 import { CreatedDateEditorSuggest, DueDateEditorSuggest } from "./src/editor/due-date-suggest";
@@ -35,6 +37,7 @@ export default class TaskManagerPlugin extends Plugin {
   private dateDashboard: DateDashboardController | null = null;
   private projectsSummary: ProjectsSummaryController | null = null;
   private tasksSummary: TasksSummaryController | null = null;
+  private boardSync: BoardSyncController | null = null;
   private dueDateSuggest: DueDateEditorSuggest | null = null;
   private createdDateSuggest: CreatedDateEditorSuggest | null = null;
 
@@ -68,6 +71,10 @@ export default class TaskManagerPlugin extends Plugin {
       app: this.app,
       getSettings: () => this.getSettings(),
     });
+    this.boardSync = new BoardSyncController({
+      app: this.app,
+      getSettings: () => this.getSettings(),
+    });
     this.dueDateSuggest = new DueDateEditorSuggest(this.app);
     this.createdDateSuggest = new CreatedDateEditorSuggest(this.app);
     this.registerEditorSuggest(this.dueDateSuggest);
@@ -94,6 +101,15 @@ export default class TaskManagerPlugin extends Plugin {
       },
       backfillWaitingSince: () => {
         void this.runBackfillWaitingSince();
+      },
+      backfillDerivedFrontmatter: () => {
+        void this.runBackfillDerivedFrontmatter();
+      },
+      createTaskBases: () => {
+        void runCreateTaskBases(this.app, this.getSettings());
+      },
+      openTaskBoard: () => {
+        void this.boardSync?.openBoard();
       },
     });
     this.addRibbonIcon("shuffle", "Open Random Someday-Maybe Project", () => {
@@ -132,6 +148,7 @@ export default class TaskManagerPlugin extends Plugin {
     }));
     this.projectsSummary.onload(this);
     this.tasksSummary.onload(this);
+    this.boardSync.onload(this);
     await this.taskProcessor.primeState();
     await this.taskProcessor.checkScheduledPromotions();
     await this.dateDashboard.onload(this);
@@ -146,6 +163,8 @@ export default class TaskManagerPlugin extends Plugin {
     this.projectsSummary = null;
     this.tasksSummary?.onunload();
     this.tasksSummary = null;
+    this.boardSync?.onunload();
+    this.boardSync = null;
     this.dueDateSuggest = null;
     this.createdDateSuggest = null;
     console.log("Unloading Task Manager plugin");
@@ -274,6 +293,15 @@ export default class TaskManagerPlugin extends Plugin {
       new Notice(result);
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Failed to stamp waiting-since.");
+    }
+  }
+
+  private async runBackfillDerivedFrontmatter(): Promise<void> {
+    try {
+      const result = await this.taskProcessor!.backfillDerivedFrontmatter();
+      new Notice(result);
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : "Failed to stamp derived fields.");
     }
   }
 

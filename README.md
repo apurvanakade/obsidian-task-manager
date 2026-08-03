@@ -22,6 +22,8 @@ Automates task lifecycle management in Obsidian: state transitions, completion m
    | Dashboard Filename Hide Keywords | Comma-separated keywords stripped from display names in the dashboard and Tasks Summary tab | — |
    | Someday-Maybe Review Cadence (days) | Days a Someday-Maybe project can go unreviewed before the Projects Summary flags it | `30` |
    | Waiting Staleness Threshold (days) | Days a project can stay in Waiting before the Projects Summary flags it as stale | `7` |
+   | Bases File Path | Vault-relative path for the generated Obsidian Bases file (**Create Task Bases** command) | `Tasks/Tasks.base` |
+   | Board File Path | Vault-relative path for the Task Board canvas (**Open Task Board** command) | `Tasks/Board.canvas` |
 
 ## Commands
 
@@ -98,6 +100,23 @@ While a Projects Summary tab is open, it auto-refreshes (debounced) whenever a f
 
 ### Stamp Waiting-Since For Existing Waiting Projects
 A one-time backfill command: stamps today's date on any file in the Waiting Projects Folder that doesn't already have a `waiting-since` field (from before the Projects Summary feature existed). Safe to re-run — files that already have the field are skipped.
+
+### Stamp Derived Fields For All Projects
+Resyncs [derived frontmatter fields](#derived-frontmatter-fields) (`next-due`, `next-action`, `open-tasks`) on every tracked project file. Unlike the waiting-since backfill, this isn't a one-time migration — it's safe to re-run any time, e.g. after bulk-editing files outside Obsidian. Reports how many files were stamped and how many were already current.
+
+### Create Task Bases
+Generates an [Obsidian Bases](https://help.obsidian.md/bases) file at the configured **Bases File Path**, with five table views wired to your configured folders: **Active projects**, **Next actions** (any file with a `next-due`), **Waiting**, **Someday-Maybe review**, and **Scheduled**. Requires the **Bases** core plugin (Settings → Core plugins) — if it's disabled, the command still generates the file but shows a Notice reminding you to enable it.
+
+This is a one-time scaffold, not a plugin-managed file: re-running the command when the file already exists asks for confirmation before overwriting, since Bases' whole value is customizing views from its own UI afterward, and the plugin never touches the file again unprompted. The generated views sort and filter using this plugin's own frontmatter fields (`status`, `priority`, `waiting-since`, `reviewed`) plus the [derived fields](#derived-frontmatter-fields) above — so `next-due`/`next-action`/`open-tasks` need to already be flowing (they are, automatically, once you're on this version) for the generated views to show meaningful data.
+
+### Open Task Board
+Opens (creating it first if it doesn't exist) a **Task Board** canvas at the configured **Board File Path**: one column per status — Active, Waiting, Someday-Maybe, Scheduled (no Completed column) — with one card per project, stacked by priority. Requires the **Canvas** core plugin.
+
+Unlike the generated Bases file, the board is **kept in sync automatically**, in both directions, for as long as it exists:
+- Editing, creating, renaming, or deleting a tracked project file updates the board (debounced) — cards appear, disappear, and reorder without reopening the tab.
+- **Dragging a card into a different column changes that project's status**, which routes the file and stamps the same metadata (e.g. `waiting-since`) a manual status edit would.
+
+Dropping a card in empty space (outside every column) doesn't change its status — it snaps back into its actual column on the next sync. Anything you add to the board yourself — sticky notes, other file cards, manually drawn edges — is preserved across every resync; the plugin only ever touches its own generated cards and columns. If a project ends up represented by more than one card (e.g. from manual editing), the board shows a Notice and skips writing a status for that project until the duplicate is removed. Deleting the board file and re-running the command is always safe — it's fully derived from your projects' current status.
 
 ## Automatic Behavior (live editing)
 
@@ -200,6 +219,18 @@ Tasks use Dataview-style double-colon inline fields on the same line as the chec
 
 Project priority is stored in file frontmatter as `priority: N`, where `1` is highest and missing/invalid values default to `3`.
 
+## Derived Frontmatter Fields
+
+Every tracked project file (except the Inbox File) gets three auto-managed frontmatter fields, recomputed on every relevant edit and mirrored from its task lines so file-level tools — [Bases](https://help.obsidian.md/bases), Dataview, vault search — can see task-level data that inline `[due:: ...]` fields alone don't expose:
+
+| Field | Value | When there's no open task |
+|---|---|---|
+| `next-due` | The first open task's `[due:: ...]` date | Field removed |
+| `next-action` | The first open task's text, with inline fields and tags stripped | Field removed |
+| `open-tasks` | Count of open task lines in the file | `0` |
+
+The task line is always the source of truth — these fields are a read-only mirror, restamped automatically after every completion, uncompletion, task edit, status change, and file creation. Writes only happen when a value actually changed, so editing an unrelated part of a file doesn't touch these fields. Use **Stamp Derived Fields For All Projects** (above) to force a full resync.
+
 ## Task Notes
 
 Plain indented lines written directly under a task (no checkbox) are treated as that task's note/description block — free text for context or detail that isn't independently actionable. A note block is any run of lines immediately below the task line that's indented deeper than the task itself and isn't a checkbox line or a heading; blank lines are allowed within the block for multi-paragraph notes.
@@ -256,6 +287,7 @@ Display notes:
 | `src/tasks/due-date-modal.ts` | Modal for collecting due date and file priority for a newly actionable task |
 | `src/tasks/quick-capture-modal.ts` | Single-input modal for capturing a task into the Inbox File, with `due:` shorthand parsing |
 | `src/tasks/frontmatter-utils.ts` | Shared single-field frontmatter parser over a content string |
+| `src/tasks/derived-frontmatter.ts` | Pure helpers computing/comparing/applying the `next-due`/`next-action`/`open-tasks` mirrored fields — see [Derived Frontmatter Fields](#derived-frontmatter-fields) |
 | `src/projects/add-project-modal.ts` | Modal and helpers for creating a new project note from command input or a prefilled inbox-to-project bundle |
 | `src/projects/random-project.ts` | Lists Someday-Maybe project files and picks one at random |
 | `src/tables/grouped-task-table.ts` | Pure grouped task-table model and shared display formatting for dashboard/summary tables |
@@ -274,7 +306,11 @@ Display notes:
 | `src/settings/settings-ui.ts` | PluginSettingTab renderer |
 | `src/settings/settings-field-definitions.ts` | Declarative metadata for settings controls |
 | `src/settings/folder-picker.ts` | FuzzySuggestModal wrappers for vault folder/file pickers |
-| `src/commands/register-task-commands.ts` | Registers Reset Tasks, Open Tasks Summary, Add New Project, Open Random Someday-Maybe Project, Quick Capture Task, Open Projects Summary, and Stamp Waiting-Since commands |
+| `src/commands/register-task-commands.ts` | Registers Reset Tasks, Open Tasks Summary, Add New Project, Open Random Someday-Maybe Project, Quick Capture Task, Open Projects Summary, Stamp Waiting-Since, Stamp Derived Fields, and Create Task Bases commands |
+| `src/bases/base-file-content.ts` | Pure YAML string builder for the generated `.base` file — five table views over the configured folders |
+| `src/bases/create-task-bases.ts` | I/O for the Create Task Bases command: Bases-core-plugin detection, overwrite-confirm modal, vault write |
+| `src/canvas/canvas-model.ts` | Pure JSON Canvas layout/diff model for the Task Board: builds columns/cards, parses/serializes canvas JSON, geometric group-membership lookup, drag-to-status diffing |
+| `src/canvas/board-sync.ts` | I/O controller keeping the Task Board canvas in sync: debounced regenerate on project-file changes, status writes on card drags, "Open Task Board" command |
 | `src/review/projects-summary-view.ts` | On-demand main-panel ItemView controller/renderer for the Projects Summary tab: priority filter, collapsible sections (Someday-Maybe collapsed by default), Someday-Maybe row actions (Mark Reviewed/Promote to Active/Archive), auto-refresh on relevant vault changes |
 | `src/review/projects-summary-data.ts` | Collects Active Projects/Waiting/Someday-Maybe staleness rows, stamps the `reviewed` field, and sets a project's status directly (Promote to Active/Archive) |
 | `src/ui/search-filter.ts` | Shared search-box UI, used by the date dashboard, Projects Summary, and Tasks Summary views |
@@ -310,6 +346,7 @@ graph TD
    PRI[file-priority.ts]
    TLM[task-line-metadata.ts]
    FMU[frontmatter-utils.ts]
+   DFM[derived-frontmatter.ts]
    RR[repeat-rules.ts]
    DDM[due-date-modal.ts]
    QC[quick-capture-modal.ts]
@@ -326,6 +363,10 @@ graph TD
    SF[search-filter.ts]
    PF[priority-filter.ts]
    CSEC[collapsible-section.ts]
+   BFC[base-file-content.ts]
+   CTB[create-task-bases.ts]
+   CVM[canvas-model.ts]
+   BSY[board-sync.ts]
 
     D --> M
     E --> M
@@ -401,6 +442,21 @@ graph TD
    RS --> TP
    TS --> TP
    FMU --> TP
+   DFM --> TP
+   TU --> DFM
+   TLM --> DFM
+   FMU --> DFM
+
+   BFC --> CTB
+   SU --> BFC
+   RT --> CTB
+   CTB --> M
+
+   CVM --> BSY
+   RT --> BSY
+   RS --> BSY
+   PRI --> BSY
+   BSY --> M
 
     TU --> RC
     DU --> RC

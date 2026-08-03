@@ -25,6 +25,9 @@ type TaskCommandHandlers = {
   quickCapture: () => void;
   openProjectsSummary: () => void;
   backfillWaitingSince: () => void;
+  backfillDerivedFrontmatter: () => void;
+  createTaskBases: () => void;
+  openTaskBoard: () => void;
 };
 
 export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandlers): void {
@@ -68,5 +71,23 @@ export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandle
     id: "backfill-waiting-since",
     name: "Stamp Waiting-Since For Existing Waiting Projects",
     callback: handlers.backfillWaitingSince,
+  });
+
+  plugin.addCommand({
+    id: "backfill-derived-frontmatter",
+    name: "Stamp Derived Fields For All Projects",
+    callback: handlers.backfillDerivedFrontmatter,
+  });
+
+  plugin.addCommand({
+    id: "create-task-bases",
+    name: "Create Task Bases",
+    callback: handlers.createTaskBases,
+  });
+
+  plugin.addCommand({
+    id: "open-task-board",
+    name: "Open Task Board",
+    callback: handlers.openTaskBoard,
   });
 }

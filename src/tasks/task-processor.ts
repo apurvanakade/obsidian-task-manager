@@ -17,6 +17,7 @@
 import { App, Notice, TFile, TFolder } from "obsidian";
 import { addDaysToDateString, getCurrentDateString } from "../date/date-utils";
 import { readFrontmatterField } from "./frontmatter-utils";
+import { applyDerivedFields, computeDerivedFields, derivedFieldsMatchContent } from "./derived-frontmatter";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { DEFAULT_PRIORITY, FilePriority, PRIORITY_FRONTMATTER_FIELD } from "./file-priority";
 import {
@@ -113,6 +114,7 @@ export class TaskProcessor {
 
     const content = await this.app.vault.read(file);
     this.updateFileSnapshot(file.path, content, settings);
+    await this.stampDerivedFrontmatter(file, settings);
   }
 
   handleFileRename(file: TFile, oldPath: string): void {
@@ -144,11 +146,10 @@ export class TaskProcessor {
     const content = await this.app.vault.read(file);
 
     if (await this.maybePromoteScheduledFile(file, content, settings)) {
-      // The promotion writes are self-triggered (pending-guarded) and won't re-enter
-      // this handler, so snapshot this pass's content now — otherwise a task-line edit
-      // that happened to land in the same event as the promotion would leave a stale
-      // snapshot behind, corrupting completion/uncompletion diffing on the next edit.
-      this.snapshotTaskState(file.path, content);
+      // maybePromoteScheduledFile() ends with stampDerivedFrontmatter(), which always
+      // re-reads the file and refreshes the state-store snapshot from that fresh read —
+      // covering both the promotion's own writes and any task-line edit that happened to
+      // land in the same event — so there's nothing left to snapshot here.
       return;
     }
 
@@ -240,6 +241,9 @@ export class TaskProcessor {
     this.stateStore.setStatus(file.path, latestStatus);
 
     if (latestStatus === previousStatus) {
+      // No status change, but a plain task-line edit (e.g. a due-date change) still
+      // needs next-due/next-action/open-tasks refreshed.
+      await this.stampDerivedFrontmatter(file, settings);
       return;
     }
 
@@ -255,6 +259,9 @@ export class TaskProcessor {
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Failed to route file after status change.");
     }
+
+    // Stamp after routing so it lands on the file at its final (post-move) path.
+    await this.stampDerivedFrontmatter(file, settings);
 
     try {
       await this.onFileStatusChanged?.();
@@ -283,6 +290,64 @@ export class TaskProcessor {
         }
       });
     });
+  }
+
+  /**
+   * (Re)stamps next-due/next-action/open-tasks — see derived-frontmatter.ts — from the
+   * file's current task lines, so file-level tools (Bases, Dataview, search) can see
+   * task-level data they otherwise can't reach. A no-op write (idempotency gate) when
+   * nothing actually changed, but the state-store snapshot is always refreshed from a
+   * fresh read regardless: this sits at the tail of every modify pass (see call sites in
+   * routeAfterStatusChange / maybePromoteScheduledFile / handleFileCreate), and those
+   * callers rely on it to leave TaskStateStore consistent with on-disk content — a stamp
+   * changes line count, and a stale snapshot would break the line-count guard that gates
+   * the completion/uncompletion special-case paths (and therefore the DueDateModal) on
+   * the file's next edit. Returns whether it wrote, for backfillDerivedFrontmatter()'s count.
+   */
+  private async stampDerivedFrontmatter(file: TFile, settings: TaskManagerSettings): Promise<boolean> {
+    if (this.isInboxFile(file, settings)) {
+      return false;
+    }
+
+    const content = await this.app.vault.read(file);
+    const fields = computeDerivedFields(content);
+    const alreadyCurrent = derivedFieldsMatchContent(content, fields);
+
+    if (!alreadyCurrent) {
+      await this.runWithPendingPaths([file.path], async () => {
+        await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
+          applyDerivedFields(frontmatter, fields);
+        });
+      });
+    }
+
+    const latest = await this.app.vault.read(file);
+    this.snapshotTaskState(file.path, latest);
+
+    return !alreadyCurrent;
+  }
+
+  /**
+   * Resync command: (re)stamps derived fields on every tracked project file, skipping the
+   * Inbox File. Unlike backfillWaitingSince, this isn't a one-time migration for files that
+   * predate a feature — it's a safe-to-re-run resync for whenever frontmatter and task
+   * lines have drifted (e.g. after bulk edits made outside Obsidian).
+   */
+  async backfillDerivedFrontmatter(): Promise<string> {
+    const settings = this.getSettings();
+    const files = this.app.vault
+      .getMarkdownFiles()
+      .filter((file) => this.shouldTrackFile(file, settings) && !this.isInboxFile(file, settings));
+
+    let stampedCount = 0;
+    for (const file of files) {
+      if (await this.stampDerivedFrontmatter(file, settings)) {
+        stampedCount += 1;
+      }
+    }
+
+    const unchangedCount = files.length - stampedCount;
+    return `Stamped derived fields on ${stampedCount} file${stampedCount === 1 ? "" : "s"} (${unchangedCount} already current).`;
   }
 
   /**
@@ -342,6 +407,8 @@ export class TaskProcessor {
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "Failed to route promoted scheduled file.");
     }
+
+    await this.stampDerivedFrontmatter(file, settings);
 
     try {
       await this.onFileStatusChanged?.();
