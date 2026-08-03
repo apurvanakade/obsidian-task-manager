@@ -6,6 +6,8 @@
  * - gathers project name, folder path, file priority, status, and starter tasks
  * - offers typeahead folder suggestions for vault paths
  * - normalizes multiline task input into one task per line
+ * - optionally prefills the tasks textarea from caller-supplied initial task lines (used
+ *   by the Tasks Summary tab's "Create project from selected" inbox action)
  *
  * Dependencies:
  * - Obsidian modal APIs, plugin settings, and vault folder metadata
@@ -75,12 +77,15 @@ type AddProjectModalOptions = {
   app: App;
   settings: TaskManagerSettings;
   onSubmit: (input: AddProjectInput) => Promise<void>;
+  /** Prefills the Tasks textarea, one entry per line (checkbox prefix optional). */
+  initialTasks?: string[];
 };
 
 export class AddProjectModal extends Modal {
   private readonly settings: TaskManagerSettings;
   private readonly onSubmit: (input: AddProjectInput) => Promise<void>;
   private readonly folderSuggestions: string[];
+  private readonly initialTasks: string[];
   private nameInput: HTMLInputElement | null = null;
   private folderInput: HTMLInputElement | null = null;
   private prioritySelect: HTMLSelectElement | null = null;
@@ -94,6 +99,7 @@ export class AddProjectModal extends Modal {
     super(options.app);
     this.settings = options.settings;
     this.onSubmit = options.onSubmit;
+    this.initialTasks = options.initialTasks ?? [];
     this.folderSuggestions = this.app.vault.getAllLoadedFiles()
       .filter((file): file is TFolder => file instanceof TFolder)
       .map((folder) => folder.path)
@@ -245,6 +251,9 @@ export class AddProjectModal extends Modal {
     applyStyles(this.tasksInput, INPUT_STYLES);
     this.tasksInput.rows = 6;
     this.tasksInput.style.resize = "vertical";
+    if (this.initialTasks.length > 0) {
+      this.tasksInput.value = this.initialTasks.join("\n");
+    }
   }
 
   private createActionButtons(container: HTMLElement): void {

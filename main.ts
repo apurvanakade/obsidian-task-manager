@@ -17,15 +17,13 @@
  */
 import { App, Notice, Plugin, PluginSettingTab, TFile } from "obsidian";
 import { registerTaskCommands } from "./src/commands/register-task-commands";
-import { AddProjectModal, buildProjectFileContent, buildProjectFilePath } from "./src/projects/add-project-modal";
+import { AddProjectInput, AddProjectModal, buildProjectFileContent, buildProjectFilePath } from "./src/projects/add-project-modal";
 import { DateDashboardController } from "./src/dashboard/date-dashboard";
-import { ContextEditorSuggest } from "./src/editor/context-suggest";
 import { CreatedDateEditorSuggest, DueDateEditorSuggest } from "./src/editor/due-date-suggest";
 import { getSomedayMaybeProjectFiles, pickRandomFile } from "./src/projects/random-project";
 import { ProjectsSummaryController } from "./src/review/projects-summary-view";
 import { stampReviewedDate } from "./src/review/projects-summary-data";
 import { normalizeSettings, TaskManagerSettings } from "./src/settings/settings-utils";
-import { parseContextList } from "./src/tasks/task-line-metadata";
 import { QuickCaptureModal } from "./src/tasks/quick-capture-modal";
 import { TasksSummaryController } from "./src/summary/tasks-summary-view";
 import { TaskManagerSettingTabRenderer } from "./src/settings/settings-ui";
@@ -39,9 +37,8 @@ export default class TaskManagerPlugin extends Plugin {
   private tasksSummary: TasksSummaryController | null = null;
   private dueDateSuggest: DueDateEditorSuggest | null = null;
   private createdDateSuggest: CreatedDateEditorSuggest | null = null;
-  private contextSuggest: ContextEditorSuggest | null = null;
 
-  private settings: TaskManagerSettings = normalizeSettings({});
+  private pluginSettings: TaskManagerSettings = normalizeSettings({});
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -58,15 +55,14 @@ export default class TaskManagerPlugin extends Plugin {
     });
     this.dateDashboard = new DateDashboardController({
       app: this.app,
-      getTaskFolderRoots: () => getSurfacedTaskFolderRoots(this.settings),
-      getInboxFile: () => this.settings.inboxFile,
-      getHideKeywords: () => this.settings.dashboardHideKeywords,
-      getKnownContexts: () => this.getKnownContexts(),
+      getTaskFolderRoots: () => getSurfacedTaskFolderRoots(this.pluginSettings),
+      getInboxFile: () => this.pluginSettings.inboxFile,
+      getHideKeywords: () => this.pluginSettings.dashboardHideKeywords,
     });
     this.tasksSummary = new TasksSummaryController({
       app: this.app,
       getSettings: () => this.getSettings(),
-      getKnownContexts: () => this.getKnownContexts(),
+      createProject: (input) => this.createProjectFile(input),
     });
     this.projectsSummary = new ProjectsSummaryController({
       app: this.app,
@@ -74,10 +70,8 @@ export default class TaskManagerPlugin extends Plugin {
     });
     this.dueDateSuggest = new DueDateEditorSuggest(this.app);
     this.createdDateSuggest = new CreatedDateEditorSuggest(this.app);
-    this.contextSuggest = new ContextEditorSuggest(this.app, () => this.getKnownContexts());
     this.registerEditorSuggest(this.dueDateSuggest);
     this.registerEditorSuggest(this.createdDateSuggest);
-    this.registerEditorSuggest(this.contextSuggest);
     this.addSettingTab(new BaseTaskManagerSettingTab(this.app, this));
     registerTaskCommands(this, {
       resetCurrentFileTasks: () => {
@@ -154,28 +148,27 @@ export default class TaskManagerPlugin extends Plugin {
     this.tasksSummary = null;
     this.dueDateSuggest = null;
     this.createdDateSuggest = null;
-    this.contextSuggest = null;
     console.log("Unloading Task Manager plugin");
   }
 
   async loadSettings(): Promise<void> {
     const loadedData = await this.loadData() as Partial<TaskManagerSettings> | null;
-    this.settings = normalizeSettings(loadedData ?? {});
+    this.pluginSettings = normalizeSettings(loadedData ?? {});
   }
 
   async saveSettings(): Promise<void> {
-    this.settings = normalizeSettings(this.settings);
-    await this.saveData(this.settings);
+    this.pluginSettings = normalizeSettings(this.pluginSettings);
+    await this.saveData(this.pluginSettings);
     await this.taskProcessor?.primeState();
     this.dateDashboard?.refreshSoon();
   }
 
   getSettings(): TaskManagerSettings {
-    return { ...this.settings };
+    return { ...this.pluginSettings };
   }
 
   async updateSetting<K extends keyof TaskManagerSettings>(key: K, value: TaskManagerSettings[K]): Promise<void> {
-    this.settings[key] = value;
+    this.pluginSettings[key] = value;
     await this.saveSettings();
   }
 
@@ -188,24 +181,37 @@ export default class TaskManagerPlugin extends Plugin {
     }
   }
 
+  /**
+   * Creates a project file from AddProjectModal's submitted input: resolves the
+   * destination path, writes frontmatter/starter tasks, and primes the task-state store
+   * via handleFileCreate() so subsequent reconciliation on this file has a baseline
+   * snapshot. Shared by the "Add New Project" command and the Tasks Summary tab's
+   * "Create project from selected" inbox action.
+   */
+  private async createProjectFile(input: AddProjectInput): Promise<TFile> {
+    const settings = this.getSettings();
+    const projectPath = buildProjectFilePath(input.folder, input.name);
+    const existingEntry = this.app.vault.getAbstractFileByPath(projectPath);
+    if (existingEntry) {
+      throw new Error(`A file or folder already exists at '${projectPath}'.`);
+    }
+
+    await ensureParentFoldersExist(this.app, projectPath);
+    const content = buildProjectFileContent(input, settings.statusField);
+    const file = await this.app.vault.create(projectPath, content);
+    await this.taskProcessor?.handleFileCreate(file);
+    return file;
+  }
+
   private runAddNewProject(): void {
     const settings = this.getSettings();
     const modal = new AddProjectModal({
       app: this.app,
       settings,
       onSubmit: async (input) => {
-        const projectPath = buildProjectFilePath(input.folder, input.name);
-        const existingEntry = this.app.vault.getAbstractFileByPath(projectPath);
-        if (existingEntry) {
-          throw new Error(`A file or folder already exists at '${projectPath}'.`);
-        }
-
-        await ensureParentFoldersExist(this.app, projectPath);
-        const content = buildProjectFileContent(input, settings.statusField);
-        const file = await this.app.vault.create(projectPath, content);
-        await this.taskProcessor?.handleFileCreate(file);
+        const file = await this.createProjectFile(input);
         await this.app.workspace.getLeaf(true).openFile(file);
-        new Notice(`Created ${projectPath}.`);
+        new Notice(`Created ${file.path}.`);
       },
     });
 
@@ -223,8 +229,7 @@ export default class TaskManagerPlugin extends Plugin {
       app: this.app,
       onSubmit: async (result) => {
         const dueSuffix = result.dueDate ? ` [due:: ${result.dueDate}]` : "";
-        const contextSuffix = result.contexts.length > 0 ? ` [context:: ${result.contexts.join(", ")}]` : "";
-        const taskLine = `- [ ] ${result.text}${dueSuffix}${contextSuffix}`;
+        const taskLine = `- [ ] ${result.text}${dueSuffix}`;
 
         const existingEntry = this.app.vault.getAbstractFileByPath(settings.inboxFile);
         if (existingEntry instanceof TFile) {
@@ -272,9 +277,6 @@ export default class TaskManagerPlugin extends Plugin {
     }
   }
 
-  private getKnownContexts(): string[] {
-    return parseContextList(this.settings.knownContexts);
-  }
 }
 
 const FRONTMATTER_BLOCK_REGEX = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;

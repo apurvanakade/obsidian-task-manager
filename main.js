@@ -82,6 +82,8 @@ function getDestinationRootForStatus(settings, status) {
       return settings.somedayMaybeProjectsFolder;
     case "scheduled":
       return settings.scheduledProjectsFolder;
+    case "archived":
+      return settings.archivedProjectsFolder;
     default:
       return "";
   }
@@ -92,7 +94,8 @@ function getTaskFolderRoots(settings) {
     settings.completedProjectsFolder,
     settings.waitingProjectsFolder,
     settings.somedayMaybeProjectsFolder,
-    settings.scheduledProjectsFolder
+    settings.scheduledProjectsFolder,
+    settings.archivedProjectsFolder
   ].filter(Boolean);
   return [...new Set(roots)];
 }
@@ -256,6 +259,7 @@ var PRIORITY_OPTIONS = ["1", "2", "3"];
 var SCHEDULED_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 var AddProjectModal = class extends import_obsidian2.Modal {
   constructor(options) {
+    var _a;
     super(options.app);
     this.nameInput = null;
     this.folderInput = null;
@@ -267,6 +271,7 @@ var AddProjectModal = class extends import_obsidian2.Modal {
     this.folderEdited = false;
     this.settings = options.settings;
     this.onSubmit = options.onSubmit;
+    this.initialTasks = (_a = options.initialTasks) != null ? _a : [];
     this.folderSuggestions = this.app.vault.getAllLoadedFiles().filter((file) => file instanceof import_obsidian3.TFolder).map((folder) => folder.path).sort((left, right) => left.localeCompare(right));
   }
   onOpen() {
@@ -388,6 +393,9 @@ var AddProjectModal = class extends import_obsidian2.Modal {
     applyStyles(this.tasksInput, INPUT_STYLES);
     this.tasksInput.rows = 6;
     this.tasksInput.style.resize = "vertical";
+    if (this.initialTasks.length > 0) {
+      this.tasksInput.value = this.initialTasks.join("\n");
+    }
   }
   createActionButtons(container) {
     const row = container.createEl("div");
@@ -597,7 +605,6 @@ function parsePriorityValue(value) {
 // src/tasks/task-line-metadata.ts
 var TASK_LINE_STRUCTURE_REGEX = /^(\s*[-*+]\s+\[)( |x|X)(\]\s+)(.*)$/;
 var REPEAT_VALUE_REGEX = /\[(?:repeat|repeats)::\s*(?:every\s+)?([^\]]+?)\s*\]/i;
-var CONTEXT_VALUE_REGEX = /\[(?:context|contexts)::\s*([^\]]+?)\s*\]/i;
 var INLINE_FIELD_REGEX = /\s*\[[^\]]+::\s*[^\]]*\]/g;
 var TAG_REGEX = /(^|\s)#[^\s#]+/g;
 var MULTISPACE_REGEX = /\s+/g;
@@ -632,20 +639,6 @@ function getRecurrenceLabel(taskBody) {
 function readInlineFieldValue(taskBody, fieldRegex) {
   const match = taskBody.match(fieldRegex);
   return match ? match[1].trim() : null;
-}
-function parseContextList(raw) {
-  return raw.split(",").map((token) => normalizeContext(token)).filter((token) => token.length > 0);
-}
-function getContexts(taskBody) {
-  const raw = readInlineFieldValue(taskBody, CONTEXT_VALUE_REGEX);
-  return raw ? parseContextList(raw) : [];
-}
-function normalizeContext(token) {
-  const trimmed = token.trim().toLowerCase();
-  if (!trimmed) {
-    return "";
-  }
-  return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
 }
 function cleanTaskText(taskBody) {
   return taskBody.replace(INLINE_FIELD_REGEX, "").replace(TAG_REGEX, "$1").replace(MULTISPACE_REGEX, " ").trim();
@@ -682,8 +675,7 @@ async function collectTasksForDate(app, taskFolderRoots, inboxFile, dateString) 
           task: parsedTask.text,
           dueDate: parsedTask.dueDate,
           priority,
-          recurrence: parsedTask.recurrence,
-          contexts: parsedTask.contexts
+          recurrence: parsedTask.recurrence
         });
       }
       if (parsedTask.completedDate === dateString) {
@@ -692,8 +684,7 @@ async function collectTasksForDate(app, taskFolderRoots, inboxFile, dateString) 
           task: parsedTask.text,
           dueDate: null,
           priority,
-          recurrence: parsedTask.recurrence,
-          contexts: parsedTask.contexts
+          recurrence: parsedTask.recurrence
         });
       }
     }
@@ -720,8 +711,7 @@ async function collectInboxTasks(app, inboxFile) {
       task: cleanTaskText(parsedTask.taskBody),
       dueDate: null,
       priority,
-      recurrence: "none",
-      contexts: getContexts(parsedTask.taskBody)
+      recurrence: "none"
     });
   }
   inboxTasks.sort(compareRows);
@@ -745,8 +735,7 @@ async function collectOpenTasksFromFile(app, file) {
       task: cleanTaskText(parsedTask.taskBody),
       dueDate: null,
       priority,
-      recurrence: "none",
-      contexts: getContexts(parsedTask.taskBody)
+      recurrence: "none"
     });
   }
   rows.sort(compareRows);
@@ -768,8 +757,7 @@ function parseDashboardTaskLine(line) {
     status,
     dueDate,
     completedDate,
-    recurrence: getRecurrenceLabel(taskBody),
-    contexts: getContexts(taskBody)
+    recurrence: getRecurrenceLabel(taskBody)
   };
 }
 function compareRows(left, right) {
@@ -888,20 +876,52 @@ function matchesSearch(query, ...texts) {
   return texts.some((text) => text.toLowerCase().includes(trimmed));
 }
 
+// src/ui/priority-filter.ts
+function appendPriorityFilter(container, selected, onChange) {
+  const wrapper = document.createElement("div");
+  wrapper.style.marginBottom = "10px";
+  const label = document.createElement("label");
+  label.textContent = "Priority: ";
+  wrapper.appendChild(label);
+  const select = document.createElement("select");
+  const options = [
+    { value: "", text: "All priorities" },
+    { value: "1", text: "Priority 1 only" },
+    { value: "2", text: "Priority 1-2" }
+  ];
+  for (const option of options) {
+    const optionEl = document.createElement("option");
+    optionEl.value = option.value;
+    optionEl.textContent = option.text;
+    select.appendChild(optionEl);
+  }
+  select.value = selected === null ? "" : String(selected);
+  select.addEventListener("change", () => {
+    onChange(select.value === "" ? null : Number(select.value));
+  });
+  label.appendChild(select);
+  container.appendChild(wrapper);
+}
+function filterByMaxPriority(rows, maxPriority) {
+  if (maxPriority === null) {
+    return rows;
+  }
+  return rows.filter((row) => row.priority <= maxPriority);
+}
+
 // src/dashboard/date-dashboard.ts
 var MARKDOWN_EXTENSION_REGEX3 = /\.md$/i;
 var _DateDashboardController = class _DateDashboardController {
   constructor(options) {
     this.refreshHandle = null;
-    this.selectedContext = null;
     this.searchQuery = "";
+    this.selectedMaxPriority = null;
     this.cached = null;
     this.resultsContainer = null;
     this.app = options.app;
     this.getTaskFolderRoots = options.getTaskFolderRoots;
     this.getInboxFile = options.getInboxFile;
     this.getHideKeywords = options.getHideKeywords;
-    this.getKnownContexts = options.getKnownContexts;
   }
   async onload(plugin) {
     plugin.registerView(_DateDashboardController.VIEW_TYPE, (leaf) => new DateDashboardView(leaf, this));
@@ -944,7 +964,7 @@ var _DateDashboardController = class _DateDashboardController {
     const title = document.createElement("h2");
     title.textContent = `Tasks for ${dateString}`;
     dashboard.appendChild(title);
-    this.appendContextFilter(dashboard);
+    this.appendPriorityFilterControl(dashboard);
     this.appendSearchFilter(dashboard);
     const resultsContainer = document.createElement("div");
     dashboard.appendChild(resultsContainer);
@@ -965,6 +985,12 @@ var _DateDashboardController = class _DateDashboardController {
     container.innerHTML = "";
     container.appendChild(dashboard);
   }
+  appendPriorityFilterControl(container) {
+    appendPriorityFilter(container, this.selectedMaxPriority, (value) => {
+      this.selectedMaxPriority = value;
+      this.renderResults();
+    });
+  }
   appendSearchFilter(container) {
     appendSearchBox(container, this.searchQuery, (query) => {
       this.searchQuery = query;
@@ -983,49 +1009,13 @@ var _DateDashboardController = class _DateDashboardController {
     this.appendTaskTable(container, "Completed", this.filterRows(completedTasks), sourcePath, false);
   }
   filterRows(rows) {
-    return this.filterBySearch(this.filterByContext(rows));
+    return this.filterBySearch(filterByMaxPriority(rows, this.selectedMaxPriority));
   }
   filterBySearch(rows) {
     if (!this.searchQuery.trim()) {
       return rows;
     }
-    return rows.filter((row) => matchesSearch(this.searchQuery, row.task, row.contexts.join(" ")));
-  }
-  appendContextFilter(container) {
-    var _a;
-    const knownContexts = this.getKnownContexts();
-    if (knownContexts.length === 0) {
-      return;
-    }
-    const wrapper = document.createElement("div");
-    wrapper.style.marginBottom = "10px";
-    const label = document.createElement("label");
-    label.textContent = "Context: ";
-    wrapper.appendChild(label);
-    const select = document.createElement("select");
-    const allOption = document.createElement("option");
-    allOption.value = "";
-    allOption.textContent = "All";
-    select.appendChild(allOption);
-    for (const context of knownContexts) {
-      const option = document.createElement("option");
-      option.value = context;
-      option.textContent = context;
-      select.appendChild(option);
-    }
-    select.value = (_a = this.selectedContext) != null ? _a : "";
-    select.addEventListener("change", () => {
-      this.selectedContext = select.value.length > 0 ? select.value : null;
-      this.renderResults();
-    });
-    label.appendChild(select);
-    container.appendChild(wrapper);
-  }
-  filterByContext(rows) {
-    if (!this.selectedContext) {
-      return rows;
-    }
-    return rows.filter((row) => row.contexts.includes(this.selectedContext));
+    return rows.filter((row) => matchesSearch(this.searchQuery, row.task));
   }
   /**
    * Renders the Inbox section: heading, link to inbox file, and a plain list of tasks (no table, no priorities).
@@ -1081,7 +1071,7 @@ var _DateDashboardController = class _DateDashboardController {
     return this.searchQuery.trim() ? "No matches." : "No tasks.";
   }
   formatTaskListText(row) {
-    return row.contexts.length > 0 ? `${row.task} (${row.contexts.join(", ")})` : row.task;
+    return row.task;
   }
   appendDueSection(container, rows, sourcePath) {
     const heading = document.createElement("h3");
@@ -1153,7 +1143,7 @@ var _DateDashboardController = class _DateDashboardController {
     const table = document.createElement("table");
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
-    const labels = showDueDate ? ["Folder", "Project", "Task", "Priority", "Recurrence", "Context", "Due"] : ["Folder", "Project", "Task", "Priority", "Recurrence", "Context"];
+    const labels = showDueDate ? ["Folder", "Project", "Task", "Priority", "Recurrence", "Due"] : ["Folder", "Project", "Task", "Priority", "Recurrence"];
     for (const label of labels) {
       headerRow.appendChild(this.createTextElement("th", label));
     }
@@ -1184,7 +1174,6 @@ var _DateDashboardController = class _DateDashboardController {
           tableRow.appendChild(this.createTaskCell(row.task));
           tableRow.appendChild(this.createTextElement("td", String(row.priority)));
           tableRow.appendChild(this.createTextElement("td", row.recurrence));
-          tableRow.appendChild(this.createTextElement("td", row.contexts.join(", ")));
           if (showDueDate) {
             tableRow.appendChild(this.createTextElement("td", formatMonthDay(row.dueDate)));
           }
@@ -1241,70 +1230,8 @@ var DateDashboardView = class extends import_obsidian5.ItemView {
   }
 };
 
-// src/editor/context-suggest.ts
-var import_obsidian6 = require("obsidian");
-var TRIGGER_REGEX = /((?:context|contexts)::)(\s*)([@a-z0-9-]*)$/i;
-var ContextEditorSuggest = class extends import_obsidian6.EditorSuggest {
-  constructor(app, getKnownContexts) {
-    super(app);
-    this.triggerInfo = null;
-    this.activeEditor = null;
-    this.getKnownContexts = getKnownContexts;
-    this.setInstructions([
-      {
-        command: "Enter",
-        purpose: "Insert context"
-      },
-      {
-        command: "Esc",
-        purpose: "Close suggestions"
-      }
-    ]);
-  }
-  onTrigger(cursor, editor) {
-    var _a, _b;
-    const linePrefix = editor.getLine(cursor.line).slice(0, cursor.ch);
-    const triggerMatch = linePrefix.match(TRIGGER_REGEX);
-    if (!triggerMatch) {
-      this.triggerInfo = null;
-      this.activeEditor = null;
-      return null;
-    }
-    const query = (_a = triggerMatch[3]) != null ? _a : "";
-    const typedWhitespace = (_b = triggerMatch[2]) != null ? _b : "";
-    const startCh = linePrefix.length - typedWhitespace.length - query.length;
-    const trigger = {
-      start: { line: cursor.line, ch: startCh },
-      end: cursor,
-      query
-    };
-    this.triggerInfo = trigger;
-    this.activeEditor = editor;
-    return trigger;
-  }
-  getSuggestions(context) {
-    const normalizedQuery = context.query.trim().toLowerCase();
-    return this.getKnownContexts().filter((value) => normalizedQuery.length === 0 || value.toLowerCase().includes(normalizedQuery)).map((value) => ({ value }));
-  }
-  renderSuggestion(value, el) {
-    el.createDiv({ text: value.value });
-  }
-  selectSuggestion(value) {
-    if (!this.activeEditor || !this.triggerInfo) {
-      return;
-    }
-    this.activeEditor.replaceRange(` ${value.value}`, this.triggerInfo.start, this.triggerInfo.end);
-    this.close();
-  }
-  close() {
-    super.close();
-    this.triggerInfo = null;
-    this.activeEditor = null;
-  }
-};
-
 // src/editor/due-date-suggest.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/date/date-suggestions.ts
 var DEFAULT_LOOKAHEAD_DAYS = 30;
@@ -1383,7 +1310,7 @@ function isValidIsoDate(value) {
 }
 
 // src/editor/due-date-suggest.ts
-var DateFieldEditorSuggest = class extends import_obsidian7.EditorSuggest {
+var DateFieldEditorSuggest = class extends import_obsidian6.EditorSuggest {
   constructor(app, fieldName, suggestionFactory) {
     super(app);
     this.triggerInfo = null;
@@ -1524,7 +1451,21 @@ function pickRandomFile(files) {
 }
 
 // src/review/projects-summary-view.ts
-var import_obsidian11 = require("obsidian");
+var import_obsidian10 = require("obsidian");
+
+// src/ui/collapsible-section.ts
+function appendCollapsibleSection(container, title, count, isOpen, onToggle) {
+  const details = document.createElement("details");
+  details.open = isOpen;
+  const summary = document.createElement("summary");
+  summary.textContent = `${title} (${count})`;
+  details.appendChild(summary);
+  details.addEventListener("toggle", () => {
+    onToggle(details.open);
+  });
+  container.appendChild(details);
+  return details;
+}
 
 // src/tasks/task-utils.ts
 var FRONTMATTER_BLOCK_REGEX2 = /^---\r?\n[\s\S]*?\r?\n---/;
@@ -1682,44 +1623,24 @@ function stripResetTaskFields(taskBody) {
 }
 
 // src/tasks/task-processor.ts
-var import_obsidian10 = require("obsidian");
-
-// src/tasks/reconciler.ts
 var import_obsidian9 = require("obsidian");
 
+// src/tasks/reconciler.ts
+var import_obsidian8 = require("obsidian");
+
 // src/tasks/next-actions.ts
-function findActionableTaskLines(lines, enableMultipleNextActions) {
-  const openLines = [];
+function findActionableTaskLines(lines) {
   for (let index = 0; index < lines.length; index += 1) {
     const structured = parseTaskLineStructured(lines[index]);
-    if (!structured || structured.status !== "open") {
-      continue;
-    }
-    openLines.push({ index, contexts: getContexts(structured.body) });
-  }
-  if (openLines.length === 0) {
-    return [];
-  }
-  if (!enableMultipleNextActions) {
-    return [openLines[0].index];
-  }
-  const actionableIndices = /* @__PURE__ */ new Set([openLines[0].index]);
-  const firstIndexByContext = /* @__PURE__ */ new Map();
-  for (const openLine of openLines) {
-    for (const context of openLine.contexts) {
-      if (!firstIndexByContext.has(context)) {
-        firstIndexByContext.set(context, openLine.index);
-      }
+    if (structured && structured.status === "open") {
+      return [index];
     }
   }
-  for (const index of firstIndexByContext.values()) {
-    actionableIndices.add(index);
-  }
-  return [...actionableIndices].sort((a, b) => a - b);
+  return [];
 }
 
 // src/routing/status-routing.ts
-var ROUTABLE_STATUSES = ["todo", "completed", "waiting", "someday-maybe", "scheduled"];
+var ROUTABLE_STATUSES = ["todo", "completed", "waiting", "someday-maybe", "scheduled", "archived"];
 function isRoutableStatus(value) {
   return ROUTABLE_STATUSES.includes(value);
 }
@@ -1747,7 +1668,7 @@ function assertConfiguredDestinationForStatus(status, settings) {
 }
 
 // src/tasks/due-date-modal.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 
 // src/tasks/repeat-rules.ts
 var REPEAT_FIELD_REGEX = /\[(?:repeat|repeats)::\s*(?:every\s+)?([^\]]+?)\s*\]/i;
@@ -1945,7 +1866,7 @@ var buttonStyles = {
     cursor: "pointer"
   }
 };
-var DueDateModal = class extends import_obsidian8.Modal {
+var DueDateModal = class extends import_obsidian7.Modal {
   constructor(options) {
     var _a, _b;
     super(options.app);
@@ -2100,19 +2021,19 @@ var DueDateModal = class extends import_obsidian8.Modal {
     }
     const resolvedDate = resolveDateInput(dateValue);
     if (!resolvedDate) {
-      new import_obsidian8.Notice("Enter YYYY-MM-DD or a natural date like today, tomorrow, or a weekday.");
+      new import_obsidian7.Notice("Enter YYYY-MM-DD or a natural date like today, tomorrow, or a weekday.");
       return;
     }
     const repeat = repeatValue.length > 0 ? repeatValue : null;
     if (repeat !== null && parseRepeatRule(`${this.taskLine} [repeat:: ${repeat}]`) === null) {
-      new import_obsidian8.Notice("Enter a valid repeat rule like daily, 2 weeks, Monday, or 5th.");
+      new import_obsidian7.Notice("Enter a valid repeat rule like daily, 2 weeks, Monday, or 5th.");
       return;
     }
     try {
       await this.onSubmit(this.taskLineIndex, this.taskLine, resolvedDate, priority, repeat);
       this.close();
     } catch (error) {
-      new import_obsidian8.Notice(error instanceof Error ? error.message : "Failed to add due date.");
+      new import_obsidian7.Notice(error instanceof Error ? error.message : "Failed to add due date.");
     }
   }
 };
@@ -2160,7 +2081,7 @@ async function showDueDateModalForFirstIncompleteTask(file, taskLineIndex, updat
         targetIndex = fallbackIndex === -1 ? null : fallbackIndex;
       }
       if (targetIndex === null) {
-        new import_obsidian9.Notice(`Could not find "${taskLine2.trim()}" in ${file.name}; the due date was not saved.`);
+        new import_obsidian8.Notice(`Could not find "${taskLine2.trim()}" in ${file.name}; the due date was not saved.`);
         return;
       }
       if (updatedLines[targetIndex].includes("[due::")) {
@@ -2186,14 +2107,13 @@ async function showDueDateModalForFirstIncompleteTask(file, taskLineIndex, updat
 }
 async function applyCompletionRules(context) {
   const { file, content, completedLine, writeFileContent, setFileStatus, setTaskState, settings } = context;
-  const enableMultipleNextActions = settings.enableMultipleNextActions === true;
   const lines = content.split(/\r?\n/);
   const nextLines = [...lines];
   const sourceTaskLine = lines[completedLine];
   let completedLineIndex = completedLine;
   const previousLines = [...lines];
   previousLines[completedLine] = forceLineOpen(previousLines[completedLine]);
-  const previousActionableLines = findActionableTaskLines(previousLines, enableMultipleNextActions);
+  const previousActionableLines = findActionableTaskLines(previousLines);
   const wasCompletedLineActionable = previousActionableLines.includes(completedLine);
   const previousActionableBodies = new Set(
     previousActionableLines.filter((index) => index !== completedLine).map((index) => getLineBody(previousLines[index]))
@@ -2227,7 +2147,7 @@ async function applyCompletionRules(context) {
   await setFileStatus(file, newStatus);
   setTaskState(file.path, updatedContent);
   if (wasCompletedLineActionable) {
-    const finalActionableLines = findActionableTaskLines(workingLines, enableMultipleNextActions);
+    const finalActionableLines = findActionableTaskLines(workingLines);
     const newlyActionableLine = finalActionableLines.find(
       (index) => !previousActionableBodies.has(getLineBody(workingLines[index]))
     );
@@ -2237,12 +2157,11 @@ async function applyCompletionRules(context) {
   }
 }
 async function applyUncompletionRules(context) {
-  const { file, content, uncompletedLine, writeFileContent, setFileStatus, setTaskState, settings } = context;
-  const enableMultipleNextActions = settings.enableMultipleNextActions === true;
+  const { file, content, uncompletedLine, writeFileContent, setFileStatus, setTaskState } = context;
   const lines = content.split(/\r?\n/);
   lines[uncompletedLine] = stripCompletionFields(lines[uncompletedLine]);
   const workingLines = lines;
-  const isActionable = findActionableTaskLines(workingLines, enableMultipleNextActions).includes(uncompletedLine);
+  const isActionable = findActionableTaskLines(workingLines).includes(uncompletedLine);
   const updatedContent = workingLines.join("\n");
   if (updatedContent !== content) {
     await writeFileContent(file, updatedContent);
@@ -2542,12 +2461,12 @@ var TaskProcessor = class {
       assertConfiguredDestinationForStatus(latestStatus, settings);
       await this.routeFileByStatus(file, settings, latestStatus);
     } catch (error) {
-      new import_obsidian10.Notice(error instanceof Error ? error.message : "Failed to route file after status change.");
+      new import_obsidian9.Notice(error instanceof Error ? error.message : "Failed to route file after status change.");
     }
     try {
       await ((_a = this.onFileStatusChanged) == null ? void 0 : _a.call(this));
     } catch (error) {
-      new import_obsidian10.Notice(error instanceof Error ? error.message : "Failed to update summary files after status change.");
+      new import_obsidian9.Notice(error instanceof Error ? error.message : "Failed to update summary files after status change.");
     }
   }
   /**
@@ -2619,12 +2538,12 @@ var TaskProcessor = class {
       assertConfiguredDestinationForStatus("todo", settings);
       await this.routeFileByStatus(file, settings, "todo");
     } catch (error) {
-      new import_obsidian10.Notice(error instanceof Error ? error.message : "Failed to route promoted scheduled file.");
+      new import_obsidian9.Notice(error instanceof Error ? error.message : "Failed to route promoted scheduled file.");
     }
     try {
       await ((_a = this.onFileStatusChanged) == null ? void 0 : _a.call(this));
     } catch (error) {
-      new import_obsidian10.Notice(error instanceof Error ? error.message : "Failed to update summary files after promotion.");
+      new import_obsidian9.Notice(error instanceof Error ? error.message : "Failed to update summary files after promotion.");
     }
     return true;
   }
@@ -2673,10 +2592,10 @@ var TaskProcessor = class {
     }
     await ensureParentFoldersExist(this.app, destinationPath);
     const destinationEntry = this.app.vault.getAbstractFileByPath(destinationPath);
-    if (destinationEntry instanceof import_obsidian10.TFolder) {
+    if (destinationEntry instanceof import_obsidian9.TFolder) {
       throw new Error(`Cannot move '${file.path}' because '${destinationPath}' is a folder.`);
     }
-    if (destinationEntry instanceof import_obsidian10.TFile) {
+    if (destinationEntry instanceof import_obsidian9.TFile) {
       const shouldMerge = await promptMergeOrSkip(this.app, file.path, destinationPath);
       if (!shouldMerge) {
         return `Skipped ${file.name} (destination exists).`;
@@ -2894,6 +2813,11 @@ async function promoteScheduledFileNow(app, file, settings) {
     frontmatter[settings.statusField] = "todo";
   });
 }
+async function setProjectStatus(app, file, settings, status) {
+  await app.fileManager.processFrontMatter(file, (frontmatter) => {
+    frontmatter[settings.statusField] = status;
+  });
+}
 async function stampReviewedDate(app, file) {
   await app.fileManager.processFrontMatter(file, (frontmatter) => {
     frontmatter[REVIEWED_FRONTMATTER_FIELD] = getTodayDateString();
@@ -2927,6 +2851,11 @@ function compareByStaleness(getDays) {
 var _ProjectsSummaryController = class _ProjectsSummaryController {
   constructor(options) {
     this.searchQuery = "";
+    this.selectedMaxPriority = null;
+    // Someday-Maybe starts collapsed (it's backlog review material, not the daily-glance
+    // content); every other section starts open. A title is added/removed here as the
+    // user toggles it, so the state survives auto-refresh re-renders.
+    this.collapsedSections = /* @__PURE__ */ new Set(["Someday-Maybe"]);
     this.cached = null;
     this.resultsContainer = null;
     this.onNeedsRefresh = null;
@@ -2968,7 +2897,7 @@ var _ProjectsSummaryController = class _ProjectsSummaryController {
     await leaf.setViewState({ type: _ProjectsSummaryController.VIEW_TYPE, active: true });
   }
   isRelevantFile(file) {
-    if (!(file instanceof import_obsidian11.TFile)) return false;
+    if (!(file instanceof import_obsidian10.TFile)) return false;
     const settings = this.getSettings();
     const roots = [
       settings.projectsFolder,
@@ -3007,6 +2936,7 @@ var _ProjectsSummaryController = class _ProjectsSummaryController {
     const weekLabel = document.createElement("p");
     weekLabel.textContent = `Week ending ${formatDate3(getEndOfWeek(/* @__PURE__ */ new Date()))}`;
     section.appendChild(weekLabel);
+    this.appendPriorityFilterControl(section);
     this.appendSearchFilter(section);
     const resultsContainer = document.createElement("div");
     section.appendChild(resultsContainer);
@@ -3021,11 +2951,20 @@ var _ProjectsSummaryController = class _ProjectsSummaryController {
     this.renderResults();
     container.appendChild(section);
   }
+  appendPriorityFilterControl(container) {
+    appendPriorityFilter(container, this.selectedMaxPriority, (value) => {
+      this.selectedMaxPriority = value;
+      this.renderResults();
+    });
+  }
   appendSearchFilter(container) {
     appendSearchBox(container, this.searchQuery, (query) => {
       this.searchQuery = query;
       this.renderResults();
     });
+  }
+  filterRows(rows) {
+    return this.filterBySearch(filterByMaxPriority(rows, this.selectedMaxPriority));
   }
   filterBySearch(rows) {
     if (!this.searchQuery.trim()) {
@@ -3043,22 +2982,29 @@ var _ProjectsSummaryController = class _ProjectsSummaryController {
     const onNeedsRefresh = this.onNeedsRefresh;
     const container = this.resultsContainer;
     container.innerHTML = "";
-    this.appendActiveProjectsSection(container, this.filterBySearch(activeProjectRows), settings, onNeedsRefresh);
-    this.appendWaitingSection(container, this.filterBySearch(waitingRows), settings);
-    this.appendSomedaySection(container, this.filterBySearch(somedayRows), settings, onNeedsRefresh);
-    this.appendScheduledSection(container, this.filterBySearch(scheduledRows), settings, onNeedsRefresh);
+    this.appendActiveProjectsSection(container, activeProjectRows.length, this.filterRows(activeProjectRows), settings, onNeedsRefresh);
+    this.appendWaitingSection(container, waitingRows.length, this.filterRows(waitingRows), settings);
+    this.appendSomedaySection(container, somedayRows.length, this.filterRows(somedayRows), settings, onNeedsRefresh);
+    this.appendScheduledSection(container, scheduledRows.length, this.filterRows(scheduledRows), settings, onNeedsRefresh);
   }
-  appendActiveProjectsSection(container, rows, settings, onNeedsRefresh) {
+  appendCollapsible(container, title, totalCount) {
+    return appendCollapsibleSection(container, title, totalCount, !this.collapsedSections.has(title), (open) => {
+      if (open) {
+        this.collapsedSections.delete(title);
+      } else {
+        this.collapsedSections.add(title);
+      }
+    });
+  }
+  appendActiveProjectsSection(container, totalCount, rows, settings, onNeedsRefresh) {
     var _a;
-    const heading = document.createElement("h3");
-    heading.textContent = "Active Projects";
-    container.appendChild(heading);
+    const details = this.appendCollapsible(container, "Active Projects", totalCount);
     if (!settings.projectsFolder) {
-      container.appendChild(this.createParagraph("Set Projects Folder in plugin settings to see active projects here."));
+      details.appendChild(this.createParagraph("Set Projects Folder in plugin settings to see active projects here."));
       return;
     }
     if (rows.length === 0) {
-      container.appendChild(this.createParagraph(this.emptyMessage("No active projects.")));
+      details.appendChild(this.createParagraph(this.emptyMessage("No active projects.")));
       return;
     }
     const table = document.createElement("table");
@@ -3086,19 +3032,17 @@ var _ProjectsSummaryController = class _ProjectsSummaryController {
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
-    container.appendChild(table);
+    details.appendChild(table);
   }
-  appendWaitingSection(container, rows, settings) {
+  appendWaitingSection(container, totalCount, rows, settings) {
     var _a;
-    const heading = document.createElement("h3");
-    heading.textContent = "Waiting";
-    container.appendChild(heading);
+    const details = this.appendCollapsible(container, "Waiting", totalCount);
     if (!settings.waitingProjectsFolder) {
-      container.appendChild(this.createParagraph("Set Waiting Projects Folder in plugin settings to see waiting items here."));
+      details.appendChild(this.createParagraph("Set Waiting Projects Folder in plugin settings to see waiting items here."));
       return;
     }
     if (rows.length === 0) {
-      container.appendChild(this.createParagraph(this.emptyMessage("No waiting projects.")));
+      details.appendChild(this.createParagraph(this.emptyMessage("No waiting projects.")));
       return;
     }
     const table = document.createElement("table");
@@ -3117,19 +3061,17 @@ var _ProjectsSummaryController = class _ProjectsSummaryController {
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
-    container.appendChild(table);
+    details.appendChild(table);
   }
-  appendSomedaySection(container, rows, settings, onNeedsRefresh) {
+  appendSomedaySection(container, totalCount, rows, settings, onNeedsRefresh) {
     var _a;
-    const heading = document.createElement("h3");
-    heading.textContent = "Someday-Maybe";
-    container.appendChild(heading);
+    const details = this.appendCollapsible(container, "Someday-Maybe", totalCount);
     if (!settings.somedayMaybeProjectsFolder) {
-      container.appendChild(this.createParagraph("Set Someday-Maybe Projects Folder in plugin settings to see items here."));
+      details.appendChild(this.createParagraph("Set Someday-Maybe Projects Folder in plugin settings to see items here."));
       return;
     }
     if (rows.length === 0) {
-      container.appendChild(this.createParagraph(this.emptyMessage("No someday-maybe projects.")));
+      details.appendChild(this.createParagraph(this.emptyMessage("No someday-maybe projects.")));
       return;
     }
     const table = document.createElement("table");
@@ -3145,32 +3087,50 @@ var _ProjectsSummaryController = class _ProjectsSummaryController {
       tr.appendChild(this.createCell((_a = row.reviewed) != null ? _a : "Never", "td"));
       tr.appendChild(this.createCell(row.needsReview ? "Yes" : "", "td"));
       const actionCell = document.createElement("td");
-      const button = document.createElement("button");
-      button.textContent = "Mark Reviewed";
-      button.addEventListener("click", () => {
+      actionCell.style.display = "flex";
+      actionCell.style.gap = "6px";
+      const reviewButton = document.createElement("button");
+      reviewButton.textContent = "Mark Reviewed";
+      reviewButton.addEventListener("click", () => {
         void (async () => {
           await stampReviewedDate(this.app, row.file);
           onNeedsRefresh();
         })();
       });
-      actionCell.appendChild(button);
+      actionCell.appendChild(reviewButton);
+      const promoteButton = document.createElement("button");
+      promoteButton.textContent = "Promote to Active";
+      promoteButton.addEventListener("click", () => {
+        void (async () => {
+          await setProjectStatus(this.app, row.file, settings, "todo");
+          onNeedsRefresh();
+        })();
+      });
+      actionCell.appendChild(promoteButton);
+      const archiveButton = document.createElement("button");
+      archiveButton.textContent = "Archive";
+      archiveButton.addEventListener("click", () => {
+        void (async () => {
+          await setProjectStatus(this.app, row.file, settings, "archived");
+          onNeedsRefresh();
+        })();
+      });
+      actionCell.appendChild(archiveButton);
       tr.appendChild(actionCell);
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
-    container.appendChild(table);
+    details.appendChild(table);
   }
-  appendScheduledSection(container, rows, settings, onNeedsRefresh) {
+  appendScheduledSection(container, totalCount, rows, settings, onNeedsRefresh) {
     var _a;
-    const heading = document.createElement("h3");
-    heading.textContent = "Scheduled";
-    container.appendChild(heading);
+    const details = this.appendCollapsible(container, "Scheduled", totalCount);
     if (!settings.scheduledProjectsFolder) {
-      container.appendChild(this.createParagraph("Set Scheduled Projects Folder in plugin settings to see items here."));
+      details.appendChild(this.createParagraph("Set Scheduled Projects Folder in plugin settings to see items here."));
       return;
     }
     if (rows.length === 0) {
-      container.appendChild(this.createParagraph(this.emptyMessage("No scheduled projects.")));
+      details.appendChild(this.createParagraph(this.emptyMessage("No scheduled projects.")));
       return;
     }
     const table = document.createElement("table");
@@ -3198,7 +3158,7 @@ var _ProjectsSummaryController = class _ProjectsSummaryController {
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
-    container.appendChild(table);
+    details.appendChild(table);
   }
   createFileLinkCell(file, priority) {
     const link = document.createElement("a");
@@ -3248,7 +3208,7 @@ function formatDaysUntil(daysUntil) {
   if (daysUntil < 0) return `${-daysUntil} day${daysUntil === -1 ? "" : "s"} overdue`;
   return `in ${daysUntil} day${daysUntil === 1 ? "" : "s"}`;
 }
-var ProjectsSummaryView = class extends import_obsidian11.ItemView {
+var ProjectsSummaryView = class extends import_obsidian10.ItemView {
   constructor(leaf, controller) {
     super(leaf);
     this.controller = controller;
@@ -3277,10 +3237,9 @@ var DEFAULT_SETTINGS = {
   waitingProjectsFolder: "",
   somedayMaybeProjectsFolder: "",
   scheduledProjectsFolder: "",
+  archivedProjectsFolder: "",
   inboxFile: "",
   dashboardHideKeywords: "",
-  knownContexts: "",
-  enableMultipleNextActions: false,
   somedayMaybeReviewCadenceDays: "30",
   waitingStalenessThresholdDays: "7"
 };
@@ -3291,15 +3250,12 @@ function normalizeStatusField(field) {
 function normalizeFolder(folder) {
   return String(folder || "").trim().replace(/^\/+|\/+$/g, "");
 }
-function normalizeBoolean(value, fallback) {
-  return typeof value === "boolean" ? value : fallback;
-}
 function normalizePositiveIntegerString(value, fallback) {
   const parsed = Number.parseInt(String(value != null ? value : "").trim(), 10);
   return Number.isInteger(parsed) && parsed > 0 ? String(parsed) : fallback;
 }
 function normalizeSettings(rawSettings) {
-  var _a, _b;
+  var _a;
   return {
     ...DEFAULT_SETTINGS,
     ...rawSettings,
@@ -3309,17 +3265,16 @@ function normalizeSettings(rawSettings) {
     waitingProjectsFolder: normalizeFolder(rawSettings.waitingProjectsFolder),
     somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder),
     scheduledProjectsFolder: normalizeFolder(rawSettings.scheduledProjectsFolder),
+    archivedProjectsFolder: normalizeFolder(rawSettings.archivedProjectsFolder),
     inboxFile: normalizeFolder(rawSettings.inboxFile),
     dashboardHideKeywords: String((_a = rawSettings.dashboardHideKeywords) != null ? _a : ""),
-    knownContexts: String((_b = rawSettings.knownContexts) != null ? _b : ""),
-    enableMultipleNextActions: normalizeBoolean(rawSettings.enableMultipleNextActions, DEFAULT_SETTINGS.enableMultipleNextActions),
     somedayMaybeReviewCadenceDays: normalizePositiveIntegerString(rawSettings.somedayMaybeReviewCadenceDays, DEFAULT_SETTINGS.somedayMaybeReviewCadenceDays),
     waitingStalenessThresholdDays: normalizePositiveIntegerString(rawSettings.waitingStalenessThresholdDays, DEFAULT_SETTINGS.waitingStalenessThresholdDays)
   };
 }
 
 // src/tasks/quick-capture-modal.ts
-var import_obsidian12 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 var INPUT_STYLES2 = {
   width: "100%",
   boxSizing: "border-box",
@@ -3345,33 +3300,21 @@ var SECONDARY_BUTTON_STYLES2 = {
   padding: "8px 16px"
 };
 var DUE_TOKEN_REGEX = /^due:(\S+)$/i;
-var CONTEXT_TOKEN_REGEX = /^@[^\s,]+$/;
 function parseQuickCaptureShorthand(rawInput) {
-  let remaining = rawInput.trim();
-  let dueDate = null;
-  const contexts = [];
-  while (remaining.length > 0) {
-    const lastSpaceIndex = remaining.lastIndexOf(" ");
-    const lastToken = lastSpaceIndex === -1 ? remaining : remaining.slice(lastSpaceIndex + 1);
-    const dueMatch = lastToken.match(DUE_TOKEN_REGEX);
-    if (dueMatch && dueDate === null) {
-      const resolvedDate = resolveDateInput(dueMatch[1]);
-      if (resolvedDate) {
-        dueDate = resolvedDate;
-        remaining = lastSpaceIndex === -1 ? "" : remaining.slice(0, lastSpaceIndex);
-        continue;
-      }
+  const remaining = rawInput.trim();
+  const lastSpaceIndex = remaining.lastIndexOf(" ");
+  const lastToken = lastSpaceIndex === -1 ? remaining : remaining.slice(lastSpaceIndex + 1);
+  const dueMatch = lastToken.match(DUE_TOKEN_REGEX);
+  if (dueMatch) {
+    const resolvedDate = resolveDateInput(dueMatch[1]);
+    if (resolvedDate) {
+      const textWithoutDue = lastSpaceIndex === -1 ? "" : remaining.slice(0, lastSpaceIndex);
+      return { text: textWithoutDue.trim(), dueDate: resolvedDate };
     }
-    if (CONTEXT_TOKEN_REGEX.test(lastToken)) {
-      contexts.unshift(lastToken.toLowerCase());
-      remaining = lastSpaceIndex === -1 ? "" : remaining.slice(0, lastSpaceIndex);
-      continue;
-    }
-    break;
   }
-  return { text: remaining.trim(), dueDate, contexts };
+  return { text: remaining, dueDate: null };
 }
-var QuickCaptureModal = class extends import_obsidian12.Modal {
+var QuickCaptureModal = class extends import_obsidian11.Modal {
   constructor(options) {
     super(options.app);
     this.inputElement = null;
@@ -3382,11 +3325,11 @@ var QuickCaptureModal = class extends import_obsidian12.Modal {
     contentEl.empty();
     contentEl.createEl("h2", { text: "Capture Task" });
     contentEl.createEl("p", {
-      text: "Added to your Inbox as an open task. Optionally end with due:tomorrow / due:2026-07-20 and/or one or more @context tags."
+      text: "Added to your Inbox as an open task. Optionally end with due:tomorrow / due:2026-07-20."
     });
     this.inputElement = contentEl.createEl("input", {
       type: "text",
-      placeholder: "e.g., Call the dentist due:tomorrow @calls"
+      placeholder: "e.g., Call the dentist due:tomorrow"
     });
     applyStyles3(this.inputElement, INPUT_STYLES2);
     this.inputElement.addEventListener("keydown", (event) => {
@@ -3421,14 +3364,14 @@ var QuickCaptureModal = class extends import_obsidian12.Modal {
     }
     const result = parseQuickCaptureShorthand(rawInput);
     if (!result.text) {
-      new import_obsidian12.Notice("Enter some task text.");
+      new import_obsidian11.Notice("Enter some task text.");
       return;
     }
     try {
       await this.onSubmit(result);
       this.close();
     } catch (error) {
-      new import_obsidian12.Notice(error instanceof Error ? error.message : "Failed to capture task.");
+      new import_obsidian11.Notice(error instanceof Error ? error.message : "Failed to capture task.");
     }
   }
 };
@@ -3440,14 +3383,13 @@ function applyStyles3(element, styles) {
 var import_obsidian14 = require("obsidian");
 
 // src/summary/tasks-summary.ts
-var import_obsidian13 = require("obsidian");
+var import_obsidian12 = require("obsidian");
 var DUE_FIELD_REGEX3 = /\[due::\s*([^\]]+?)\s*\]/i;
 async function collectTaskSummarySections(app, settings) {
   const sectionSources = [
-    { title: "Projects", collectRows: () => collectActionableRowsForFolder(app, settings.projectsFolder, settings) },
-    { title: "Waiting", collectRows: () => collectActionableRowsForFolder(app, settings.waitingProjectsFolder, settings) },
-    { title: "Someday-Maybe", collectRows: () => collectActionableRowsForFolder(app, settings.somedayMaybeProjectsFolder, settings) },
-    { title: "Inbox", collectRows: () => collectActionableRowsForInbox(app, settings.inboxFile, settings) }
+    { title: "Projects", collectRows: () => collectActionableRowsForFolder(app, settings.projectsFolder) },
+    { title: "Waiting", collectRows: () => collectActionableRowsForFolder(app, settings.waitingProjectsFolder) },
+    { title: "Inbox", collectRows: () => collectAllOpenRowsForInbox(app, settings.inboxFile) }
   ];
   const sections = [];
   for (const source of sectionSources) {
@@ -3458,32 +3400,50 @@ async function collectTaskSummarySections(app, settings) {
   }
   return sections;
 }
-async function collectActionableRowsForFolder(app, folderPath, settings) {
+async function collectActionableRowsForFolder(app, folderPath) {
   if (!folderPath) {
     return [];
   }
   const files = app.vault.getMarkdownFiles().filter((file) => isInFolder(file.path, folderPath));
   const rows = [];
   for (const file of files) {
-    rows.push(...await findActionableRows(app, file, settings));
+    rows.push(...await findActionableRows(app, file));
   }
   return rows.sort(compareSummaryRows);
 }
-async function collectActionableRowsForInbox(app, inboxFilePath, settings) {
+async function collectAllOpenRowsForInbox(app, inboxFilePath) {
   if (!inboxFilePath) {
     return [];
   }
   const inboxFile = app.vault.getAbstractFileByPath(inboxFilePath);
-  if (!(inboxFile instanceof import_obsidian13.TFile)) {
+  if (!(inboxFile instanceof import_obsidian12.TFile)) {
     return [];
   }
-  return findActionableRows(app, inboxFile, settings);
+  const content = await app.vault.read(inboxFile);
+  const priority = readFilePriority(content);
+  const lines = content.split(/\r?\n/);
+  const rows = [];
+  for (const line of lines) {
+    const parsed = parseActionableTaskLine(line);
+    if (!parsed) {
+      continue;
+    }
+    rows.push({
+      file: inboxFile,
+      task: parsed.task,
+      dueDate: parsed.dueDate,
+      priority,
+      recurrence: parsed.recurrence,
+      rawLine: line
+    });
+  }
+  return rows;
 }
-async function findActionableRows(app, file, settings) {
+async function findActionableRows(app, file) {
   const content = await app.vault.read(file);
   const priority = readFilePriority(content);
   const lines = content.split(/\r?\n/);
-  const actionableLineIndices = findActionableTaskLines(lines, settings.enableMultipleNextActions);
+  const actionableLineIndices = findActionableTaskLines(lines);
   const rows = [];
   for (const index of actionableLineIndices) {
     const parsed = parseActionableTaskLine(lines[index]);
@@ -3496,7 +3456,7 @@ async function findActionableRows(app, file, settings) {
       dueDate: parsed.dueDate,
       priority,
       recurrence: parsed.recurrence,
-      contexts: parsed.contexts
+      rawLine: lines[index]
     });
   }
   return rows;
@@ -3509,8 +3469,7 @@ function parseActionableTaskLine(line) {
   return {
     task: cleanTaskText(parsedTask.taskBody),
     dueDate: readInlineFieldValue(parsedTask.taskBody, DUE_FIELD_REGEX3),
-    recurrence: getRecurrenceLabel(parsedTask.taskBody),
-    contexts: getContexts(parsedTask.taskBody)
+    recurrence: getRecurrenceLabel(parsedTask.taskBody)
   };
 }
 function compareSummaryRows(left, right) {
@@ -3528,18 +3487,73 @@ function compareSummaryRows(left, right) {
   return left.file.path.localeCompare(right.file.path);
 }
 
+// src/summary/inbox-actions.ts
+var import_obsidian13 = require("obsidian");
+async function removeInboxLines(app, settings, linesToRemove) {
+  if (!settings.inboxFile || linesToRemove.length === 0) {
+    return;
+  }
+  const inboxFile = app.vault.getAbstractFileByPath(settings.inboxFile);
+  if (!(inboxFile instanceof import_obsidian13.TFile)) {
+    return;
+  }
+  const content = await app.vault.read(inboxFile);
+  const lines = content.split(/\r?\n/);
+  const pending = [...linesToRemove];
+  const keptLines = [];
+  let removedCount = 0;
+  for (const line of lines) {
+    const pendingIndex = pending.indexOf(line);
+    if (pendingIndex !== -1) {
+      pending.splice(pendingIndex, 1);
+      removedCount += 1;
+      continue;
+    }
+    keptLines.push(line);
+  }
+  await app.vault.modify(inboxFile, keptLines.join("\n"));
+  if (pending.length > 0) {
+    new import_obsidian13.Notice(`${pending.length} inbox task(s) had already changed and were left in place.`);
+  } else if (removedCount === 0) {
+    new import_obsidian13.Notice("Selected inbox task(s) had already changed and were left in place.");
+  }
+}
+async function appendTasksToProject(app, file, linesToAppend) {
+  if (linesToAppend.length === 0) {
+    return;
+  }
+  const content = await app.vault.read(file);
+  const lines = content.split(/\r?\n/);
+  const sectionIndex = lines.findIndex((line) => line.trim() === COMPLETED_SECTION_HEADER);
+  const result = [...lines];
+  if (sectionIndex !== -1) {
+    result.splice(sectionIndex, 0, ...linesToAppend);
+  } else {
+    if (result.length > 0 && result[result.length - 1].trim() !== "") {
+      result.push("");
+    }
+    result.push(...linesToAppend);
+  }
+  await app.vault.modify(file, result.join("\n"));
+}
+
 // src/summary/tasks-summary-view.ts
+var INBOX_SECTION_TITLE = "Inbox";
 var _TasksSummaryController = class _TasksSummaryController {
   constructor(options) {
-    this.selectedContext = null;
     this.searchQuery = "";
+    this.selectedMaxPriority = null;
+    // Every section starts open; a title is added here only when the user collapses it.
+    this.collapsedSections = /* @__PURE__ */ new Set();
+    // Raw Inbox task lines currently checked for the inbox-to-project actions.
+    this.selectedInboxLines = /* @__PURE__ */ new Set();
     this.lastSections = [];
     this.resultsContainer = null;
     this.currentSettings = null;
     this.refreshHandle = null;
     this.app = options.app;
     this.getSettings = options.getSettings;
-    this.getKnownContexts = options.getKnownContexts;
+    this.createProject = options.createProject;
   }
   onload(plugin) {
     plugin.registerView(_TasksSummaryController.VIEW_TYPE, (leaf) => new TasksSummaryView(leaf, this));
@@ -3586,14 +3600,32 @@ var _TasksSummaryController = class _TasksSummaryController {
     const title = document.createElement("h2");
     title.textContent = "Tasks Summary";
     section.appendChild(title);
-    this.appendContextFilter(section);
+    this.appendPriorityFilterControl(section);
     this.appendSearchFilter(section);
     const resultsContainer = document.createElement("div");
     section.appendChild(resultsContainer);
     this.resultsContainer = resultsContainer;
     this.lastSections = await collectTaskSummarySections(this.app, settings);
+    this.pruneSelectedInboxLines();
     this.renderResults();
     container.appendChild(section);
+  }
+  /** Drops any checked Inbox line that no longer exists in the freshly-fetched data (edited/removed elsewhere). */
+  pruneSelectedInboxLines() {
+    var _a;
+    const inboxSection = this.lastSections.find((section) => section.title === INBOX_SECTION_TITLE);
+    const currentLines = new Set(((_a = inboxSection == null ? void 0 : inboxSection.rows) != null ? _a : []).map((row) => row.rawLine));
+    for (const line of this.selectedInboxLines) {
+      if (!currentLines.has(line)) {
+        this.selectedInboxLines.delete(line);
+      }
+    }
+  }
+  appendPriorityFilterControl(container) {
+    appendPriorityFilter(container, this.selectedMaxPriority, (value) => {
+      this.selectedMaxPriority = value;
+      this.renderResults();
+    });
   }
   appendSearchFilter(container) {
     appendSearchBox(container, this.searchQuery, (query) => {
@@ -3606,67 +3638,45 @@ var _TasksSummaryController = class _TasksSummaryController {
     if (!this.resultsContainer || !this.currentSettings) return;
     this.resultsContainer.innerHTML = "";
     for (const taskSection of this.lastSections) {
-      this.appendSection(this.resultsContainer, taskSection, this.currentSettings);
+      if (taskSection.title === INBOX_SECTION_TITLE) {
+        this.appendInboxSection(this.resultsContainer, taskSection, this.currentSettings);
+      } else {
+        this.appendSection(this.resultsContainer, taskSection, this.currentSettings);
+      }
     }
-  }
-  appendContextFilter(container) {
-    var _a;
-    const knownContexts = this.getKnownContexts();
-    if (knownContexts.length === 0) {
-      return;
-    }
-    const wrapper = document.createElement("div");
-    wrapper.style.marginBottom = "10px";
-    const label = document.createElement("label");
-    label.textContent = "Context: ";
-    wrapper.appendChild(label);
-    const select = document.createElement("select");
-    const allOption = document.createElement("option");
-    allOption.value = "";
-    allOption.textContent = "All";
-    select.appendChild(allOption);
-    for (const context of knownContexts) {
-      const option = document.createElement("option");
-      option.value = context;
-      option.textContent = context;
-      select.appendChild(option);
-    }
-    select.value = (_a = this.selectedContext) != null ? _a : "";
-    select.addEventListener("change", () => {
-      this.selectedContext = select.value.length > 0 ? select.value : null;
-      this.renderResults();
-    });
-    label.appendChild(select);
-    container.appendChild(wrapper);
-  }
-  filterByContext(rows) {
-    if (!this.selectedContext) {
-      return rows;
-    }
-    return rows.filter((row) => row.contexts.includes(this.selectedContext));
   }
   filterBySearch(rows) {
     if (!this.searchQuery.trim()) {
       return rows;
     }
-    return rows.filter((row) => matchesSearch(this.searchQuery, row.task, row.file.path, row.contexts.join(" ")));
+    return rows.filter((row) => matchesSearch(this.searchQuery, row.task, row.file.path));
   }
   appendSection(container, taskSection, settings) {
-    const heading = document.createElement("h3");
-    heading.textContent = taskSection.title;
-    container.appendChild(heading);
-    const rows = this.filterBySearch(this.filterByContext(taskSection.rows));
+    const rows = this.filterBySearch(filterByMaxPriority(taskSection.rows, this.selectedMaxPriority));
+    const details = appendCollapsibleSection(
+      container,
+      taskSection.title,
+      taskSection.rows.length,
+      !this.collapsedSections.has(taskSection.title),
+      (open) => {
+        if (open) {
+          this.collapsedSections.delete(taskSection.title);
+        } else {
+          this.collapsedSections.add(taskSection.title);
+        }
+      }
+    );
     if (rows.length === 0) {
       const emptyState = document.createElement("p");
       emptyState.textContent = this.searchQuery.trim() ? "No matches." : "No tasks.";
-      container.appendChild(emptyState);
+      details.appendChild(emptyState);
       return;
     }
     const folderGroups = buildGroupedTaskTable(rows, settings.dashboardHideKeywords);
     const table = document.createElement("table");
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
-    for (const label of ["Folder", "Project", "Task", "Priority", "Recurrence", "Context", "Due"]) {
+    for (const label of ["Folder", "Project", "Task", "Priority", "Recurrence", "Due"]) {
       headerRow.appendChild(this.createTextElement("th", label));
     }
     thead.appendChild(headerRow);
@@ -3696,14 +3706,151 @@ var _TasksSummaryController = class _TasksSummaryController {
           tableRow.appendChild(this.createTaskCell(row.task));
           tableRow.appendChild(this.createTextElement("td", String(row.priority)));
           tableRow.appendChild(this.createTextElement("td", row.recurrence));
-          tableRow.appendChild(this.createTextElement("td", row.contexts.join(", ")));
           tableRow.appendChild(this.createTextElement("td", formatMonthDay(row.dueDate)));
           tbody.appendChild(tableRow);
         }
       }
     }
     table.appendChild(tbody);
-    container.appendChild(table);
+    details.appendChild(table);
+  }
+  /**
+   * Inbox rows get a dedicated per-task table (no Folder/Project columns — every row is
+   * the same file) with a leading selection checkbox, plus the inbox-to-project action
+   * buttons below the table.
+   */
+  appendInboxSection(container, taskSection, settings) {
+    const rows = this.filterBySearch(filterByMaxPriority(taskSection.rows, this.selectedMaxPriority));
+    const details = appendCollapsibleSection(
+      container,
+      taskSection.title,
+      taskSection.rows.length,
+      !this.collapsedSections.has(taskSection.title),
+      (open) => {
+        if (open) {
+          this.collapsedSections.delete(taskSection.title);
+        } else {
+          this.collapsedSections.add(taskSection.title);
+        }
+      }
+    );
+    if (rows.length === 0) {
+      const emptyState = document.createElement("p");
+      emptyState.textContent = this.searchQuery.trim() ? "No matches." : "No tasks.";
+      details.appendChild(emptyState);
+      return;
+    }
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    headerRow.appendChild(this.createTextElement("th", ""));
+    for (const label of ["Task", "Priority", "Recurrence", "Due"]) {
+      headerRow.appendChild(this.createTextElement("th", label));
+    }
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+    const tbody = document.createElement("tbody");
+    for (const row of rows) {
+      const tableRow = document.createElement("tr");
+      const checkboxCell = document.createElement("td");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = this.selectedInboxLines.has(row.rawLine);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) {
+          this.selectedInboxLines.add(row.rawLine);
+        } else {
+          this.selectedInboxLines.delete(row.rawLine);
+        }
+        this.renderResults();
+      });
+      checkboxCell.appendChild(checkbox);
+      tableRow.appendChild(checkboxCell);
+      tableRow.appendChild(this.createTaskCell(row.task));
+      tableRow.appendChild(this.createTextElement("td", String(row.priority)));
+      tableRow.appendChild(this.createTextElement("td", row.recurrence));
+      tableRow.appendChild(this.createTextElement("td", formatMonthDay(row.dueDate)));
+      tbody.appendChild(tableRow);
+    }
+    table.appendChild(tbody);
+    details.appendChild(table);
+    this.appendInboxActionButtons(details, settings);
+  }
+  appendInboxActionButtons(container, settings) {
+    const row = document.createElement("div");
+    row.style.display = "flex";
+    row.style.gap = "8px";
+    row.style.margin = "8px 0 16px";
+    const selectionCount = this.selectedInboxLines.size;
+    const createButton = document.createElement("button");
+    createButton.textContent = selectionCount > 0 ? `Create project from selected (${selectionCount})` : "Create project from selected";
+    createButton.disabled = selectionCount === 0;
+    createButton.addEventListener("click", () => {
+      this.openCreateProjectFromSelection(settings);
+    });
+    row.appendChild(createButton);
+    const moveButton = document.createElement("button");
+    moveButton.textContent = selectionCount > 0 ? `Move to existing project (${selectionCount})` : "Move to existing project";
+    moveButton.disabled = selectionCount === 0;
+    moveButton.addEventListener("click", () => {
+      this.openMoveToExistingProject(settings);
+    });
+    row.appendChild(moveButton);
+    container.appendChild(row);
+  }
+  getSelectedInboxRows() {
+    const inboxSection = this.lastSections.find((section) => section.title === INBOX_SECTION_TITLE);
+    if (!inboxSection) {
+      return [];
+    }
+    return inboxSection.rows.filter((row) => this.selectedInboxLines.has(row.rawLine));
+  }
+  openCreateProjectFromSelection(settings) {
+    const selectedRows = this.getSelectedInboxRows();
+    if (selectedRows.length === 0) {
+      return;
+    }
+    const rawLines = selectedRows.map((row) => row.rawLine);
+    const modal = new AddProjectModal({
+      app: this.app,
+      settings,
+      initialTasks: rawLines,
+      onSubmit: async (input) => {
+        await this.createProject(input);
+        await removeInboxLines(this.app, settings, rawLines);
+        this.selectedInboxLines.clear();
+        new import_obsidian14.Notice(`Created project from ${selectedRows.length} inbox task${selectedRows.length === 1 ? "" : "s"}.`);
+        this.refreshSoon();
+      }
+    });
+    modal.open();
+  }
+  openMoveToExistingProject(settings) {
+    const selectedRows = this.getSelectedInboxRows();
+    if (selectedRows.length === 0) {
+      return;
+    }
+    const roots = [
+      settings.projectsFolder,
+      settings.waitingProjectsFolder,
+      settings.somedayMaybeProjectsFolder,
+      settings.scheduledProjectsFolder
+    ].filter(Boolean);
+    const files = this.app.vault.getMarkdownFiles().filter((file) => roots.some((root) => isInFolder(file.path, root))).sort((left, right) => left.path.localeCompare(right.path));
+    if (files.length === 0) {
+      new import_obsidian14.Notice("No project files found to move tasks into.");
+      return;
+    }
+    const rawLines = selectedRows.map((row) => row.rawLine);
+    new ProjectFileSuggestModal(this.app, files, (file) => {
+      void (async () => {
+        await appendTasksToProject(this.app, file, rawLines);
+        await removeInboxLines(this.app, settings, rawLines);
+        this.selectedInboxLines.clear();
+        new import_obsidian14.Notice(`Moved ${selectedRows.length} task${selectedRows.length === 1 ? "" : "s"} to ${file.basename}.`);
+        this.refreshSoon();
+      })();
+    }).open();
   }
   createFileCell(displayFileName, filePath, priority) {
     const fileCell = document.createElement("td");
@@ -3732,7 +3879,7 @@ var _TasksSummaryController = class _TasksSummaryController {
   isRelevantFile(file) {
     if (!(file instanceof import_obsidian14.TFile)) return false;
     const settings = this.getSettings();
-    const roots = [settings.projectsFolder, settings.waitingProjectsFolder, settings.somedayMaybeProjectsFolder].filter(Boolean);
+    const roots = [settings.projectsFolder, settings.waitingProjectsFolder].filter(Boolean);
     const inTaskFolder = roots.some((root) => isInFolder(file.path, root));
     const isInbox = !!settings.inboxFile && file.path === settings.inboxFile;
     return inTaskFolder || isInbox;
@@ -3773,6 +3920,23 @@ var TasksSummaryView = class extends import_obsidian14.ItemView {
   }
   async refresh() {
     await this.controller.renderContent(this.contentEl);
+  }
+};
+var ProjectFileSuggestModal = class extends import_obsidian14.FuzzySuggestModal {
+  constructor(app, files, onChoose) {
+    super(app);
+    this.files = files;
+    this.onChoose = onChoose;
+    this.setPlaceholder("Select a project to move the selected task(s) into");
+  }
+  getItems() {
+    return this.files;
+  }
+  getItemText(file) {
+    return file.path;
+  }
+  onChooseItem(file) {
+    this.onChoose(file);
   }
 };
 
@@ -3868,6 +4032,13 @@ function getFolderSettingConfigs(settings) {
       placeholder: "Projects/Scheduled"
     },
     {
+      name: "Archived Projects Folder",
+      description: "Destination folder for archived Someday-Maybe projects. Archived items are excluded from the dashboard, Tasks Summary, and Projects Summary entirely \u2014 a one-way exit from the review rotation, distinct from Completed.",
+      key: "archivedProjectsFolder",
+      value: settings.archivedProjectsFolder,
+      placeholder: "Projects/Archived"
+    },
+    {
       name: "Inbox File",
       description: "Path to the inbox file (used for Inbox section in dashboard).",
       key: "inboxFile",
@@ -3894,14 +4065,6 @@ function getTextSettingConfigs(settings) {
       multiLine: false
     },
     {
-      name: "Known Contexts",
-      description: 'Comma-separated list of task contexts for the dashboard/Tasks Summary filter and `context::` editor autocomplete (e.g. "@home, @calls, @errands, @computer"). The "@" prefix is added automatically if omitted.',
-      placeholder: "e.g. @home, @calls, @errands, @computer",
-      key: "knownContexts",
-      value: settings.knownContexts,
-      multiLine: false
-    },
-    {
       name: "Someday-Maybe Review Cadence (days)",
       description: "How many days a Someday-Maybe project can go without being reviewed before the Projects Summary flags it. Invalid or non-positive values fall back to 30.",
       placeholder: "30",
@@ -3916,16 +4079,6 @@ function getTextSettingConfigs(settings) {
       key: "waitingStalenessThresholdDays",
       value: settings.waitingStalenessThresholdDays,
       multiLine: false
-    }
-  ];
-}
-function getToggleSettingConfigs(settings) {
-  return [
-    {
-      name: "Enable Multiple Next Actions",
-      description: "Let a project surface one actionable task per context (in addition to the file's first open task) instead of only ever one actionable task per file. Affects the Due Date Modal trigger and the Tasks Summary tab. Off by default to preserve existing single-next-action behavior.",
-      key: "enableMultipleNextActions",
-      value: settings.enableMultipleNextActions
     }
   ];
 }
@@ -3945,9 +4098,6 @@ var TaskManagerSettingTabRenderer = class {
     }
     for (const textSetting of getTextSettingConfigs(settings)) {
       this.addTextSetting(containerEl, textSetting);
-    }
-    for (const toggleSetting of getToggleSettingConfigs(settings)) {
-      this.addToggleSetting(containerEl, toggleSetting);
     }
   }
   addFolderSetting(containerEl, config) {
@@ -3986,13 +4136,6 @@ var TaskManagerSettingTabRenderer = class {
       });
     }
   }
-  addToggleSetting(containerEl, config) {
-    new import_obsidian16.Setting(containerEl).setName(config.name).setDesc(config.description).addToggle((toggle) => {
-      toggle.setValue(config.value).onChange(async (value) => {
-        await this.plugin.updateSetting(config.key, value);
-      });
-    });
-  }
   configureFolderTextInput(text, settingKey, folderPath, placeholder) {
     text.setPlaceholder(placeholder).setValue(folderPath).onChange(async (value) => {
       await this.plugin.updateSetting(settingKey, value);
@@ -4010,8 +4153,7 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
     this.tasksSummary = null;
     this.dueDateSuggest = null;
     this.createdDateSuggest = null;
-    this.contextSuggest = null;
-    this.settings = normalizeSettings({});
+    this.pluginSettings = normalizeSettings({});
   }
   async onload() {
     await this.loadSettings();
@@ -4030,15 +4172,14 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
     });
     this.dateDashboard = new DateDashboardController({
       app: this.app,
-      getTaskFolderRoots: () => getSurfacedTaskFolderRoots(this.settings),
-      getInboxFile: () => this.settings.inboxFile,
-      getHideKeywords: () => this.settings.dashboardHideKeywords,
-      getKnownContexts: () => this.getKnownContexts()
+      getTaskFolderRoots: () => getSurfacedTaskFolderRoots(this.pluginSettings),
+      getInboxFile: () => this.pluginSettings.inboxFile,
+      getHideKeywords: () => this.pluginSettings.dashboardHideKeywords
     });
     this.tasksSummary = new TasksSummaryController({
       app: this.app,
       getSettings: () => this.getSettings(),
-      getKnownContexts: () => this.getKnownContexts()
+      createProject: (input) => this.createProjectFile(input)
     });
     this.projectsSummary = new ProjectsSummaryController({
       app: this.app,
@@ -4046,10 +4187,8 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
     });
     this.dueDateSuggest = new DueDateEditorSuggest(this.app);
     this.createdDateSuggest = new CreatedDateEditorSuggest(this.app);
-    this.contextSuggest = new ContextEditorSuggest(this.app, () => this.getKnownContexts());
     this.registerEditorSuggest(this.dueDateSuggest);
     this.registerEditorSuggest(this.createdDateSuggest);
-    this.registerEditorSuggest(this.contextSuggest);
     this.addSettingTab(new BaseTaskManagerSettingTab(this.app, this));
     registerTaskCommands(this, {
       resetCurrentFileTasks: () => {
@@ -4128,25 +4267,24 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
     this.tasksSummary = null;
     this.dueDateSuggest = null;
     this.createdDateSuggest = null;
-    this.contextSuggest = null;
     console.log("Unloading Task Manager plugin");
   }
   async loadSettings() {
     const loadedData = await this.loadData();
-    this.settings = normalizeSettings(loadedData != null ? loadedData : {});
+    this.pluginSettings = normalizeSettings(loadedData != null ? loadedData : {});
   }
   async saveSettings() {
     var _a, _b;
-    this.settings = normalizeSettings(this.settings);
-    await this.saveData(this.settings);
+    this.pluginSettings = normalizeSettings(this.pluginSettings);
+    await this.saveData(this.pluginSettings);
     await ((_a = this.taskProcessor) == null ? void 0 : _a.primeState());
     (_b = this.dateDashboard) == null ? void 0 : _b.refreshSoon();
   }
   getSettings() {
-    return { ...this.settings };
+    return { ...this.pluginSettings };
   }
   async updateSetting(key, value) {
-    this.settings[key] = value;
+    this.pluginSettings[key] = value;
     await this.saveSettings();
   }
   async runResetCurrentFileTasks() {
@@ -4157,24 +4295,36 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
       new import_obsidian17.Notice(error instanceof Error ? error.message : "Failed to reset tasks.");
     }
   }
+  /**
+   * Creates a project file from AddProjectModal's submitted input: resolves the
+   * destination path, writes frontmatter/starter tasks, and primes the task-state store
+   * via handleFileCreate() so subsequent reconciliation on this file has a baseline
+   * snapshot. Shared by the "Add New Project" command and the Tasks Summary tab's
+   * "Create project from selected" inbox action.
+   */
+  async createProjectFile(input) {
+    var _a;
+    const settings = this.getSettings();
+    const projectPath = buildProjectFilePath(input.folder, input.name);
+    const existingEntry = this.app.vault.getAbstractFileByPath(projectPath);
+    if (existingEntry) {
+      throw new Error(`A file or folder already exists at '${projectPath}'.`);
+    }
+    await ensureParentFoldersExist(this.app, projectPath);
+    const content = buildProjectFileContent(input, settings.statusField);
+    const file = await this.app.vault.create(projectPath, content);
+    await ((_a = this.taskProcessor) == null ? void 0 : _a.handleFileCreate(file));
+    return file;
+  }
   runAddNewProject() {
     const settings = this.getSettings();
     const modal = new AddProjectModal({
       app: this.app,
       settings,
       onSubmit: async (input) => {
-        var _a;
-        const projectPath = buildProjectFilePath(input.folder, input.name);
-        const existingEntry = this.app.vault.getAbstractFileByPath(projectPath);
-        if (existingEntry) {
-          throw new Error(`A file or folder already exists at '${projectPath}'.`);
-        }
-        await ensureParentFoldersExist(this.app, projectPath);
-        const content = buildProjectFileContent(input, settings.statusField);
-        const file = await this.app.vault.create(projectPath, content);
-        await ((_a = this.taskProcessor) == null ? void 0 : _a.handleFileCreate(file));
+        const file = await this.createProjectFile(input);
         await this.app.workspace.getLeaf(true).openFile(file);
-        new import_obsidian17.Notice(`Created ${projectPath}.`);
+        new import_obsidian17.Notice(`Created ${file.path}.`);
       }
     });
     modal.open();
@@ -4189,8 +4339,7 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
       app: this.app,
       onSubmit: async (result) => {
         const dueSuffix = result.dueDate ? ` [due:: ${result.dueDate}]` : "";
-        const contextSuffix = result.contexts.length > 0 ? ` [context:: ${result.contexts.join(", ")}]` : "";
-        const taskLine = `- [ ] ${result.text}${dueSuffix}${contextSuffix}`;
+        const taskLine = `- [ ] ${result.text}${dueSuffix}`;
         const existingEntry = this.app.vault.getAbstractFileByPath(settings.inboxFile);
         if (existingEntry instanceof import_obsidian17.TFile) {
           const content = await this.app.vault.read(existingEntry);
@@ -4228,9 +4377,6 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
     } catch (error) {
       new import_obsidian17.Notice(error instanceof Error ? error.message : "Failed to stamp waiting-since.");
     }
-  }
-  getKnownContexts() {
-    return parseContextList(this.settings.knownContexts);
   }
 };
 var FRONTMATTER_BLOCK_REGEX3 = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;

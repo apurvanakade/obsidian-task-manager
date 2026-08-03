@@ -20,7 +20,6 @@
 const TASK_LINE_STRUCTURE_REGEX = /^(\s*[-*+]\s+\[)( |x|X)(\]\s+)(.*)$/;
 const REPEAT_FIELD_REGEX = /\[(?:repeat|repeats)::\s*[^\]]+?\]/i;
 const REPEAT_VALUE_REGEX = /\[(?:repeat|repeats)::\s*(?:every\s+)?([^\]]+?)\s*\]/i;
-const CONTEXT_VALUE_REGEX = /\[(?:context|contexts)::\s*([^\]]+?)\s*\]/i;
 const INLINE_FIELD_REGEX = /\s*\[[^\]]+::\s*[^\]]*\]/g;
 const TAG_REGEX = /(^|\s)#[^\s#]+/g;
 const MULTISPACE_REGEX = /\s+/g;
@@ -79,32 +78,6 @@ export function getRecurrenceLabel(taskBody: string): string {
 export function readInlineFieldValue(taskBody: string, fieldRegex: RegExp): string | null {
   const match = taskBody.match(fieldRegex);
   return match ? match[1].trim() : null;
-}
-
-/**
- * Splits a comma-separated context list into normalized, lowercased, "@"-prefixed
- * tokens (missing "@" is added automatically). Shared by inline-field parsing
- * (getContexts) and the Known Contexts setting, so both agree on normalization.
- */
-export function parseContextList(raw: string): string[] {
-  return raw
-    .split(",")
-    .map((token) => normalizeContext(token))
-    .filter((token) => token.length > 0);
-}
-
-export function getContexts(taskBody: string): string[] {
-  const raw = readInlineFieldValue(taskBody, CONTEXT_VALUE_REGEX);
-  return raw ? parseContextList(raw) : [];
-}
-
-function normalizeContext(token: string): string {
-  const trimmed = token.trim().toLowerCase();
-  if (!trimmed) {
-    return "";
-  }
-
-  return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
 }
 
 export function cleanTaskText(taskBody: string): string {

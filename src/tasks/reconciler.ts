@@ -138,7 +138,6 @@ async function showDueDateModalForFirstIncompleteTask(
 
 export async function applyCompletionRules(context: CompletionContext): Promise<void> {
   const { file, content, completedLine, writeFileContent, setFileStatus, setTaskState, settings } = context;
-  const enableMultipleNextActions = settings.enableMultipleNextActions === true;
   const lines = content.split(/\r?\n/);
   const nextLines = [...lines];
   const sourceTaskLine = lines[completedLine];
@@ -149,7 +148,7 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
   // reconstruct the pre-completion view) — used below to find newly-promoted tasks.
   const previousLines = [...lines];
   previousLines[completedLine] = forceLineOpen(previousLines[completedLine]);
-  const previousActionableLines = findActionableTaskLines(previousLines, enableMultipleNextActions);
+  const previousActionableLines = findActionableTaskLines(previousLines);
   const wasCompletedLineActionable = previousActionableLines.includes(completedLine);
   const previousActionableBodies = new Set(
     previousActionableLines
@@ -205,12 +204,10 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
   setTaskState(file.path, updatedContent);
 
   // Only pop the modal when completing this task actually promoted a new actionable
-  // task (i.e. the completed task was itself actionable, and some task that wasn't
-  // actionable before now is). If completing it promotes more than one line at once
-  // (possible when it anchors more than one context group), show the modal for the
-  // first newly-actionable line only — an accepted v1 simplification over a modal queue.
+  // task (i.e. the completed task was itself actionable, and the task that's actionable
+  // now wasn't before).
   if (wasCompletedLineActionable) {
-    const finalActionableLines = findActionableTaskLines(workingLines, enableMultipleNextActions);
+    const finalActionableLines = findActionableTaskLines(workingLines);
     const newlyActionableLine = finalActionableLines.find(
       (index) => !previousActionableBodies.has(getLineBody(workingLines[index])),
     );
@@ -222,13 +219,12 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
 }
 
 export async function applyUncompletionRules(context: UncompletionContext): Promise<void> {
-  const { file, content, uncompletedLine, writeFileContent, setFileStatus, setTaskState, settings } = context;
-  const enableMultipleNextActions = settings.enableMultipleNextActions === true;
+  const { file, content, uncompletedLine, writeFileContent, setFileStatus, setTaskState } = context;
   const lines = content.split(/\r?\n/);
   // Reopened tasks must lose completion metadata.
   lines[uncompletedLine] = stripCompletionFields(lines[uncompletedLine]);
   const workingLines = lines;
-  const isActionable = findActionableTaskLines(workingLines, enableMultipleNextActions).includes(uncompletedLine);
+  const isActionable = findActionableTaskLines(workingLines).includes(uncompletedLine);
 
   const updatedContent = workingLines.join("\n");
   if (updatedContent !== content) {

@@ -3,11 +3,15 @@
  * - collect actionable task rows for the live Tasks Summary tab.
  *
  * Responsibilities:
- * - scans Projects, Waiting, Someday-Maybe folders and the Inbox file
- * - selects the actionable task(s) per file (first incomplete task, or one row per
- *   context group when Enable Multiple Next Actions is on)
- * - groups results into Projects/Waiting/Someday-Maybe/Inbox sections, each sorted by
+ * - scans Projects and Waiting folders and the Inbox file (Someday-Maybe is
+ *   deliberately excluded — that review lives in the Projects Summary tab instead)
+ * - selects the first incomplete task per file for Projects/Waiting, but *every* open
+ *   task for Inbox (so any capture can be selected for the inbox-to-project flow — see
+ *   inbox-actions.ts)
+ * - groups results into Projects/Waiting/Inbox sections, each sorted by
  *   file priority ascending, then due date, then file path
+ * - each row carries the exact raw task line text (rawLine), used by inbox-actions.ts
+ *   to find-and-remove the original line after it's bundled into a project
  *
  * Dependencies:
  * - Obsidian vault APIs and normalized plugin settings
@@ -18,7 +22,7 @@
 import { App, TFile } from "obsidian";
 import { TaskManagerSettings } from "../settings/settings-utils";
 import { readFilePriority } from "../tasks/file-priority";
-import { cleanTaskText, getContexts, getRecurrenceLabel, parseTaskLine, readInlineFieldValue } from "../tasks/task-line-metadata";
+import { cleanTaskText, getRecurrenceLabel, parseTaskLine, readInlineFieldValue } from "../tasks/task-line-metadata";
 import { findActionableTaskLines } from "../tasks/next-actions";
 import { isInFolder } from "./summary-file-io";
 
@@ -35,22 +39,21 @@ export type TaskSummaryRow = {
   dueDate: string | null;
   priority: number;
   recurrence: string;
-  contexts: string[];
+  /** The exact, unmodified task line text — used to find-and-remove the original line. */
+  rawLine: string;
 };
 
 type ParsedActionableTaskLine = {
   task: string;
   dueDate: string | null;
   recurrence: string;
-  contexts: string[];
 };
 
 export async function collectTaskSummarySections(app: App, settings: TaskManagerSettings): Promise<TaskSummarySection[]> {
   const sectionSources = [
-    { title: "Projects", collectRows: () => collectActionableRowsForFolder(app, settings.projectsFolder, settings) },
-    { title: "Waiting", collectRows: () => collectActionableRowsForFolder(app, settings.waitingProjectsFolder, settings) },
-    { title: "Someday-Maybe", collectRows: () => collectActionableRowsForFolder(app, settings.somedayMaybeProjectsFolder, settings) },
-    { title: "Inbox", collectRows: () => collectActionableRowsForInbox(app, settings.inboxFile, settings) },
+    { title: "Projects", collectRows: () => collectActionableRowsForFolder(app, settings.projectsFolder) },
+    { title: "Waiting", collectRows: () => collectActionableRowsForFolder(app, settings.waitingProjectsFolder) },
+    { title: "Inbox", collectRows: () => collectAllOpenRowsForInbox(app, settings.inboxFile) },
   ];
 
   const sections: TaskSummarySection[] = [];
@@ -64,7 +67,7 @@ export async function collectTaskSummarySections(app: App, settings: TaskManager
   return sections;
 }
 
-async function collectActionableRowsForFolder(app: App, folderPath: string, settings: TaskManagerSettings): Promise<TaskSummaryRow[]> {
+async function collectActionableRowsForFolder(app: App, folderPath: string): Promise<TaskSummaryRow[]> {
   if (!folderPath) {
     return [];
   }
@@ -73,13 +76,18 @@ async function collectActionableRowsForFolder(app: App, folderPath: string, sett
   const rows: TaskSummaryRow[] = [];
 
   for (const file of files) {
-    rows.push(...await findActionableRows(app, file, settings));
+    rows.push(...await findActionableRows(app, file));
   }
 
   return rows.sort(compareSummaryRows);
 }
 
-async function collectActionableRowsForInbox(app: App, inboxFilePath: string, settings: TaskManagerSettings): Promise<TaskSummaryRow[]> {
+/**
+ * Every open task in the Inbox file, not just the first — the Inbox is a flat capture
+ * list, not a project with a single actionable next action, and the inbox-to-project
+ * flow needs every capture selectable.
+ */
+async function collectAllOpenRowsForInbox(app: App, inboxFilePath: string): Promise<TaskSummaryRow[]> {
   if (!inboxFilePath) {
     return [];
   }
@@ -89,14 +97,35 @@ async function collectActionableRowsForInbox(app: App, inboxFilePath: string, se
     return [];
   }
 
-  return findActionableRows(app, inboxFile, settings);
+  const content = await app.vault.read(inboxFile);
+  const priority = readFilePriority(content);
+  const lines = content.split(/\r?\n/);
+
+  const rows: TaskSummaryRow[] = [];
+  for (const line of lines) {
+    const parsed = parseActionableTaskLine(line);
+    if (!parsed) {
+      continue;
+    }
+
+    rows.push({
+      file: inboxFile,
+      task: parsed.task,
+      dueDate: parsed.dueDate,
+      priority,
+      recurrence: parsed.recurrence,
+      rawLine: line,
+    });
+  }
+
+  return rows;
 }
 
-async function findActionableRows(app: App, file: TFile, settings: TaskManagerSettings): Promise<TaskSummaryRow[]> {
+async function findActionableRows(app: App, file: TFile): Promise<TaskSummaryRow[]> {
   const content = await app.vault.read(file);
   const priority = readFilePriority(content);
   const lines = content.split(/\r?\n/);
-  const actionableLineIndices = findActionableTaskLines(lines, settings.enableMultipleNextActions);
+  const actionableLineIndices = findActionableTaskLines(lines);
 
   const rows: TaskSummaryRow[] = [];
   for (const index of actionableLineIndices) {
@@ -111,7 +140,7 @@ async function findActionableRows(app: App, file: TFile, settings: TaskManagerSe
       dueDate: parsed.dueDate,
       priority,
       recurrence: parsed.recurrence,
-      contexts: parsed.contexts,
+      rawLine: lines[index],
     });
   }
 
@@ -128,7 +157,6 @@ function parseActionableTaskLine(line: string): ParsedActionableTaskLine | null 
     task: cleanTaskText(parsedTask.taskBody),
     dueDate: readInlineFieldValue(parsedTask.taskBody, DUE_FIELD_REGEX),
     recurrence: getRecurrenceLabel(parsedTask.taskBody),
-    contexts: getContexts(parsedTask.taskBody),
   };
 }
 

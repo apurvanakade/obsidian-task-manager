@@ -106,7 +106,7 @@ export function getFirstTaskDueDate(content: string): string | null {
   return readInlineFieldValue(parsed.taskBody, DUE_FIELD_REGEX);
 }
 
-const COMPLETED_SECTION_HEADER = "## Completed Tasks";
+export const COMPLETED_SECTION_HEADER = "## Completed Tasks";
 const LEADING_WHITESPACE_REGEX = /^\s*/;
 const HEADING_REGEX = /^#{1,6}\s/;
 

@@ -30,6 +30,8 @@ import { isInFolder } from "../summary/summary-file-io";
 import { applyPriorityStyle } from "../tables/grouped-task-table";
 import { FilePriority } from "../tasks/file-priority";
 import { appendSearchBox, matchesSearch } from "../ui/search-filter";
+import { appendPriorityFilter, filterByMaxPriority, PriorityFilterValue } from "../ui/priority-filter";
+import { appendCollapsibleSection } from "../ui/collapsible-section";
 import {
   collectActiveProjectReviewRows,
   collectScheduledReviewRows,
@@ -38,6 +40,7 @@ import {
   promoteScheduledFileNow,
   ReviewRow,
   ScheduledReviewRow,
+  setProjectStatus,
   SomedayReviewRow,
   stampReviewedDate,
   WaitingReviewRow,
@@ -54,6 +57,11 @@ export class ProjectsSummaryController {
   private readonly app: App;
   private readonly getSettings: () => TaskManagerSettings;
   private searchQuery = "";
+  private selectedMaxPriority: PriorityFilterValue = null;
+  // Someday-Maybe starts collapsed (it's backlog review material, not the daily-glance
+  // content); every other section starts open. A title is added/removed here as the
+  // user toggles it, so the state survives auto-refresh re-renders.
+  private collapsedSections: Set<string> = new Set(["Someday-Maybe"]);
   private cached: {
     settings: TaskManagerSettings;
     activeProjectRows: ReviewRow[];
@@ -156,6 +164,7 @@ export class ProjectsSummaryController {
     weekLabel.textContent = `Week ending ${formatDate(getEndOfWeek(new Date()))}`;
     section.appendChild(weekLabel);
 
+    this.appendPriorityFilterControl(section);
     this.appendSearchFilter(section);
 
     const resultsContainer = document.createElement("div");
@@ -174,11 +183,22 @@ export class ProjectsSummaryController {
     container.appendChild(section);
   }
 
+  private appendPriorityFilterControl(container: HTMLElement): void {
+    appendPriorityFilter(container, this.selectedMaxPriority, (value) => {
+      this.selectedMaxPriority = value;
+      this.renderResults();
+    });
+  }
+
   private appendSearchFilter(container: HTMLElement): void {
     appendSearchBox(container, this.searchQuery, (query) => {
       this.searchQuery = query;
       this.renderResults();
     });
+  }
+
+  private filterRows<T extends { file: TFile; priority: FilePriority }>(rows: T[]): T[] {
+    return this.filterBySearch(filterByMaxPriority(rows, this.selectedMaxPriority));
   }
 
   private filterBySearch<T extends { file: TFile }>(rows: T[]): T[] {
@@ -202,29 +222,38 @@ export class ProjectsSummaryController {
     const container = this.resultsContainer;
     container.innerHTML = "";
 
-    this.appendActiveProjectsSection(container, this.filterBySearch(activeProjectRows), settings, onNeedsRefresh);
-    this.appendWaitingSection(container, this.filterBySearch(waitingRows), settings);
-    this.appendSomedaySection(container, this.filterBySearch(somedayRows), settings, onNeedsRefresh);
-    this.appendScheduledSection(container, this.filterBySearch(scheduledRows), settings, onNeedsRefresh);
+    this.appendActiveProjectsSection(container, activeProjectRows.length, this.filterRows(activeProjectRows), settings, onNeedsRefresh);
+    this.appendWaitingSection(container, waitingRows.length, this.filterRows(waitingRows), settings);
+    this.appendSomedaySection(container, somedayRows.length, this.filterRows(somedayRows), settings, onNeedsRefresh);
+    this.appendScheduledSection(container, scheduledRows.length, this.filterRows(scheduledRows), settings, onNeedsRefresh);
+  }
+
+  private appendCollapsible(container: HTMLElement, title: string, totalCount: number): HTMLElement {
+    return appendCollapsibleSection(container, title, totalCount, !this.collapsedSections.has(title), (open) => {
+      if (open) {
+        this.collapsedSections.delete(title);
+      } else {
+        this.collapsedSections.add(title);
+      }
+    });
   }
 
   private appendActiveProjectsSection(
     container: HTMLElement,
+    totalCount: number,
     rows: ReviewRow[],
     settings: TaskManagerSettings,
     onNeedsRefresh: () => void,
   ): void {
-    const heading = document.createElement("h3");
-    heading.textContent = "Active Projects";
-    container.appendChild(heading);
+    const details = this.appendCollapsible(container, "Active Projects", totalCount);
 
     if (!settings.projectsFolder) {
-      container.appendChild(this.createParagraph("Set Projects Folder in plugin settings to see active projects here."));
+      details.appendChild(this.createParagraph("Set Projects Folder in plugin settings to see active projects here."));
       return;
     }
 
     if (rows.length === 0) {
-      container.appendChild(this.createParagraph(this.emptyMessage("No active projects.")));
+      details.appendChild(this.createParagraph(this.emptyMessage("No active projects.")));
       return;
     }
 
@@ -256,21 +285,19 @@ export class ProjectsSummaryController {
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
-    container.appendChild(table);
+    details.appendChild(table);
   }
 
-  private appendWaitingSection(container: HTMLElement, rows: WaitingReviewRow[], settings: TaskManagerSettings): void {
-    const heading = document.createElement("h3");
-    heading.textContent = "Waiting";
-    container.appendChild(heading);
+  private appendWaitingSection(container: HTMLElement, totalCount: number, rows: WaitingReviewRow[], settings: TaskManagerSettings): void {
+    const details = this.appendCollapsible(container, "Waiting", totalCount);
 
     if (!settings.waitingProjectsFolder) {
-      container.appendChild(this.createParagraph("Set Waiting Projects Folder in plugin settings to see waiting items here."));
+      details.appendChild(this.createParagraph("Set Waiting Projects Folder in plugin settings to see waiting items here."));
       return;
     }
 
     if (rows.length === 0) {
-      container.appendChild(this.createParagraph(this.emptyMessage("No waiting projects.")));
+      details.appendChild(this.createParagraph(this.emptyMessage("No waiting projects.")));
       return;
     }
 
@@ -291,26 +318,25 @@ export class ProjectsSummaryController {
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
-    container.appendChild(table);
+    details.appendChild(table);
   }
 
   private appendSomedaySection(
     container: HTMLElement,
+    totalCount: number,
     rows: SomedayReviewRow[],
     settings: TaskManagerSettings,
     onNeedsRefresh: () => void,
   ): void {
-    const heading = document.createElement("h3");
-    heading.textContent = "Someday-Maybe";
-    container.appendChild(heading);
+    const details = this.appendCollapsible(container, "Someday-Maybe", totalCount);
 
     if (!settings.somedayMaybeProjectsFolder) {
-      container.appendChild(this.createParagraph("Set Someday-Maybe Projects Folder in plugin settings to see items here."));
+      details.appendChild(this.createParagraph("Set Someday-Maybe Projects Folder in plugin settings to see items here."));
       return;
     }
 
     if (rows.length === 0) {
-      container.appendChild(this.createParagraph(this.emptyMessage("No someday-maybe projects.")));
+      details.appendChild(this.createParagraph(this.emptyMessage("No someday-maybe projects.")));
       return;
     }
 
@@ -329,40 +355,63 @@ export class ProjectsSummaryController {
       tr.appendChild(this.createCell(row.needsReview ? "Yes" : "", "td"));
 
       const actionCell = document.createElement("td");
-      const button = document.createElement("button");
-      button.textContent = "Mark Reviewed";
-      button.addEventListener("click", () => {
+      actionCell.style.display = "flex";
+      actionCell.style.gap = "6px";
+
+      const reviewButton = document.createElement("button");
+      reviewButton.textContent = "Mark Reviewed";
+      reviewButton.addEventListener("click", () => {
         void (async () => {
           await stampReviewedDate(this.app, row.file);
           onNeedsRefresh();
         })();
       });
-      actionCell.appendChild(button);
+      actionCell.appendChild(reviewButton);
+
+      const promoteButton = document.createElement("button");
+      promoteButton.textContent = "Promote to Active";
+      promoteButton.addEventListener("click", () => {
+        void (async () => {
+          await setProjectStatus(this.app, row.file, settings, "todo");
+          onNeedsRefresh();
+        })();
+      });
+      actionCell.appendChild(promoteButton);
+
+      const archiveButton = document.createElement("button");
+      archiveButton.textContent = "Archive";
+      archiveButton.addEventListener("click", () => {
+        void (async () => {
+          await setProjectStatus(this.app, row.file, settings, "archived");
+          onNeedsRefresh();
+        })();
+      });
+      actionCell.appendChild(archiveButton);
+
       tr.appendChild(actionCell);
 
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
-    container.appendChild(table);
+    details.appendChild(table);
   }
 
   private appendScheduledSection(
     container: HTMLElement,
+    totalCount: number,
     rows: ScheduledReviewRow[],
     settings: TaskManagerSettings,
     onNeedsRefresh: () => void,
   ): void {
-    const heading = document.createElement("h3");
-    heading.textContent = "Scheduled";
-    container.appendChild(heading);
+    const details = this.appendCollapsible(container, "Scheduled", totalCount);
 
     if (!settings.scheduledProjectsFolder) {
-      container.appendChild(this.createParagraph("Set Scheduled Projects Folder in plugin settings to see items here."));
+      details.appendChild(this.createParagraph("Set Scheduled Projects Folder in plugin settings to see items here."));
       return;
     }
 
     if (rows.length === 0) {
-      container.appendChild(this.createParagraph(this.emptyMessage("No scheduled projects.")));
+      details.appendChild(this.createParagraph(this.emptyMessage("No scheduled projects.")));
       return;
     }
 
@@ -394,7 +443,7 @@ export class ProjectsSummaryController {
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
-    container.appendChild(table);
+    details.appendChild(table);
   }
 
   private createFileLinkCell(file: TFile, priority: FilePriority): HTMLAnchorElement {

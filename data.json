@@ -5,10 +5,11 @@
   "waitingProjectsFolder": "Tasks/Waiting",
   "somedayMaybeProjectsFolder": "Tasks/Someday-Maybe",
   "scheduledProjectsFolder": "Tasks/Scheduled",
+  "archivedProjectsFolder": "Tasks/Archived",
   "inboxFile": "Tasks/Inbox.md",
   "dashboardHideKeywords": "2026, Spring, Summer, Fall",
-  "knownContexts": "email, laptop, cleaning, shopping",
-  "enableMultipleNextActions": false,
   "somedayMaybeReviewCadenceDays": "30",
-  "waitingStalenessThresholdDays": "7"
+  "waitingStalenessThresholdDays": "7",
+  "knownContexts": "email, laptop, cleaning, shopping",
+  "enableMultipleNextActions": false
 }

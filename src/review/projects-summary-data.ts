@@ -12,8 +12,9 @@
  *   never-stamped items sorting first (Scheduled: last, since there's no date to act on);
  *   ties (Waiting/Active Projects/Someday-Maybe) are broken by priority ascending
  *   (highest-priority project first)
- * - stamps the `reviewed` frontmatter field, and promotes a Scheduled item to `todo`
- *   ahead of its date (the two write operations in this module)
+ * - stamps the `reviewed` frontmatter field, promotes a Scheduled item to `todo` ahead
+ *   of its date, and sets a project's status directly (Someday-Maybe's Promote to
+ *   Active / Archive row actions) — the write operations in this module
  *
  * Dependencies:
  * - Obsidian vault/file-manager APIs, shared date-utils, summary-file-io folder scan,
@@ -178,6 +179,19 @@ export async function collectScheduledReviewRows(app: App, settings: TaskManager
 export async function promoteScheduledFileNow(app: App, file: TFile, settings: TaskManagerSettings): Promise<void> {
   await app.fileManager.processFrontMatter(file, (frontmatter: Record<string, string>) => {
     frontmatter[settings.statusField] = "todo";
+  });
+}
+
+/**
+ * Directly sets a project's status frontmatter field — used by the Someday-Maybe
+ * table's "Promote to Active" (-> "todo") and "Archive" (-> "archived") row actions.
+ * Like promoteScheduledFileNow(), this is a plain frontmatter write with no routing
+ * call of its own: the resulting vault `modify` event flows through
+ * TaskProcessor.handleFileModify's normal status-change routing.
+ */
+export async function setProjectStatus(app: App, file: TFile, settings: TaskManagerSettings, status: string): Promise<void> {
+  await app.fileManager.processFrontMatter(file, (frontmatter: Record<string, string>) => {
+    frontmatter[settings.statusField] = status;
   });
 }
 

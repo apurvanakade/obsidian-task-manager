@@ -23,17 +23,16 @@ export type TaskManagerSettings = {
   waitingProjectsFolder: string;
   somedayMaybeProjectsFolder: string;
   scheduledProjectsFolder: string;
+  archivedProjectsFolder: string;
   inboxFile: string;
   dashboardHideKeywords: string;
-  knownContexts: string;
-  enableMultipleNextActions: boolean;
   somedayMaybeReviewCadenceDays: string;
   waitingStalenessThresholdDays: string;
 };
 
 export type FolderSettingKey = keyof Pick<
   TaskManagerSettings,
-  "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder" | "scheduledProjectsFolder" | "inboxFile"
+  "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder" | "scheduledProjectsFolder" | "archivedProjectsFolder" | "inboxFile"
 >;
 
 export const DEFAULT_SETTINGS: TaskManagerSettings = {
@@ -43,10 +42,9 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   waitingProjectsFolder: "",
   somedayMaybeProjectsFolder: "",
   scheduledProjectsFolder: "",
+  archivedProjectsFolder: "",
   inboxFile: "",
   dashboardHideKeywords: "",
-  knownContexts: "",
-  enableMultipleNextActions: false,
   somedayMaybeReviewCadenceDays: "30",
   waitingStalenessThresholdDays: "7",
 };
@@ -58,10 +56,6 @@ function normalizeStatusField(field: string | null | undefined): string {
 
 function normalizeFolder(folder: string | null | undefined): string {
   return String(folder || "").trim().replace(/^\/+|\/+$/g, "");
-}
-
-function normalizeBoolean(value: boolean | null | undefined, fallback: boolean): boolean {
-  return typeof value === "boolean" ? value : fallback;
 }
 
 function normalizePositiveIntegerString(value: string | null | undefined, fallback: string): string {
@@ -79,10 +73,9 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
     waitingProjectsFolder: normalizeFolder(rawSettings.waitingProjectsFolder),
     somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder),
     scheduledProjectsFolder: normalizeFolder(rawSettings.scheduledProjectsFolder),
+    archivedProjectsFolder: normalizeFolder(rawSettings.archivedProjectsFolder),
     inboxFile: normalizeFolder(rawSettings.inboxFile),
     dashboardHideKeywords: String(rawSettings.dashboardHideKeywords ?? ""),
-    knownContexts: String(rawSettings.knownContexts ?? ""),
-    enableMultipleNextActions: normalizeBoolean(rawSettings.enableMultipleNextActions, DEFAULT_SETTINGS.enableMultipleNextActions),
     somedayMaybeReviewCadenceDays: normalizePositiveIntegerString(rawSettings.somedayMaybeReviewCadenceDays, DEFAULT_SETTINGS.somedayMaybeReviewCadenceDays),
     waitingStalenessThresholdDays: normalizePositiveIntegerString(rawSettings.waitingStalenessThresholdDays, DEFAULT_SETTINGS.waitingStalenessThresholdDays),
   };

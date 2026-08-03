@@ -23,6 +23,7 @@ import { getTodayDateString } from "../date/date-utils";
 import { collectOpenTasksFromFile, collectTasksForDate, collectInboxTasks, DashboardRow, getDateStringFromFileName } from "./dashboard-task-data";
 import { applyPriorityStyle, buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
 import { appendSearchBox, matchesSearch } from "../ui/search-filter";
+import { appendPriorityFilter, filterByMaxPriority, PriorityFilterValue } from "../ui/priority-filter";
 
 const MARKDOWN_EXTENSION_REGEX = /\.md$/i;
 
@@ -31,7 +32,6 @@ type DateDashboardControllerOptions = {
   getTaskFolderRoots: () => string[];
   getInboxFile: () => string;
   getHideKeywords: () => string;
-  getKnownContexts: () => string[];
 };
 
 export class DateDashboardController {
@@ -42,9 +42,8 @@ export class DateDashboardController {
   private refreshHandle: number | null = null;
   private readonly getInboxFile: () => string;
   private readonly getHideKeywords: () => string;
-  private readonly getKnownContexts: () => string[];
-  private selectedContext: string | null = null;
   private searchQuery = "";
+  private selectedMaxPriority: PriorityFilterValue = null;
   private cached: {
     sourcePath: string;
     dueTasks: DashboardRow[];
@@ -60,7 +59,6 @@ export class DateDashboardController {
     this.getTaskFolderRoots = options.getTaskFolderRoots;
     this.getInboxFile = options.getInboxFile;
     this.getHideKeywords = options.getHideKeywords;
-    this.getKnownContexts = options.getKnownContexts;
   }
 
   async onload(plugin: Plugin): Promise<void> {
@@ -113,7 +111,7 @@ export class DateDashboardController {
     title.textContent = `Tasks for ${dateString}`;
     dashboard.appendChild(title);
 
-    this.appendContextFilter(dashboard);
+    this.appendPriorityFilterControl(dashboard);
     this.appendSearchFilter(dashboard);
 
     const resultsContainer = document.createElement("div");
@@ -141,6 +139,13 @@ export class DateDashboardController {
     container.appendChild(dashboard);
   }
 
+  private appendPriorityFilterControl(container: HTMLElement): void {
+    appendPriorityFilter(container, this.selectedMaxPriority, (value) => {
+      this.selectedMaxPriority = value;
+      this.renderResults();
+    });
+  }
+
   private appendSearchFilter(container: HTMLElement): void {
     appendSearchBox(container, this.searchQuery, (query) => {
       this.searchQuery = query;
@@ -163,7 +168,7 @@ export class DateDashboardController {
   }
 
   private filterRows(rows: DashboardRow[]): DashboardRow[] {
-    return this.filterBySearch(this.filterByContext(rows));
+    return this.filterBySearch(filterByMaxPriority(rows, this.selectedMaxPriority));
   }
 
   private filterBySearch(rows: DashboardRow[]): DashboardRow[] {
@@ -171,51 +176,7 @@ export class DateDashboardController {
       return rows;
     }
 
-    return rows.filter((row) => matchesSearch(this.searchQuery, row.task, row.contexts.join(" ")));
-  }
-
-  private appendContextFilter(container: HTMLElement): void {
-    const knownContexts = this.getKnownContexts();
-    if (knownContexts.length === 0) {
-      return;
-    }
-
-    const wrapper = document.createElement("div");
-    wrapper.style.marginBottom = "10px";
-
-    const label = document.createElement("label");
-    label.textContent = "Context: ";
-    wrapper.appendChild(label);
-
-    const select = document.createElement("select");
-    const allOption = document.createElement("option");
-    allOption.value = "";
-    allOption.textContent = "All";
-    select.appendChild(allOption);
-
-    for (const context of knownContexts) {
-      const option = document.createElement("option");
-      option.value = context;
-      option.textContent = context;
-      select.appendChild(option);
-    }
-
-    select.value = this.selectedContext ?? "";
-    select.addEventListener("change", () => {
-      this.selectedContext = select.value.length > 0 ? select.value : null;
-      this.renderResults();
-    });
-
-    label.appendChild(select);
-    container.appendChild(wrapper);
-  }
-
-  private filterByContext<T extends { contexts: string[] }>(rows: T[]): T[] {
-    if (!this.selectedContext) {
-      return rows;
-    }
-
-    return rows.filter((row) => row.contexts.includes(this.selectedContext!));
+    return rows.filter((row) => matchesSearch(this.searchQuery, row.task));
   }
 
   /**
@@ -280,7 +241,7 @@ export class DateDashboardController {
   }
 
   private formatTaskListText(row: DashboardRow): string {
-    return row.contexts.length > 0 ? `${row.task} (${row.contexts.join(", ")})` : row.task;
+    return row.task;
   }
 
   private appendDueSection(container: HTMLElement, rows: DashboardRow[], sourcePath: string): void {
@@ -370,8 +331,8 @@ export class DateDashboardController {
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
     const labels = showDueDate
-      ? ["Folder", "Project", "Task", "Priority", "Recurrence", "Context", "Due"]
-      : ["Folder", "Project", "Task", "Priority", "Recurrence", "Context"];
+      ? ["Folder", "Project", "Task", "Priority", "Recurrence", "Due"]
+      : ["Folder", "Project", "Task", "Priority", "Recurrence"];
     for (const label of labels) {
       headerRow.appendChild(this.createTextElement("th", label));
     }
@@ -408,7 +369,6 @@ export class DateDashboardController {
           tableRow.appendChild(this.createTaskCell(row.task));
           tableRow.appendChild(this.createTextElement("td", String(row.priority)));
           tableRow.appendChild(this.createTextElement("td", row.recurrence));
-          tableRow.appendChild(this.createTextElement("td", row.contexts.join(", ")));
           if (showDueDate) {
             tableRow.appendChild(this.createTextElement("td", formatMonthDay(row.dueDate)));
           }
