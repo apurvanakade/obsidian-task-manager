@@ -5,7 +5,8 @@
  * Responsibilities:
  * - wires up table views over the configured project folders, combining plugin-owned
  *   frontmatter fields (status, priority, waiting-since, reviewed) with the derived
- *   fields mirrored by derived-frontmatter.ts (next-due, next-action, open-tasks)
+ *   fields mirrored by derived-frontmatter.ts (next-due, next-action, open-tasks), plus
+ *   file.folder/file.name columns
  *
  * Dependencies:
  * - settings-utils.ts (TaskManagerSettings) only
@@ -15,20 +16,21 @@
  *   write — lives in main.ts, following the pattern of createProjectFile()/runQuickCapture())
  *
  * Notes:
- * - The .base YAML schema (https://obsidian.md/help/bases/syntax, /bases/functions) was
- *   cross-checked when this module was written, and confirmed against a live, Bases-UI-
- *   edited file afterward: `views`/`filters` structure, and/or/not filter grouping,
- *   `file.inFolder()`, `note.field` / `note["hyphenated-field"]` property access, the
- *   per-view `sort:` key (a list of `{property, direction}`), and bracket-notation
- *   property paths in `order:` are all genuinely honored by Bases — Bases' own UI
- *   round-trips them unchanged and even adds its own `sort:` entries on bracket-notation
- *   properties when the user sorts by clicking a column header.
- * - What bracket-notation properties DON'T get for free is a readable column header —
- *   with no override, Bases displays the raw `note["next-action"]`-style expression as
- *   the header text. `properties:` displayName overrides (below) fix that; still no
- *   `formulas:` block, which stays genuinely cosmetic/optional. If a view fails to
- *   render, Bases shows a visible error banner scoped to this one generated file;
- *   nothing else in the plugin depends on it parsing correctly.
+ * - Empirically, `note["hyphenated-field"]` bracket notation used directly as an `order:`/
+ *   `sort:` column reference is accepted by Bases (no schema error, and Bases' own UI
+ *   preserves it when round-tripping the file) but does NOT render actual cell values —
+ *   every such column showed blank rows in testing, even once a `properties:` displayName
+ *   override fixed the header text. So this module routes every hyphenated field through
+ *   a `formulas:` entry instead — `note["next-due"]` etc. wrapped in a named formula,
+ *   referenced everywhere as `formula.nextDue` — which matches Obsidian's own documented
+ *   example verbatim (a `formulas: formatted_price: '...'` entry referenced as
+ *   `formula.formatted_price` in `order:` and given a `properties:` displayName), the one
+ *   part of this schema with a first-party worked example rather than inference. Formula
+ *   names are camelCase specifically so referencing them (`formula.nextDue`) never needs
+ *   bracket notation itself. If a view still fails to render or a column is still empty,
+ *   that's the next thing to re-verify against https://help.obsidian.md/bases/syntax and
+ *   /bases/functions — a bad view only produces a visible error banner scoped to this one
+ *   generated file, nothing else in the plugin depends on it parsing correctly.
  */
 import { TaskManagerSettings } from "../settings/settings-utils";
 
@@ -46,21 +48,31 @@ type BaseViewSpec = {
   sortDirection: SortDirection;
 };
 
-const NEXT_DUE = 'note["next-due"]';
-const NEXT_ACTION = 'note["next-action"]';
-const OPEN_TASKS = 'note["open-tasks"]';
-const WAITING_SINCE = 'note["waiting-since"]';
+/** Formula names — camelCase so referencing them as `formula.<name>` never needs bracket notation. */
+const NEXT_DUE_FORMULA = "nextDue";
+const NEXT_ACTION_FORMULA = "nextAction";
+const OPEN_TASKS_FORMULA = "openTasks";
+const WAITING_SINCE_FORMULA = "waitingSince";
+
+/** Each formula just unwraps one hyphenated note property — see the module doc comment for why. */
+const FORMULAS: Record<string, string> = {
+  [NEXT_DUE_FORMULA]: 'note["next-due"]',
+  [NEXT_ACTION_FORMULA]: 'note["next-action"]',
+  [OPEN_TASKS_FORMULA]: 'note["open-tasks"]',
+  [WAITING_SINCE_FORMULA]: 'note["waiting-since"]',
+};
+
+const NEXT_DUE = `formula.${NEXT_DUE_FORMULA}`;
+const NEXT_ACTION = `formula.${NEXT_ACTION_FORMULA}`;
+const OPEN_TASKS = `formula.${OPEN_TASKS_FORMULA}`;
+const WAITING_SINCE = `formula.${WAITING_SINCE_FORMULA}`;
 const FILE_NAME = "file.name";
+const FILE_FOLDER = "file.folder";
 const STATUS = "note.status";
 const PRIORITY = "note.priority";
 const REVIEWED = "note.reviewed";
 
-/**
- * Bracket-notation properties render with no friendly header by default — Bases just
- * shows the raw expression (e.g. `note["next-action"]`) as the column title. Bare
- * dotted properties (priority, status, reviewed, file.name) already read fine and don't
- * need an entry here.
- */
+/** Bare dotted properties (priority, status, reviewed, file.name) already read fine and don't need an entry here. */
 const DISPLAY_NAMES: Record<string, string> = {
   [NEXT_DUE]: "Next due",
   [NEXT_ACTION]: "Next action",
@@ -73,6 +85,8 @@ export function buildTaskBaseFileContent(settings: TaskManagerSettings): string 
   const lines: string[] = [
     "# Generated by the Task Manager plugin's \"Create Task Bases\" command.",
     "# Safe to edit freely from here on — re-running the command will ask before overwriting.",
+    "formulas:",
+    ...renderFormulas(),
     "views:",
   ];
 
@@ -83,6 +97,14 @@ export function buildTaskBaseFileContent(settings: TaskManagerSettings): string 
   lines.push("properties:", ...renderDisplayNames());
 
   return `${lines.join("\n")}\n`;
+}
+
+function renderFormulas(): string[] {
+  const lines: string[] = [];
+  for (const [name, expression] of Object.entries(FORMULAS)) {
+    lines.push(`  ${name}: '${expression.replace(/'/g, "''")}'`);
+  }
+  return lines;
 }
 
 function renderDisplayNames(): string[] {
@@ -99,7 +121,7 @@ function buildViewSpecs(settings: TaskManagerSettings): BaseViewSpec[] {
       name: "Active projects",
       folder: settings.projectsFolder,
       extraFilters: [`${STATUS} == "todo"`],
-      order: [FILE_NAME, PRIORITY, NEXT_DUE, NEXT_ACTION, OPEN_TASKS],
+      order: [FILE_FOLDER, FILE_NAME, PRIORITY, NEXT_DUE, NEXT_ACTION, OPEN_TASKS],
       sortProperty: PRIORITY,
       sortDirection: "ASC",
     },
@@ -107,7 +129,7 @@ function buildViewSpecs(settings: TaskManagerSettings): BaseViewSpec[] {
       name: "Next actions",
       folder: settings.projectsFolder,
       extraFilters: [`${NEXT_DUE} != null`],
-      order: [FILE_NAME, NEXT_ACTION, NEXT_DUE, PRIORITY],
+      order: [FILE_FOLDER, FILE_NAME, NEXT_ACTION, NEXT_DUE, PRIORITY],
       sortProperty: NEXT_DUE,
       sortDirection: "ASC",
     },
@@ -115,7 +137,7 @@ function buildViewSpecs(settings: TaskManagerSettings): BaseViewSpec[] {
       name: "Waiting",
       folder: settings.waitingProjectsFolder,
       extraFilters: [],
-      order: [FILE_NAME, PRIORITY, WAITING_SINCE, NEXT_ACTION],
+      order: [FILE_FOLDER, FILE_NAME, PRIORITY, WAITING_SINCE, NEXT_ACTION],
       sortProperty: WAITING_SINCE,
       sortDirection: "ASC",
     },
@@ -123,7 +145,7 @@ function buildViewSpecs(settings: TaskManagerSettings): BaseViewSpec[] {
       name: "Someday-Maybe review",
       folder: settings.somedayMaybeProjectsFolder,
       extraFilters: [],
-      order: [FILE_NAME, PRIORITY, REVIEWED, NEXT_ACTION],
+      order: [FILE_FOLDER, FILE_NAME, PRIORITY, REVIEWED, NEXT_ACTION],
       sortProperty: REVIEWED,
       sortDirection: "ASC",
     },
@@ -131,7 +153,7 @@ function buildViewSpecs(settings: TaskManagerSettings): BaseViewSpec[] {
       name: "Scheduled",
       folder: settings.scheduledProjectsFolder,
       extraFilters: [],
-      order: [FILE_NAME, NEXT_DUE, PRIORITY, NEXT_ACTION],
+      order: [FILE_FOLDER, FILE_NAME, NEXT_DUE, PRIORITY, NEXT_ACTION],
       sortProperty: NEXT_DUE,
       sortDirection: "ASC",
     },
