@@ -239,7 +239,7 @@ When the active note is named `YYYY-MM-DD`, a live dashboard opens in the right 
 
 **Current Page** — all open tasks written directly on the active date note itself. Rendered as an unordered list so tasks on the current page appear in the dashboard even when that note is outside the configured task folders.
 
-**Inbox** — all open tasks from the configured Inbox File, regardless of date. Rendered as a heading, a file link, and an unordered list.
+**Inbox** — all open tasks from the configured Inbox File, regardless of date. Rendered as a heading, two links (**Open inbox file**, and **Organize inbox into projects** — jumps straight to the [Inbox tab](#open-inbox) for bundling captures into projects), and an unordered list.
 
 **Completed** — tasks with `[completion-date:: YYYY-MM-DD]` matching the note date from the same folders as Due above (Scheduled and Archived excluded). Columns: Folder | Project | Task | Priority | Recurrence. Sorted by file priority, then file path.
 

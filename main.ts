@@ -59,6 +59,9 @@ export default class TaskManagerPlugin extends Plugin {
       getTaskFolderRoots: () => getSurfacedTaskFolderRoots(this.pluginSettings),
       getInboxFile: () => this.pluginSettings.inboxFile,
       getHideKeywords: () => this.pluginSettings.dashboardHideKeywords,
+      openInboxView: () => {
+        void this.inbox?.openView();
+      },
     });
     this.inbox = new InboxController({
       app: this.app,

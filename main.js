@@ -1594,6 +1594,7 @@ var _DateDashboardController = class _DateDashboardController {
     this.getTaskFolderRoots = options.getTaskFolderRoots;
     this.getInboxFile = options.getInboxFile;
     this.getHideKeywords = options.getHideKeywords;
+    this.openInboxView = options.openInboxView;
   }
   async onload(plugin) {
     plugin.registerView(_DateDashboardController.VIEW_TYPE, (leaf) => new DateDashboardView(leaf, this));
@@ -1706,6 +1707,16 @@ var _DateDashboardController = class _DateDashboardController {
         void this.app.workspace.openLinkText(inboxFile, "");
       });
       container.appendChild(link);
+      container.appendChild(document.createTextNode(" \xA0 "));
+      const organizeLink = document.createElement("a");
+      organizeLink.href = "#";
+      organizeLink.textContent = "Organize inbox into projects";
+      organizeLink.classList.add("internal-link");
+      organizeLink.addEventListener("click", (event) => {
+        event.preventDefault();
+        this.openInboxView();
+      });
+      container.appendChild(organizeLink);
     }
     if (inboxTasks.length === 0) {
       const emptyState = document.createElement("p");
@@ -4655,7 +4666,11 @@ var TaskManagerPlugin = class extends import_obsidian18.Plugin {
       app: this.app,
       getTaskFolderRoots: () => getSurfacedTaskFolderRoots(this.pluginSettings),
       getInboxFile: () => this.pluginSettings.inboxFile,
-      getHideKeywords: () => this.pluginSettings.dashboardHideKeywords
+      getHideKeywords: () => this.pluginSettings.dashboardHideKeywords,
+      openInboxView: () => {
+        var _a;
+        void ((_a = this.inbox) == null ? void 0 : _a.openView());
+      }
     });
     this.inbox = new InboxController({
       app: this.app,

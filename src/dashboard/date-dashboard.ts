@@ -32,6 +32,7 @@ type DateDashboardControllerOptions = {
   getTaskFolderRoots: () => string[];
   getInboxFile: () => string;
   getHideKeywords: () => string;
+  openInboxView: () => void;
 };
 
 export class DateDashboardController {
@@ -42,6 +43,7 @@ export class DateDashboardController {
   private refreshHandle: number | null = null;
   private readonly getInboxFile: () => string;
   private readonly getHideKeywords: () => string;
+  private readonly openInboxView: () => void;
   private searchQuery = "";
   private selectedMaxPriority: PriorityFilterValue = null;
   private cached: {
@@ -59,6 +61,7 @@ export class DateDashboardController {
     this.getTaskFolderRoots = options.getTaskFolderRoots;
     this.getInboxFile = options.getInboxFile;
     this.getHideKeywords = options.getHideKeywords;
+    this.openInboxView = options.openInboxView;
   }
 
   async onload(plugin: Plugin): Promise<void> {
@@ -197,6 +200,18 @@ export class DateDashboardController {
         void this.app.workspace.openLinkText(inboxFile, "");
       });
       container.appendChild(link);
+
+      container.appendChild(document.createTextNode("   "));
+
+      const organizeLink = document.createElement("a");
+      organizeLink.href = "#";
+      organizeLink.textContent = "Organize inbox into projects";
+      organizeLink.classList.add("internal-link");
+      organizeLink.addEventListener("click", (event) => {
+        event.preventDefault();
+        this.openInboxView();
+      });
+      container.appendChild(organizeLink);
     }
 
     if (inboxTasks.length === 0) {
