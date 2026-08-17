@@ -13,12 +13,9 @@
  *
  * Side Effects:
  * - mutates settings container DOM and persists setting values
- *
- * Notes:
- * - Uses a file picker for Inbox File; folder picker for the rest.
  */
 import { PluginSettingTab, Setting, TextComponent, TextAreaComponent } from "obsidian";
-import { openFolderPicker, openFilePicker } from "./folder-picker";
+import { openFolderPicker } from "./folder-picker";
 import { getFolderSettingConfigs, getTextSettingConfigs, FolderSettingConfig, TextSettingConfig } from "./settings-field-definitions";
 import { FolderSettingKey, TaskManagerSettings } from "./settings-utils";
 
@@ -52,10 +49,9 @@ export class TaskManagerSettingTabRenderer {
   }
 
   private addFolderSetting(containerEl: HTMLElement, config: FolderSettingConfig): void {
-    const isFilePathSetting = config.key === "inboxFile";
     new Setting(containerEl)
       .setName(config.name)
-      .setDesc(`${config.description} Use Browse to pick a vault ${isFilePathSetting ? "file" : "path"}.`)
+      .setDesc(`${config.description} Use Browse to pick a vault path.`)
       .addText((text) => {
         this.configureFolderTextInput(text, config.key, config.value, config.placeholder);
       })
@@ -63,17 +59,10 @@ export class TaskManagerSettingTabRenderer {
         button
           .setButtonText("Browse")
           .onClick(() => {
-            if (isFilePathSetting) {
-              openFilePicker(this.baseSettingTab.app, async (selectedFilePath) => {
-                await this.plugin.updateSetting(config.key, selectedFilePath);
-                this.display();
-              });
-            } else {
-              openFolderPicker(this.baseSettingTab.app, async (selectedFolderPath) => {
-                await this.plugin.updateSetting(config.key, selectedFolderPath);
-                this.display();
-              });
-            }
+            openFolderPicker(this.baseSettingTab.app, async (selectedFolderPath) => {
+              await this.plugin.updateSetting(config.key, selectedFolderPath);
+              this.display();
+            });
           });
       });
   }

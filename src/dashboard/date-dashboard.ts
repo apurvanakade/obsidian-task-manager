@@ -5,22 +5,26 @@
  * Responsibilities:
  * - registers and refreshes the custom dashboard view
  * - reacts to vault/workspace events with debounced refresh scheduling
- * - renders Due, Current Page, Inbox, and Completed sections for YYYY-MM-DD active notes
+ * - renders Due, Current Page, and Completed sections for YYYY-MM-DD active notes, plus
+ *   a link into the "Organize Captured Tasks into Projects" tab
  * - formats display fields (filename cleanup, recurrence labels, and MM-DD due-date rendering)
  *
  * Dependencies:
- * - depends on dashboard-task-data.ts for data collection/parsing (including inbox and current-page logic).
+ * - depends on dashboard-task-data.ts for data collection/parsing (Due/Completed/current-page logic).
  * - Obsidian view/workspace/vault APIs for lifecycle and rendering
  *
  * Side Effects:
  * - manipulates dashboard DOM and opens links in workspace
  *
  * Notes:
- * - Inbox section lists all open tasks from the configured inbox file; Current Page lists open tasks from the active date note.
+ * - Current Page lists open tasks from the active date note. Captured tasks (Quick
+ *   Capture writes to today's daily note, not a dedicated inbox file) are reviewed via
+ *   the "Organize Captured Tasks into Projects" tab, linked from this dashboard rather
+ *   than listed inline here.
  */
 import { App, ItemView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { getTodayDateString } from "../date/date-utils";
-import { collectOpenTasksFromFile, collectTasksForDate, collectInboxTasks, DashboardRow, getDateStringFromFileName } from "./dashboard-task-data";
+import { collectOpenTasksFromFile, collectTasksForDate, DashboardRow, getDateStringFromFileName } from "./dashboard-task-data";
 import { applyPriorityStyle, buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
 import { appendSearchBox, matchesSearch } from "../ui/search-filter";
 import { appendPriorityFilter, filterByMaxPriority, PriorityFilterValue } from "../ui/priority-filter";
@@ -30,9 +34,8 @@ const MARKDOWN_EXTENSION_REGEX = /\.md$/i;
 type DateDashboardControllerOptions = {
   app: App;
   getTaskFolderRoots: () => string[];
-  getInboxFile: () => string;
   getHideKeywords: () => string;
-  openInboxView: () => void;
+  openCapturedTasksView: () => void;
 };
 
 export class DateDashboardController {
@@ -41,27 +44,23 @@ export class DateDashboardController {
   private readonly app: App;
   private readonly getTaskFolderRoots: () => string[];
   private refreshHandle: number | null = null;
-  private readonly getInboxFile: () => string;
   private readonly getHideKeywords: () => string;
-  private readonly openInboxView: () => void;
+  private readonly openCapturedTasksView: () => void;
   private searchQuery = "";
   private selectedMaxPriority: PriorityFilterValue = null;
   private cached: {
     sourcePath: string;
     dueTasks: DashboardRow[];
     currentPageTasks: DashboardRow[];
-    inboxTasks: DashboardRow[];
     completedTasks: DashboardRow[];
-    inboxFile: string;
   } | null = null;
   private resultsContainer: HTMLElement | null = null;
 
   constructor(options: DateDashboardControllerOptions) {
     this.app = options.app;
     this.getTaskFolderRoots = options.getTaskFolderRoots;
-    this.getInboxFile = options.getInboxFile;
     this.getHideKeywords = options.getHideKeywords;
-    this.openInboxView = options.openInboxView;
+    this.openCapturedTasksView = options.openCapturedTasksView;
   }
 
   async onload(plugin: Plugin): Promise<void> {
@@ -121,20 +120,16 @@ export class DateDashboardController {
     dashboard.appendChild(resultsContainer);
     this.resultsContainer = resultsContainer;
 
-    const inboxFile = this.getInboxFile();
-    const tasks = await collectTasksForDate(this.app, this.getTaskFolderRoots(), inboxFile, dateString);
+    const tasks = await collectTasksForDate(this.app, this.getTaskFolderRoots(), dateString);
     const currentPageTasks = activeFile && getDateStringFromFileName(activeFile.name)
       ? await collectOpenTasksFromFile(this.app, activeFile)
       : [];
-    const inboxTasks = await collectInboxTasks(this.app, inboxFile);
 
     this.cached = {
       sourcePath,
       dueTasks: tasks.dueTasks,
       currentPageTasks,
-      inboxTasks,
       completedTasks: tasks.completedTasks,
-      inboxFile,
     };
     this.renderResults();
 
@@ -160,13 +155,13 @@ export class DateDashboardController {
   private renderResults(): void {
     if (!this.resultsContainer || !this.cached) return;
 
-    const { sourcePath, dueTasks, currentPageTasks, inboxTasks, completedTasks, inboxFile } = this.cached;
+    const { sourcePath, dueTasks, currentPageTasks, completedTasks } = this.cached;
     const container = this.resultsContainer;
     container.innerHTML = "";
 
     this.appendDueSection(container, this.filterRows(dueTasks), sourcePath);
     this.appendSimpleTaskListSection(container, "Current Page", this.filterRows(currentPageTasks));
-    this.appendInboxSection(container, inboxFile, this.filterRows(inboxTasks));
+    this.appendOrganizeCapturedTasksLink(container);
     this.appendTaskTable(container, "Completed", this.filterRows(completedTasks), sourcePath, false);
   }
 
@@ -183,51 +178,21 @@ export class DateDashboardController {
   }
 
   /**
-   * Renders the Inbox section: heading, link to inbox file, and a plain list of tasks (no table, no priorities).
+   * Entry point into the "Organize Captured Tasks into Projects" tab. Quick Capture
+   * writes to today's daily note (see the Current Page section above for today's own
+   * captures); this link is where the full ±1yr backlog across all daily notes gets
+   * reviewed and bundled into projects.
    */
-  private appendInboxSection(container: HTMLElement, inboxFile: string, inboxTasks: DashboardRow[]): void {
-    const heading = document.createElement("h3");
-    heading.textContent = "Inbox";
-    container.appendChild(heading);
-
-    if (inboxFile) {
-      const link = document.createElement("a");
-      link.href = "#";
-      link.textContent = `Open inbox file`;
-      link.classList.add("internal-link");
-      link.addEventListener("click", (event) => {
-        event.preventDefault();
-        void this.app.workspace.openLinkText(inboxFile, "");
-      });
-      container.appendChild(link);
-
-      container.appendChild(document.createTextNode("   "));
-
-      const organizeLink = document.createElement("a");
-      organizeLink.href = "#";
-      organizeLink.textContent = "Organize inbox into projects";
-      organizeLink.classList.add("internal-link");
-      organizeLink.addEventListener("click", (event) => {
-        event.preventDefault();
-        this.openInboxView();
-      });
-      container.appendChild(organizeLink);
-    }
-
-    if (inboxTasks.length === 0) {
-      const emptyState = document.createElement("p");
-      emptyState.textContent = this.emptyMessage();
-      container.appendChild(emptyState);
-      return;
-    }
-
-    const ul = document.createElement("ul");
-    for (const row of inboxTasks) {
-      const li = document.createElement("li");
-      li.textContent = this.formatTaskListText(row);
-      ul.appendChild(li);
-    }
-    container.appendChild(ul);
+  private appendOrganizeCapturedTasksLink(container: HTMLElement): void {
+    const organizeLink = document.createElement("a");
+    organizeLink.href = "#";
+    organizeLink.textContent = "Organize Captured Tasks into Projects";
+    organizeLink.classList.add("internal-link");
+    organizeLink.addEventListener("click", (event) => {
+      event.preventDefault();
+      this.openCapturedTasksView();
+    });
+    container.appendChild(organizeLink);
   }
 
   private appendSimpleTaskListSection(container: HTMLElement, title: string, rows: DashboardRow[]): void {
@@ -271,14 +236,12 @@ export class DateDashboardController {
     if (!(file instanceof TFile)) return false;
     if (!MARKDOWN_EXTENSION_REGEX.test(file.name)) return false;
     const roots = this.getTaskFolderRoots().filter(Boolean);
-    const inboxFile = this.getInboxFile();
     const inTaskFolder = roots.some((root) => file.path.startsWith(`${root}/`));
-    const isInbox = !!inboxFile && file.path === inboxFile;
     const activeFile = this.app.workspace.getActiveFile();
     const isActiveDatePage = !!activeFile
       && file.path === activeFile.path
       && getDateStringFromFileName(file.name) !== null;
-    return inTaskFolder || isInbox || isActiveDatePage;
+    return inTaskFolder || isActiveDatePage;
   }
 
   private queueRefresh(): void {

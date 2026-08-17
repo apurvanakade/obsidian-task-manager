@@ -12,9 +12,6 @@
  *
  * Side Effects:
  * - none (pure data definitions)
- *
- * Notes:
- * - Inbox File uses a file picker, not a folder picker, in settings UI.
  */
 import { FolderSettingKey, TaskManagerSettings } from "./settings-utils";
 
@@ -79,13 +76,6 @@ export function getFolderSettingConfigs(settings: TaskManagerSettings): FolderSe
       key: "archivedProjectsFolder",
       value: settings.archivedProjectsFolder,
       placeholder: "Projects/Archived",
-    },
-    {
-      name: "Inbox File",
-      description: "Path to the inbox file (used for Inbox section in dashboard).",
-      key: "inboxFile",
-      value: settings.inboxFile,
-      placeholder: "Inbox.md",
     },
   ];
 }

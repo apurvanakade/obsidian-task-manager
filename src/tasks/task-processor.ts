@@ -218,10 +218,6 @@ export class TaskProcessor {
 
     await this.reconcileSingleFile(file, settings);
 
-    if (this.isInboxFile(file, settings)) {
-      return `Processed ${file.name}.`;
-    }
-
     assertConfiguredDestinationForStatus(predictedStatus, settings);
 
     const moveResult = await this.routeFileByStatus(file, settings);
@@ -244,10 +240,6 @@ export class TaskProcessor {
       // No status change, but a plain task-line edit (e.g. a due-date change) still
       // needs next-due/next-action/open-tasks refreshed.
       await this.stampDerivedFrontmatter(file, settings);
-      return;
-    }
-
-    if (this.isInboxFile(file, settings)) {
       return;
     }
 
@@ -305,10 +297,6 @@ export class TaskProcessor {
    * the file's next edit. Returns whether it wrote, for backfillDerivedFrontmatter()'s count.
    */
   private async stampDerivedFrontmatter(file: TFile, settings: TaskManagerSettings): Promise<boolean> {
-    if (this.isInboxFile(file, settings)) {
-      return false;
-    }
-
     const content = await this.app.vault.read(file);
     const fields = computeDerivedFields(content);
     const alreadyCurrent = derivedFieldsMatchContent(content, fields);
@@ -328,16 +316,16 @@ export class TaskProcessor {
   }
 
   /**
-   * Resync command: (re)stamps derived fields on every tracked project file, skipping the
-   * Inbox File. Unlike backfillWaitingSince, this isn't a one-time migration for files that
-   * predate a feature — it's a safe-to-re-run resync for whenever frontmatter and task
-   * lines have drifted (e.g. after bulk edits made outside Obsidian).
+   * Resync command: (re)stamps derived fields on every tracked project file. Unlike
+   * backfillWaitingSince, this isn't a one-time migration for files that predate a
+   * feature — it's a safe-to-re-run resync for whenever frontmatter and task lines have
+   * drifted (e.g. after bulk edits made outside Obsidian).
    */
   async backfillDerivedFrontmatter(): Promise<string> {
     const settings = this.getSettings();
     const files = this.app.vault
       .getMarkdownFiles()
-      .filter((file) => this.shouldTrackFile(file, settings) && !this.isInboxFile(file, settings));
+      .filter((file) => this.shouldTrackFile(file, settings));
 
     let stampedCount = 0;
     for (const file of files) {
@@ -380,10 +368,6 @@ export class TaskProcessor {
    * normally once the pending-path guard clears.
    */
   private async maybePromoteScheduledFile(file: TFile, content: string, settings: TaskManagerSettings): Promise<boolean> {
-    if (this.isInboxFile(file, settings)) {
-      return false;
-    }
-
     const status = readStatusValue(content, settings.statusField);
     if (status !== "scheduled") {
       return false;
@@ -452,10 +436,6 @@ export class TaskProcessor {
   }
 
   private async routeFileByStatus(file: TFile, settings: TaskManagerSettings, statusOverride?: string | null): Promise<string | null> {
-    if (this.isInboxFile(file, settings)) {
-      return null;
-    }
-
     const status = statusOverride ?? readStatusValue(await this.app.vault.read(file), settings.statusField);
     if (!status || !isRoutableStatus(status)) {
       return null;
@@ -569,16 +549,8 @@ export class TaskProcessor {
   }
 
   private shouldTrackFile(file: TFile, settings: TaskManagerSettings): boolean {
-    if (this.isInboxFile(file, settings)) {
-      return true;
-    }
-
     const taskFolderRoots = getTaskFolderRoots(settings);
     return taskFolderRoots.some((root) => file.path.startsWith(`${root}/`));
-  }
-
-  private isInboxFile(file: TFile, settings: TaskManagerSettings): boolean {
-    return !!settings.inboxFile && file.path === settings.inboxFile;
   }
 
   private async runWithPendingPaths(filePaths: string[], action: () => Promise<void>): Promise<void> {

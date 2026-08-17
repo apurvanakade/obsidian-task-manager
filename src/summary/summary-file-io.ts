@@ -1,23 +1,17 @@
 /**
  * Purpose:
- * - shared file-scanning helpers reused across the live Tasks Summary/Projects Summary
+ * - shared file-scanning helper reused across the live Tasks Summary/Projects Summary
  *   tabs and other features that enumerate task/project files by configured folder.
  *
  * Responsibilities:
- * - folder-membership and excluded-file checks
+ * - folder-membership check
  *
  * Dependencies:
- * - normalized plugin settings
+ * - none outside language/runtime primitives
  *
  * Side Effects:
- * - none (pure helpers)
+ * - none (pure helper)
  */
-import { TaskManagerSettings } from "../settings/settings-utils";
-
 export function isInFolder(filePath: string, folderPath: string): boolean {
   return filePath.startsWith(`${folderPath}/`);
-}
-
-export function isExcludedSummaryFile(filePath: string, settings: TaskManagerSettings): boolean {
-  return filePath === settings.inboxFile;
 }

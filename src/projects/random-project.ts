@@ -4,7 +4,6 @@
  *
  * Responsibilities:
  * - scans the configured Someday-Maybe Projects Folder for markdown project files
- * - excludes generated summary files that might be misconfigured into that folder
  * - picks a uniformly random file from the candidate list
  *
  * Dependencies:
@@ -15,7 +14,7 @@
  */
 import { App, TFile } from "obsidian";
 import { TaskManagerSettings } from "../settings/settings-utils";
-import { isExcludedSummaryFile, isInFolder } from "../summary/summary-file-io";
+import { isInFolder } from "../summary/summary-file-io";
 
 export function getSomedayMaybeProjectFiles(app: App, settings: TaskManagerSettings): TFile[] {
   const folderPath = settings.somedayMaybeProjectsFolder;
@@ -23,9 +22,7 @@ export function getSomedayMaybeProjectFiles(app: App, settings: TaskManagerSetti
     return [];
   }
 
-  return app.vault.getMarkdownFiles().filter((file) =>
-    isInFolder(file.path, folderPath) && !isExcludedSummaryFile(file.path, settings),
-  );
+  return app.vault.getMarkdownFiles().filter((file) => isInFolder(file.path, folderPath));
 }
 
 export function pickRandomFile(files: TFile[]): TFile | null {

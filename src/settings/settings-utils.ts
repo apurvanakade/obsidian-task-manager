@@ -12,9 +12,6 @@
  *
  * Side Effects:
  * - none (pure normalization helpers)
- *
- * Notes:
- * - Supports a file-path setting for Inbox File.
  */
 export type TaskManagerSettings = {
   statusField: string;
@@ -24,7 +21,6 @@ export type TaskManagerSettings = {
   somedayMaybeProjectsFolder: string;
   scheduledProjectsFolder: string;
   archivedProjectsFolder: string;
-  inboxFile: string;
   dashboardHideKeywords: string;
   somedayMaybeReviewCadenceDays: string;
   waitingStalenessThresholdDays: string;
@@ -33,7 +29,7 @@ export type TaskManagerSettings = {
 
 export type FolderSettingKey = keyof Pick<
   TaskManagerSettings,
-  "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder" | "scheduledProjectsFolder" | "archivedProjectsFolder" | "inboxFile"
+  "projectsFolder" | "completedProjectsFolder" | "waitingProjectsFolder" | "somedayMaybeProjectsFolder" | "scheduledProjectsFolder" | "archivedProjectsFolder"
 >;
 
 export const DEFAULT_SETTINGS: TaskManagerSettings = {
@@ -44,7 +40,6 @@ export const DEFAULT_SETTINGS: TaskManagerSettings = {
   somedayMaybeProjectsFolder: "",
   scheduledProjectsFolder: "",
   archivedProjectsFolder: "",
-  inboxFile: "",
   dashboardHideKeywords: "",
   somedayMaybeReviewCadenceDays: "30",
   waitingStalenessThresholdDays: "7",
@@ -76,7 +71,6 @@ export function normalizeSettings(rawSettings: Partial<TaskManagerSettings>): Ta
     somedayMaybeProjectsFolder: normalizeFolder(rawSettings.somedayMaybeProjectsFolder),
     scheduledProjectsFolder: normalizeFolder(rawSettings.scheduledProjectsFolder),
     archivedProjectsFolder: normalizeFolder(rawSettings.archivedProjectsFolder),
-    inboxFile: normalizeFolder(rawSettings.inboxFile),
     dashboardHideKeywords: String(rawSettings.dashboardHideKeywords ?? ""),
     somedayMaybeReviewCadenceDays: normalizePositiveIntegerString(rawSettings.somedayMaybeReviewCadenceDays, DEFAULT_SETTINGS.somedayMaybeReviewCadenceDays),
     waitingStalenessThresholdDays: normalizePositiveIntegerString(rawSettings.waitingStalenessThresholdDays, DEFAULT_SETTINGS.waitingStalenessThresholdDays),

@@ -26,7 +26,8 @@ import { ProjectsSummaryController } from "./src/review/projects-summary-view";
 import { stampReviewedDate } from "./src/review/projects-summary-data";
 import { normalizeSettings, TaskManagerSettings } from "./src/settings/settings-utils";
 import { QuickCaptureModal } from "./src/tasks/quick-capture-modal";
-import { InboxController } from "./src/summary/inbox-view";
+import { CapturedTasksController } from "./src/journal/captured-tasks-view";
+import { DAILY_NOTE_TASKS_HEADER, getDailyNotePathForToday } from "./src/journal/daily-note-config";
 import { TaskManagerSettingTabRenderer } from "./src/settings/settings-ui";
 import { ensureParentFoldersExist, getSurfacedTaskFolderRoots } from "./src/routing/task-routing";
 import { TaskProcessor } from "./src/tasks/task-processor";
@@ -35,7 +36,7 @@ export default class TaskManagerPlugin extends Plugin {
   private taskProcessor: TaskProcessor | null = null;
   private dateDashboard: DateDashboardController | null = null;
   private projectsSummary: ProjectsSummaryController | null = null;
-  private inbox: InboxController | null = null;
+  private capturedTasks: CapturedTasksController | null = null;
   private dueDateSuggest: DueDateEditorSuggest | null = null;
   private createdDateSuggest: CreatedDateEditorSuggest | null = null;
 
@@ -48,22 +49,21 @@ export default class TaskManagerPlugin extends Plugin {
       app: this.app,
       getSettings: () => this.getSettings(),
       onFileStatusChanged: async () => {
-        this.inbox?.refreshSoon();
+        this.capturedTasks?.refreshSoon();
       },
       onTaskPropertiesChanged: async () => {
-        this.inbox?.refreshSoon();
+        this.capturedTasks?.refreshSoon();
       },
     });
     this.dateDashboard = new DateDashboardController({
       app: this.app,
       getTaskFolderRoots: () => getSurfacedTaskFolderRoots(this.pluginSettings),
-      getInboxFile: () => this.pluginSettings.inboxFile,
       getHideKeywords: () => this.pluginSettings.dashboardHideKeywords,
-      openInboxView: () => {
-        void this.inbox?.openView();
+      openCapturedTasksView: () => {
+        void this.capturedTasks?.openView();
       },
     });
-    this.inbox = new InboxController({
+    this.capturedTasks = new CapturedTasksController({
       app: this.app,
       getSettings: () => this.getSettings(),
       createProject: (input) => this.createProjectFile(input),
@@ -81,8 +81,8 @@ export default class TaskManagerPlugin extends Plugin {
       resetCurrentFileTasks: () => {
         void this.runResetCurrentFileTasks();
       },
-      openInbox: () => {
-        void this.inbox?.openView();
+      organizeCapturedTasks: () => {
+        void this.capturedTasks?.openView();
       },
       addNewProject: () => {
         this.runAddNewProject();
@@ -141,7 +141,7 @@ export default class TaskManagerPlugin extends Plugin {
       this.taskProcessor?.handleFileDelete(file);
     }));
     this.projectsSummary.onload(this);
-    this.inbox.onload(this);
+    this.capturedTasks.onload(this);
     await this.taskProcessor.primeState();
     await this.taskProcessor.checkScheduledPromotions();
     await this.dateDashboard.onload(this);
@@ -154,8 +154,8 @@ export default class TaskManagerPlugin extends Plugin {
     this.dateDashboard = null;
     this.projectsSummary?.onunload();
     this.projectsSummary = null;
-    this.inbox?.onunload();
-    this.inbox = null;
+    this.capturedTasks?.onunload();
+    this.capturedTasks = null;
     this.dueDateSuggest = null;
     this.createdDateSuggest = null;
     console.log("Unloading Task Manager plugin");
@@ -195,8 +195,8 @@ export default class TaskManagerPlugin extends Plugin {
    * Creates a project file from AddProjectModal's submitted input: resolves the
    * destination path, writes frontmatter/starter tasks, and primes the task-state store
    * via handleFileCreate() so subsequent reconciliation on this file has a baseline
-   * snapshot. Shared by the "Add New Project" command and the Inbox tab's
-   * "Create project from selected" inbox action.
+   * snapshot. Shared by the "Add New Project" command and the "Organize Captured Tasks
+   * into Projects" tab's "Create project from selected" action.
    */
   private async createProjectFile(input: AddProjectInput): Promise<TFile> {
     const settings = this.getSettings();
@@ -229,9 +229,9 @@ export default class TaskManagerPlugin extends Plugin {
   }
 
   private runQuickCapture(): void {
-    const settings = this.getSettings();
-    if (!settings.inboxFile) {
-      new Notice("Set Inbox File in plugin settings before capturing tasks.");
+    const dailyNotePath = getDailyNotePathForToday(this.app);
+    if (!dailyNotePath) {
+      new Notice("Enable and configure Obsidian's core Daily Notes plugin before capturing tasks.");
       return;
     }
 
@@ -241,15 +241,15 @@ export default class TaskManagerPlugin extends Plugin {
         const dueSuffix = result.dueDate ? ` [due:: ${result.dueDate}]` : "";
         const taskLine = `- [ ] ${result.text}${dueSuffix}`;
 
-        const existingEntry = this.app.vault.getAbstractFileByPath(settings.inboxFile);
+        const existingEntry = this.app.vault.getAbstractFileByPath(dailyNotePath);
         if (existingEntry instanceof TFile) {
           const content = await this.app.vault.read(existingEntry);
-          await this.app.vault.modify(existingEntry, prependTaskLine(content, taskLine));
+          await this.app.vault.modify(existingEntry, insertCapturedTaskLine(content, taskLine));
         } else if (existingEntry) {
-          throw new Error(`'${settings.inboxFile}' is a folder, not a file.`);
+          throw new Error(`'${dailyNotePath}' is a folder, not a file.`);
         } else {
-          await ensureParentFoldersExist(this.app, settings.inboxFile);
-          await this.app.vault.create(settings.inboxFile, `${taskLine}\n`);
+          await ensureParentFoldersExist(this.app, dailyNotePath);
+          await this.app.vault.create(dailyNotePath, insertCapturedTaskLine("", taskLine));
         }
 
         new Notice(`Captured: ${result.text}`);
@@ -298,26 +298,48 @@ export default class TaskManagerPlugin extends Plugin {
 
 }
 
-const FRONTMATTER_BLOCK_REGEX = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
+const FRONTMATTER_DELIMITER = "---";
+const HEADING_PREFIX_REGEX = /^#\s+/;
 
 /**
- * Inserts a captured task as the first task line in the file: right after the
- * frontmatter block if present, otherwise at the very start of the file.
+ * Inserts a captured task under the daily note's "## Tasks" section, prepended
+ * newest-first — creating that section if missing. A missing section is created right
+ * after the file's frontmatter block (if any) and title heading (if present, matching
+ * this vault's daily note shape), else at the very start of the file — e.g. when the
+ * daily note itself doesn't exist yet and is being created fresh from an empty string.
  */
-function prependTaskLine(content: string, taskLine: string): string {
-  const frontmatterMatch = content.match(FRONTMATTER_BLOCK_REGEX);
-  if (frontmatterMatch) {
-    const frontmatterBlock = frontmatterMatch[0];
-    const rest = content.slice(frontmatterBlock.length);
-    // Preserve any blank line(s) that already separate frontmatter from the body —
-    // otherwise that separator ends up stuck between the new task and the old first
-    // line instead of between the frontmatter and the new task.
-    const blankLines = rest.match(/^(\r?\n)*/)?.[0] ?? "";
-    const afterBlankLines = rest.slice(blankLines.length);
-    return `${frontmatterBlock}${blankLines}${taskLine}\n${afterBlankLines}`;
+function insertCapturedTaskLine(content: string, taskLine: string): string {
+  const lines = content.length > 0 ? content.split(/\r?\n/) : [];
+
+  const tasksHeaderIndex = lines.findIndex((line) => line.trim() === DAILY_NOTE_TASKS_HEADER);
+  if (tasksHeaderIndex !== -1) {
+    lines.splice(tasksHeaderIndex + 1, 0, taskLine);
+    return lines.join("\n");
   }
 
-  return content.length > 0 ? `${taskLine}\n${content}` : `${taskLine}\n`;
+  let insertAt = 0;
+  if (lines[0]?.trim() === FRONTMATTER_DELIMITER) {
+    const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === FRONTMATTER_DELIMITER);
+    if (closingIndex !== -1) {
+      insertAt = closingIndex + 1;
+    }
+  }
+
+  // Skip past any blank separator lines to find the title heading, if any, without
+  // losing the insertion point when there isn't one.
+  let scanIndex = insertAt;
+  while (scanIndex < lines.length && lines[scanIndex].trim() === "") {
+    scanIndex += 1;
+  }
+  if (scanIndex < lines.length && HEADING_PREFIX_REGEX.test(lines[scanIndex])) {
+    insertAt = scanIndex + 1;
+  }
+
+  const section = lines.length === 0
+    ? [DAILY_NOTE_TASKS_HEADER, taskLine, ""]
+    : ["", DAILY_NOTE_TASKS_HEADER, taskLine, ""];
+  lines.splice(insertAt, 0, ...section);
+  return lines.join("\n");
 }
 
 class BaseTaskManagerSettingTab extends PluginSettingTab {

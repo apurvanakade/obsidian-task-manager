@@ -19,7 +19,7 @@ import { Plugin } from "obsidian";
 
 type TaskCommandHandlers = {
   resetCurrentFileTasks: () => void;
-  openInbox: () => void;
+  organizeCapturedTasks: () => void;
   addNewProject: () => void;
   openRandomSomedayMaybeProject: () => void;
   quickCapture: () => void;
@@ -37,9 +37,9 @@ export function registerTaskCommands(plugin: Plugin, handlers: TaskCommandHandle
   });
 
   plugin.addCommand({
-    id: "open-inbox",
-    name: "Open Inbox",
-    callback: handlers.openInbox,
+    id: "organize-captured-tasks",
+    name: "Organize Captured Tasks into Projects",
+    callback: handlers.organizeCapturedTasks,
   });
 
   plugin.addCommand({

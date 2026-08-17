@@ -96,7 +96,7 @@ export class QuickCaptureModal extends Modal {
 
     contentEl.createEl("h2", { text: "Capture Task" });
     contentEl.createEl("p", {
-      text: "Added to your Inbox as an open task. Optionally end with due:tomorrow / due:2026-07-20.",
+      text: "Added to today's daily note as an open task. Optionally end with due:tomorrow / due:2026-07-20.",
     });
 
     this.inputElement = contentEl.createEl("input", {

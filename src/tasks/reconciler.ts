@@ -199,8 +199,7 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
   nextLines[completedLineIndex] = addCompletionFields(nextLines[completedLineIndex]);
 
   let workingLines = nextLines;
-  const newStatus =
-    findFirstIncompleteTaskLine(workingLines) === null && !isInboxFile(file, settings) ? "completed" : "todo";
+  const newStatus = findFirstIncompleteTaskLine(workingLines) === null ? "completed" : "todo";
 
   // Move the stamped completed task into the "## Completed Tasks" section.
   // completedLineIndex may have shifted if a recurring task was inserted above it,
@@ -273,7 +272,7 @@ export async function reconcileFile(context: ReconcilerContext): Promise<void> {
     });
   const firstIncompleteTaskLine = findFirstIncompleteTaskLine(lines);
   const updatedContent = lines.join("\n");
-  let nextStatus: string | null = isInboxFile(file, settings) ? "todo" : "completed";
+  let nextStatus: string | null = "completed";
 
   if (firstIncompleteTaskLine !== null) {
     nextStatus = currentStatus !== null && currentStatus !== "completed" ? null : "todo";
@@ -306,11 +305,6 @@ function stripCompletionFields(line: string): string {
   return line
     .replace(/\s*\[completion-date::[^\]]*\]/g, "")
     .replace(/\s*\[completion-time::[^\]]*\]/g, "");
-}
-
-/** The configured Inbox File is a perpetual landing zone, not a project — it must never be stamped `status: completed`. */
-function isInboxFile(file: TFile, settings: TaskManagerSettings): boolean {
-  return !!settings.inboxFile && file.path === settings.inboxFile;
 }
 
 /** Forces a checkbox line back to its open ("[ ]") form, preserving prefix/body. */

@@ -6,7 +6,7 @@
  * - parses task lines for due/completion metadata
  * - reads file-level priority from frontmatter
  * - filters tasks into Due and Completed sets for a target date note
- * - collects open tasks from the inbox file and active date note for dedicated sections
+ * - collects open tasks from the active date note for the Current Page section
  * - normalizes task display text and sorting behavior
  * - exposes date-note filename parsing helper
  *
@@ -50,14 +50,12 @@ export function getDateStringFromFileName(fileName: string): string | null {
 export async function collectTasksForDate(
   app: App,
   taskFolderRoots: string[],
-  inboxFile: string,
   dateString: string,
 ): Promise<{ dueTasks: DashboardRow[]; completedTasks: DashboardRow[] }> {
   const dueTasks: DashboardRow[] = [];
   const completedTasks: DashboardRow[] = [];
   const files = app.vault.getMarkdownFiles().filter((file) =>
-    taskFolderRoots.some((root) => file.path.startsWith(`${root}/`))
-    || (!!inboxFile && file.path === inboxFile),
+    taskFolderRoots.some((root) => file.path.startsWith(`${root}/`)),
   );
 
   for (const file of files) {
@@ -97,39 +95,6 @@ export async function collectTasksForDate(
   completedTasks.sort(compareRows);
 
   return { dueTasks, completedTasks };
-}
-
-/**
- * Collects all open tasks from the configured inbox file (not date-based).
- * Used for the Inbox section in the dashboard.
- */
-export async function collectInboxTasks(
-  app: App,
-  inboxFile: string,
-): Promise<DashboardRow[]> {
-  if (!inboxFile) return [];
-  const file = app.vault.getAbstractFileByPath(inboxFile);
-  if (!file || !(file instanceof TFile)) return [];
-  const content = await app.vault.read(file);
-  const priority = readFilePriority(content);
-  const lines = content.split(/\r?\n/);
-  const inboxTasks: DashboardRow[] = [];
-  for (const line of lines) {
-    const parsedTask = parseTaskLine(line);
-    if (!parsedTask || parsedTask.status !== "open") {
-      continue;
-    }
-
-    inboxTasks.push({
-      file,
-      task: cleanTaskText(parsedTask.taskBody),
-      dueDate: null,
-      priority,
-      recurrence: "none",
-    });
-  }
-  inboxTasks.sort(compareRows);
-  return inboxTasks;
 }
 
 export async function collectOpenTasksFromFile(
