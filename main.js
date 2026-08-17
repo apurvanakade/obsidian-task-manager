@@ -4723,7 +4723,7 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
       app: this.app,
       onSubmit: async (result) => {
         const dueSuffix = result.dueDate ? ` [due:: ${result.dueDate}]` : "";
-        const taskLine = `- [ ] ${result.text}${dueSuffix}`;
+        const taskLine = `- [ ] ${result.text}${dueSuffix} [created:: ${getTodayDateString()}]`;
         const existingEntry = this.app.vault.getAbstractFileByPath(dailyNotePath);
         if (existingEntry instanceof import_obsidian17.TFile) {
           const content = await this.app.vault.read(existingEntry);

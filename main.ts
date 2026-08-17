@@ -31,6 +31,7 @@ import { DAILY_NOTE_TASKS_HEADER, getDailyNotePathForToday } from "./src/journal
 import { TaskManagerSettingTabRenderer } from "./src/settings/settings-ui";
 import { ensureParentFoldersExist, getSurfacedTaskFolderRoots } from "./src/routing/task-routing";
 import { TaskProcessor } from "./src/tasks/task-processor";
+import { getTodayDateString } from "./src/date/date-utils";
 
 export default class TaskManagerPlugin extends Plugin {
   private taskProcessor: TaskProcessor | null = null;
@@ -239,7 +240,7 @@ export default class TaskManagerPlugin extends Plugin {
       app: this.app,
       onSubmit: async (result) => {
         const dueSuffix = result.dueDate ? ` [due:: ${result.dueDate}]` : "";
-        const taskLine = `- [ ] ${result.text}${dueSuffix}`;
+        const taskLine = `- [ ] ${result.text}${dueSuffix} [created:: ${getTodayDateString()}]`;
 
         const existingEntry = this.app.vault.getAbstractFileByPath(dailyNotePath);
         if (existingEntry instanceof TFile) {

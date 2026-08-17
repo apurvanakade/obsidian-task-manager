@@ -61,7 +61,7 @@ The command creates the project note, creates missing parent folders, and opens 
 Opens a random project file from the configured **Someday-Maybe Projects Folder** in a new tab, stamping `reviewed: YYYY-MM-DD` on it first (see [Open Projects Summary](#open-projects-summary)) — a casual glance still counts as a review. Also available as a shuffle-icon ribbon button in the left sidebar. If the folder setting is empty, or the folder contains no project files, a notice explains why nothing opened instead of failing silently.
 
 ### Quick Capture Task
-Opens a single-line capture modal from anywhere in the vault — no need to open today's daily note first. Also available as a list-plus-icon ribbon button in the left sidebar. Press Enter or click **Capture** to insert the text as a new open task (`- [ ] ...`) under a `## Tasks` heading in **today's daily note**, prepended above any earlier captures for the day. The `## Tasks` heading is created (right after the note's title heading, if any) the first time you capture on a given day; the daily note itself is created too if it doesn't exist yet, using Obsidian's own **Daily Notes** core plugin folder/format settings.
+Opens a single-line capture modal from anywhere in the vault — no need to open today's daily note first. Also available as a list-plus-icon ribbon button in the left sidebar. Press Enter or click **Capture** to insert the text as a new open task (`- [ ] ...`) under a `## Tasks` heading in **today's daily note**, prepended above any earlier captures for the day. The `## Tasks` heading is created (right after the note's title heading, if any) the first time you capture on a given day; the daily note itself is created too if it doesn't exist yet, using Obsidian's own **Daily Notes** core plugin folder/format settings. Every captured task line is stamped with `[created:: YYYY-MM-DD]` (today's date) at capture time.
 
 End the input with `due:` followed by a date to attach a due date at capture time, e.g. `Call the dentist due:tomorrow` or `Renew passport due:2026-08-01` — accepts the same values as the `due::` editor autocomplete (ISO dates, `today`/`tomorrow`, weekday names). The recognized trailing token is stripped from the task text and written as a `[due:: ...]` inline field; an unrecognized trailing `due:` token is left in place as part of the task text instead of being dropped. If the core Daily Notes plugin is disabled or unconfigured, a notice explains why the modal didn't open.
 
@@ -196,7 +196,7 @@ Tasks use Dataview-style double-colon inline fields on the same line as the chec
 | `[completion-date:: YYYY-MM-DD]` | Stamped on task completion |
 | `[completion-time:: HH:MM:SS]` | Stamped on task completion |
 | `[repeat:: X]` / `[repeats:: X]` | Recurring rule — see [Recurring Tasks](#recurring-tasks) for the full grammar (intervals, weekday/month-day sets, nth-weekday-of-month, yearly dates, `every!`/`until` modifiers) |
-| `[created:: YYYY-MM-DD]` | Creation date (editor suggest only) |
+| `[created:: YYYY-MM-DD]` | Creation date — written automatically by Quick Capture Task, also available via editor suggest; not used by the reconciler |
 
 Project priority is stored in file frontmatter as `priority: N`, where `1` is highest and missing/invalid values default to `3`.
 
