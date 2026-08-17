@@ -5,26 +5,25 @@
  * Responsibilities:
  * - registers and refreshes the custom dashboard view
  * - reacts to vault/workspace events with debounced refresh scheduling
- * - renders Due, Current Page, and Completed sections for YYYY-MM-DD active notes, plus
- *   a link into the "Organize Captured Tasks into Projects" tab
+ * - renders Due and Completed sections for YYYY-MM-DD active notes, plus a link into the
+ *   "Organize Captured Tasks into Projects" tab
  * - formats display fields (filename cleanup, recurrence labels, and MM-DD due-date rendering)
  *
  * Dependencies:
- * - depends on dashboard-task-data.ts for data collection/parsing (Due/Completed/current-page logic).
+ * - depends on dashboard-task-data.ts for data collection/parsing (Due/Completed logic).
  * - Obsidian view/workspace/vault APIs for lifecycle and rendering
  *
  * Side Effects:
  * - manipulates dashboard DOM and opens links in workspace
  *
  * Notes:
- * - Current Page lists open tasks from the active date note. Captured tasks (Quick
- *   Capture writes to today's daily note, not a dedicated inbox file) are reviewed via
- *   the "Organize Captured Tasks into Projects" tab, linked from this dashboard rather
- *   than listed inline here.
+ * - Captured tasks (Quick Capture writes to today's daily note, not a dedicated inbox
+ *   file) are reviewed via the "Organize Captured Tasks into Projects" tab, linked from
+ *   this dashboard.
  */
 import { App, ItemView, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { getTodayDateString } from "../date/date-utils";
-import { collectOpenTasksFromFile, collectTasksForDate, DashboardRow, getDateStringFromFileName } from "./dashboard-task-data";
+import { collectTasksForDate, DashboardRow, getDateStringFromFileName } from "./dashboard-task-data";
 import { applyPriorityStyle, buildGroupedTaskTable, formatMonthDay } from "../tables/grouped-task-table";
 import { appendSearchBox, matchesSearch } from "../ui/search-filter";
 import { appendPriorityFilter, filterByMaxPriority, PriorityFilterValue } from "../ui/priority-filter";
@@ -51,7 +50,6 @@ export class DateDashboardController {
   private cached: {
     sourcePath: string;
     dueTasks: DashboardRow[];
-    currentPageTasks: DashboardRow[];
     completedTasks: DashboardRow[];
   } | null = null;
   private resultsContainer: HTMLElement | null = null;
@@ -121,14 +119,10 @@ export class DateDashboardController {
     this.resultsContainer = resultsContainer;
 
     const tasks = await collectTasksForDate(this.app, this.getTaskFolderRoots(), dateString);
-    const currentPageTasks = activeFile && getDateStringFromFileName(activeFile.name)
-      ? await collectOpenTasksFromFile(this.app, activeFile)
-      : [];
 
     this.cached = {
       sourcePath,
       dueTasks: tasks.dueTasks,
-      currentPageTasks,
       completedTasks: tasks.completedTasks,
     };
     this.renderResults();
@@ -155,12 +149,11 @@ export class DateDashboardController {
   private renderResults(): void {
     if (!this.resultsContainer || !this.cached) return;
 
-    const { sourcePath, dueTasks, currentPageTasks, completedTasks } = this.cached;
+    const { sourcePath, dueTasks, completedTasks } = this.cached;
     const container = this.resultsContainer;
     container.innerHTML = "";
 
     this.appendDueSection(container, this.filterRows(dueTasks), sourcePath);
-    this.appendSimpleTaskListSection(container, "Current Page", this.filterRows(currentPageTasks));
     this.appendOrganizeCapturedTasksLink(container);
     this.appendTaskTable(container, "Completed", this.filterRows(completedTasks), sourcePath, false);
   }
@@ -179,9 +172,8 @@ export class DateDashboardController {
 
   /**
    * Entry point into the "Organize Captured Tasks into Projects" tab. Quick Capture
-   * writes to today's daily note (see the Current Page section above for today's own
-   * captures); this link is where the full ±1yr backlog across all daily notes gets
-   * reviewed and bundled into projects.
+   * writes to today's daily note; this link is where the full ±1yr backlog across all
+   * daily notes gets reviewed and bundled into projects.
    */
   private appendOrganizeCapturedTasksLink(container: HTMLElement): void {
     const organizeLink = document.createElement("a");
@@ -195,33 +187,8 @@ export class DateDashboardController {
     container.appendChild(organizeLink);
   }
 
-  private appendSimpleTaskListSection(container: HTMLElement, title: string, rows: DashboardRow[]): void {
-    const heading = document.createElement("h3");
-    heading.textContent = title;
-    container.appendChild(heading);
-
-    if (rows.length === 0) {
-      const emptyState = document.createElement("p");
-      emptyState.textContent = this.emptyMessage();
-      container.appendChild(emptyState);
-      return;
-    }
-
-    const ul = document.createElement("ul");
-    for (const row of rows) {
-      const li = document.createElement("li");
-      li.textContent = this.formatTaskListText(row);
-      ul.appendChild(li);
-    }
-    container.appendChild(ul);
-  }
-
   private emptyMessage(): string {
     return this.searchQuery.trim() ? "No matches." : "No tasks.";
-  }
-
-  private formatTaskListText(row: DashboardRow): string {
-    return row.task;
   }
 
   private appendDueSection(container: HTMLElement, rows: DashboardRow[], sourcePath: string): void {
@@ -236,12 +203,7 @@ export class DateDashboardController {
     if (!(file instanceof TFile)) return false;
     if (!MARKDOWN_EXTENSION_REGEX.test(file.name)) return false;
     const roots = this.getTaskFolderRoots().filter(Boolean);
-    const inTaskFolder = roots.some((root) => file.path.startsWith(`${root}/`));
-    const activeFile = this.app.workspace.getActiveFile();
-    const isActiveDatePage = !!activeFile
-      && file.path === activeFile.path
-      && getDateStringFromFileName(file.name) !== null;
-    return inTaskFolder || isActiveDatePage;
+    return roots.some((root) => file.path.startsWith(`${root}/`));
   }
 
   private queueRefresh(): void {

@@ -269,9 +269,7 @@ Registered as a custom right-sidebar `ItemView`. Creation prefers `split: true` 
 
 **Due** — open tasks with `[due:: YYYY-MM-DD]` where due date ≤ active date, scanned from the configured Projects / Completed / Waiting / Someday-Maybe folders (via `getSurfacedTaskFolderRoots()` — deliberately excludes the Scheduled and Archived folders, see Status Routing above). Rendered as a single table sorted by: file priority ascending (missing = 3), then due date, then file path.
 
-**Current Page** — all open tasks written directly on the active date note itself. Rendered as a heading and an unordered list so date-note tasks still appear even when the note is outside configured task folders. When the active note is today's daily note, this is where today's own Quick Capture entries show up (they're written under a `## Tasks` heading in that same note).
-
-An **Organize Captured Tasks into Projects** link (not a task-listing section — see that section below) — jumps to the tab that reviews the full ±1yr backlog of captured tasks across every daily note, not just today's.
+An **Organize Captured Tasks into Projects** link (not a task-listing section — see that section below) — jumps to the tab that reviews the full ±1yr backlog of captured tasks across every daily note, including today's. There is deliberately no "Current Page"-style section listing the active date note's own open tasks inline — that was removed; Quick Capture entries on today's daily note are only reviewable via this link, not surfaced directly in the dashboard.
 
 **Completed** — tasks with `[completion-date:: YYYY-MM-DD]` equal to the active date, scanned from the configured Projects / Completed / Waiting / Someday-Maybe folders. Sorted by: file priority ascending, then file path.
 
@@ -287,7 +285,7 @@ An **Organize Captured Tasks into Projects** link (not a task-listing section �
 
 ### Priority Filter
 
-`src/ui/priority-filter.ts`'s `appendPriorityFilter()` renders a `<select>` above the sections (All priorities / Priority 1 only / Priority 1-2). The selection is held in `DateDashboardController.selectedMaxPriority` — a controller-instance field, not a plugin setting — because there's a single shared controller instance for the plugin's lifetime (see `main.ts`'s `this.dateDashboard`), so this is simpler than threading state through the `ItemView`. Changing it calls `renderResults()`; `filterRows()` composes `filterByMaxPriority()` (from `priority-filter.ts`) with `filterBySearch()` and applies the result to the three task-listing sections (Due, Current Page, Completed).
+`src/ui/priority-filter.ts`'s `appendPriorityFilter()` renders a `<select>` above the sections (All priorities / Priority 1 only / Priority 1-2). The selection is held in `DateDashboardController.selectedMaxPriority` — a controller-instance field, not a plugin setting — because there's a single shared controller instance for the plugin's lifetime (see `main.ts`'s `this.dateDashboard`), so this is simpler than threading state through the `ItemView`. Changing it calls `renderResults()`; `filterRows()` composes `filterByMaxPriority()` (from `priority-filter.ts`) with `filterBySearch()` and applies the result to the two task-listing sections (Due, Completed).
 
 ### Search
 

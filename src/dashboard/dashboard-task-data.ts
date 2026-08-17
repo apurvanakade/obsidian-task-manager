@@ -6,7 +6,6 @@
  * - parses task lines for due/completion metadata
  * - reads file-level priority from frontmatter
  * - filters tasks into Due and Completed sets for a target date note
- * - collects open tasks from the active date note for the Current Page section
  * - normalizes task display text and sorting behavior
  * - exposes date-note filename parsing helper
  *
@@ -95,38 +94,6 @@ export async function collectTasksForDate(
   completedTasks.sort(compareRows);
 
   return { dueTasks, completedTasks };
-}
-
-export async function collectOpenTasksFromFile(
-  app: App,
-  file: TFile | null,
-): Promise<DashboardRow[]> {
-  if (!file) {
-    return [];
-  }
-
-  const content = await app.vault.read(file);
-  const priority = readFilePriority(content);
-  const lines = content.split(/\r?\n/);
-  const rows: DashboardRow[] = [];
-
-  for (const line of lines) {
-    const parsedTask = parseTaskLine(line);
-    if (!parsedTask || parsedTask.status !== "open") {
-      continue;
-    }
-
-    rows.push({
-      file,
-      task: cleanTaskText(parsedTask.taskBody),
-      dueDate: null,
-      priority,
-      recurrence: "none",
-    });
-  }
-
-  rows.sort(compareRows);
-  return rows;
 }
 
 function parseDashboardTaskLine(line: string): ParsedDashboardTask | null {

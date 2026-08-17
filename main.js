@@ -1362,30 +1362,6 @@ async function collectTasksForDate(app, taskFolderRoots, dateString) {
   completedTasks.sort(compareRows);
   return { dueTasks, completedTasks };
 }
-async function collectOpenTasksFromFile(app, file) {
-  if (!file) {
-    return [];
-  }
-  const content = await app.vault.read(file);
-  const priority = readFilePriority(content);
-  const lines = content.split(/\r?\n/);
-  const rows = [];
-  for (const line of lines) {
-    const parsedTask = parseTaskLine(line);
-    if (!parsedTask || parsedTask.status !== "open") {
-      continue;
-    }
-    rows.push({
-      file,
-      task: cleanTaskText(parsedTask.taskBody),
-      dueDate: null,
-      priority,
-      recurrence: "none"
-    });
-  }
-  rows.sort(compareRows);
-  return rows;
-}
 function parseDashboardTaskLine(line) {
   const parsedTask = parseTaskLine(line);
   if (!parsedTask) {
@@ -1615,11 +1591,9 @@ var _DateDashboardController = class _DateDashboardController {
     dashboard.appendChild(resultsContainer);
     this.resultsContainer = resultsContainer;
     const tasks = await collectTasksForDate(this.app, this.getTaskFolderRoots(), dateString);
-    const currentPageTasks = activeFile && getDateStringFromFileName(activeFile.name) ? await collectOpenTasksFromFile(this.app, activeFile) : [];
     this.cached = {
       sourcePath,
       dueTasks: tasks.dueTasks,
-      currentPageTasks,
       completedTasks: tasks.completedTasks
     };
     this.renderResults();
@@ -1641,11 +1615,10 @@ var _DateDashboardController = class _DateDashboardController {
   /** Re-renders just the section content from already-fetched data — no refetch, no input rebuild (preserves focus while typing). */
   renderResults() {
     if (!this.resultsContainer || !this.cached) return;
-    const { sourcePath, dueTasks, currentPageTasks, completedTasks } = this.cached;
+    const { sourcePath, dueTasks, completedTasks } = this.cached;
     const container = this.resultsContainer;
     container.innerHTML = "";
     this.appendDueSection(container, this.filterRows(dueTasks), sourcePath);
-    this.appendSimpleTaskListSection(container, "Current Page", this.filterRows(currentPageTasks));
     this.appendOrganizeCapturedTasksLink(container);
     this.appendTaskTable(container, "Completed", this.filterRows(completedTasks), sourcePath, false);
   }
@@ -1660,9 +1633,8 @@ var _DateDashboardController = class _DateDashboardController {
   }
   /**
    * Entry point into the "Organize Captured Tasks into Projects" tab. Quick Capture
-   * writes to today's daily note (see the Current Page section above for today's own
-   * captures); this link is where the full ±1yr backlog across all daily notes gets
-   * reviewed and bundled into projects.
+   * writes to today's daily note; this link is where the full ±1yr backlog across all
+   * daily notes gets reviewed and bundled into projects.
    */
   appendOrganizeCapturedTasksLink(container) {
     const organizeLink = document.createElement("a");
@@ -1675,29 +1647,8 @@ var _DateDashboardController = class _DateDashboardController {
     });
     container.appendChild(organizeLink);
   }
-  appendSimpleTaskListSection(container, title, rows) {
-    const heading = document.createElement("h3");
-    heading.textContent = title;
-    container.appendChild(heading);
-    if (rows.length === 0) {
-      const emptyState = document.createElement("p");
-      emptyState.textContent = this.emptyMessage();
-      container.appendChild(emptyState);
-      return;
-    }
-    const ul = document.createElement("ul");
-    for (const row of rows) {
-      const li = document.createElement("li");
-      li.textContent = this.formatTaskListText(row);
-      ul.appendChild(li);
-    }
-    container.appendChild(ul);
-  }
   emptyMessage() {
     return this.searchQuery.trim() ? "No matches." : "No tasks.";
-  }
-  formatTaskListText(row) {
-    return row.task;
   }
   appendDueSection(container, rows, sourcePath) {
     const heading = document.createElement("h3");
@@ -1709,10 +1660,7 @@ var _DateDashboardController = class _DateDashboardController {
     if (!(file instanceof import_obsidian5.TFile)) return false;
     if (!MARKDOWN_EXTENSION_REGEX3.test(file.name)) return false;
     const roots = this.getTaskFolderRoots().filter(Boolean);
-    const inTaskFolder = roots.some((root) => file.path.startsWith(`${root}/`));
-    const activeFile = this.app.workspace.getActiveFile();
-    const isActiveDatePage = !!activeFile && file.path === activeFile.path && getDateStringFromFileName(file.name) !== null;
-    return inTaskFolder || isActiveDatePage;
+    return roots.some((root) => file.path.startsWith(`${root}/`));
   }
   queueRefresh() {
     if (this.refreshHandle !== null) {

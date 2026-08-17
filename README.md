@@ -233,13 +233,11 @@ An indented **checkbox** line (`  - [ ]`) under a task is not a note — it's pa
 
 ## Date Dashboard
 
-When the active note is named `YYYY-MM-DD`, a live dashboard opens in the right sidebar with three sections plus a link:
+When the active note is named `YYYY-MM-DD`, a live dashboard opens in the right sidebar with two sections plus a link:
 
 **Due** — open tasks with `[due:: YYYY-MM-DD]` where the due date is on or before the note date. Scanned from the configured Projects / Completed / Waiting / Someday-Maybe folders — deliberately **not** the Scheduled or Archived folders; Scheduled projects stay hidden until their first task's due date arrives (see [Scheduled Projects](#scheduled-projects)) and Archived projects never surface at all (see [Archived Projects](#archived-projects)). Rendered as a single table with columns Folder | Project | Task | Priority | Recurrence | Due (`MM-DD`) and sorted by file priority, then due date.
 
-**Current Page** — all open tasks written directly on the active date note itself. Rendered as an unordered list so tasks on the current page appear in the dashboard even when that note is outside the configured task folders. This is also where today's own Quick Capture entries show up, since they're written into today's daily note.
-
-An **Organize Captured Tasks into Projects** link — jumps straight to the [Organize Captured Tasks into Projects tab](#organize-captured-tasks-into-projects) for reviewing and bundling the full ±1yr backlog of captured tasks across all daily notes, not just today's.
+An **Organize Captured Tasks into Projects** link — jumps straight to the [Organize Captured Tasks into Projects tab](#organize-captured-tasks-into-projects) for reviewing and bundling captured tasks across all daily notes, including today's.
 
 **Completed** — tasks with `[completion-date:: YYYY-MM-DD]` matching the note date from the same folders as Due above (Scheduled and Archived excluded). Columns: Folder | Project | Task | Priority | Recurrence. Sorted by file priority, then file path.
 
@@ -248,8 +246,8 @@ Display notes:
 - Task text strips all inline fields and hashtag tags. The **Project** cell's link, not the task text, carries the priority styling: **bold** for priority 1, *italic* for priority 2, default for priority 3, using the file's frontmatter priority.
 - **Dashboard Filename Hide Keywords**: each keyword is removed case-insensitively from folder and filename display names.
 - On non-date notes, the dashboard defaults to today's date.
-- **Priority filter**: a dropdown above the sections narrows Due, Current Page, and Completed to priority 1 only, or priority 1–2. Selection is per-session UI state, not saved to settings.
-- **Search**: a search box above the sections narrows Due, Current Page, and Completed to tasks matching the typed text (task text — case-insensitive).
+- **Priority filter**: a dropdown above the sections narrows Due and Completed to priority 1 only, or priority 1–2. Selection is per-session UI state, not saved to settings.
+- **Search**: a search box above the sections narrows Due and Completed to tasks matching the typed text (task text — case-insensitive).
 
 ## Code Organization
 
