@@ -4770,32 +4770,20 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
     }
   }
 };
-var FRONTMATTER_DELIMITER = "---";
-var HEADING_PREFIX_REGEX = /^#\s+/;
 function insertCapturedTaskLine(content, taskLine) {
-  var _a;
   const lines = content.length > 0 ? content.split(/\r?\n/) : [];
   const tasksHeaderIndex = lines.findIndex((line) => line.trim() === DAILY_NOTE_TASKS_HEADER);
   if (tasksHeaderIndex !== -1) {
     lines.splice(tasksHeaderIndex + 1, 0, taskLine);
     return lines.join("\n");
   }
-  let insertAt = 0;
-  if (((_a = lines[0]) == null ? void 0 : _a.trim()) === FRONTMATTER_DELIMITER) {
-    const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === FRONTMATTER_DELIMITER);
-    if (closingIndex !== -1) {
-      insertAt = closingIndex + 1;
-    }
+  if (lines.length === 0) {
+    return [DAILY_NOTE_TASKS_HEADER, taskLine, ""].join("\n");
   }
-  let scanIndex = insertAt;
-  while (scanIndex < lines.length && lines[scanIndex].trim() === "") {
-    scanIndex += 1;
+  while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+    lines.pop();
   }
-  if (scanIndex < lines.length && HEADING_PREFIX_REGEX.test(lines[scanIndex])) {
-    insertAt = scanIndex + 1;
-  }
-  const section = lines.length === 0 ? [DAILY_NOTE_TASKS_HEADER, taskLine, ""] : ["", DAILY_NOTE_TASKS_HEADER, taskLine, ""];
-  lines.splice(insertAt, 0, ...section);
+  lines.push("", DAILY_NOTE_TASKS_HEADER, taskLine, "");
   return lines.join("\n");
 }
 var BaseTaskManagerSettingTab = class extends import_obsidian17.PluginSettingTab {

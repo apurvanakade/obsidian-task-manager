@@ -299,15 +299,12 @@ export default class TaskManagerPlugin extends Plugin {
 
 }
 
-const FRONTMATTER_DELIMITER = "---";
-const HEADING_PREFIX_REGEX = /^#\s+/;
-
 /**
  * Inserts a captured task under the daily note's "## Tasks" section, prepended
- * newest-first — creating that section if missing. A missing section is created right
- * after the file's frontmatter block (if any) and title heading (if present, matching
- * this vault's daily note shape), else at the very start of the file — e.g. when the
- * daily note itself doesn't exist yet and is being created fresh from an empty string.
+ * newest-first — creating that section if missing. A missing section is created at the
+ * **end** of the file (not near the top, past frontmatter/title) so captures stay out of
+ * the way of the note's own content; for a brand-new daily note (empty string) this is
+ * simply the whole file.
  */
 function insertCapturedTaskLine(content: string, taskLine: string): string {
   const lines = content.length > 0 ? content.split(/\r?\n/) : [];
@@ -318,28 +315,16 @@ function insertCapturedTaskLine(content: string, taskLine: string): string {
     return lines.join("\n");
   }
 
-  let insertAt = 0;
-  if (lines[0]?.trim() === FRONTMATTER_DELIMITER) {
-    const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === FRONTMATTER_DELIMITER);
-    if (closingIndex !== -1) {
-      insertAt = closingIndex + 1;
-    }
+  if (lines.length === 0) {
+    return [DAILY_NOTE_TASKS_HEADER, taskLine, ""].join("\n");
   }
 
-  // Skip past any blank separator lines to find the title heading, if any, without
-  // losing the insertion point when there isn't one.
-  let scanIndex = insertAt;
-  while (scanIndex < lines.length && lines[scanIndex].trim() === "") {
-    scanIndex += 1;
-  }
-  if (scanIndex < lines.length && HEADING_PREFIX_REGEX.test(lines[scanIndex])) {
-    insertAt = scanIndex + 1;
+  // Trim trailing blank lines so they don't stack with our own separator below.
+  while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+    lines.pop();
   }
 
-  const section = lines.length === 0
-    ? [DAILY_NOTE_TASKS_HEADER, taskLine, ""]
-    : ["", DAILY_NOTE_TASKS_HEADER, taskLine, ""];
-  lines.splice(insertAt, 0, ...section);
+  lines.push("", DAILY_NOTE_TASKS_HEADER, taskLine, "");
   return lines.join("\n");
 }
 
