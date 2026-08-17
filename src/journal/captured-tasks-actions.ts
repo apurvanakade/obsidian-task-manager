@@ -11,8 +11,9 @@
  *   matches — e.g. a task edited or already removed elsewhere between the tab's
  *   snapshot and the button click
  * - appendTasksToProject(): inserts task lines into an existing project file's
- *   open-task area, immediately above "## Completed Tasks" if present, else at the
- *   end of the file
+ *   open-task area, immediately above the file's current first open task (so the
+ *   moved task becomes the new next action) — or, if the file has no open task,
+ *   above "## Completed Tasks" if present, else at the end of the file
  *
  * Dependencies:
  * - Obsidian vault/Notice APIs, the shared "## Completed Tasks" header constant from
@@ -23,7 +24,7 @@
  *   removed
  */
 import { App, Notice, TFile } from "obsidian";
-import { COMPLETED_SECTION_HEADER } from "../tasks/task-utils";
+import { COMPLETED_SECTION_HEADER, findFirstIncompleteTaskLine } from "../tasks/task-utils";
 import { CapturedTaskRow } from "./captured-tasks-data";
 
 /**
@@ -76,8 +77,11 @@ export async function removeCapturedTaskLines(app: App, rows: CapturedTaskRow[])
 }
 
 /**
- * Inserts task lines into `file`'s open-task area: immediately above the
- * "## Completed Tasks" heading if present, otherwise at the end of the file.
+ * Inserts task lines into `file`'s open-task area, immediately above the file's
+ * current first open task — so a moved-in task becomes the new next action rather
+ * than landing after whatever was already actionable. Falls back to immediately
+ * above the "## Completed Tasks" heading (or the end of the file, if no such
+ * heading exists) when the file has no open task at all.
  */
 export async function appendTasksToProject(app: App, file: TFile, linesToAppend: string[]): Promise<void> {
   if (linesToAppend.length === 0) {
@@ -86,16 +90,21 @@ export async function appendTasksToProject(app: App, file: TFile, linesToAppend:
 
   const content = await app.vault.read(file);
   const lines = content.split(/\r?\n/);
-  const sectionIndex = lines.findIndex((line) => line.trim() === COMPLETED_SECTION_HEADER);
+  const firstOpenTaskIndex = findFirstIncompleteTaskLine(lines);
 
   const result = [...lines];
-  if (sectionIndex !== -1) {
-    result.splice(sectionIndex, 0, ...linesToAppend);
+  if (firstOpenTaskIndex !== null) {
+    result.splice(firstOpenTaskIndex, 0, ...linesToAppend);
   } else {
-    if (result.length > 0 && result[result.length - 1].trim() !== "") {
-      result.push("");
+    const sectionIndex = result.findIndex((line) => line.trim() === COMPLETED_SECTION_HEADER);
+    if (sectionIndex !== -1) {
+      result.splice(sectionIndex, 0, ...linesToAppend);
+    } else {
+      if (result.length > 0 && result[result.length - 1].trim() !== "") {
+        result.push("");
+      }
+      result.push(...linesToAppend);
     }
-    result.push(...linesToAppend);
   }
 
   await app.vault.modify(file, result.join("\n"));

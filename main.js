@@ -4009,15 +4009,20 @@ async function appendTasksToProject(app, file, linesToAppend) {
   }
   const content = await app.vault.read(file);
   const lines = content.split(/\r?\n/);
-  const sectionIndex = lines.findIndex((line) => line.trim() === COMPLETED_SECTION_HEADER);
+  const firstOpenTaskIndex = findFirstIncompleteTaskLine(lines);
   const result = [...lines];
-  if (sectionIndex !== -1) {
-    result.splice(sectionIndex, 0, ...linesToAppend);
+  if (firstOpenTaskIndex !== null) {
+    result.splice(firstOpenTaskIndex, 0, ...linesToAppend);
   } else {
-    if (result.length > 0 && result[result.length - 1].trim() !== "") {
-      result.push("");
+    const sectionIndex = result.findIndex((line) => line.trim() === COMPLETED_SECTION_HEADER);
+    if (sectionIndex !== -1) {
+      result.splice(sectionIndex, 0, ...linesToAppend);
+    } else {
+      if (result.length > 0 && result[result.length - 1].trim() !== "") {
+        result.push("");
+      }
+      result.push(...linesToAppend);
     }
-    result.push(...linesToAppend);
   }
   await app.vault.modify(file, result.join("\n"));
 }
