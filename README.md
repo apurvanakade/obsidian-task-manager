@@ -178,7 +178,7 @@ When a task newly becomes actionable after completion or uncompletion (and that 
 
 - A preview of the task text.
 - A **project priority** dropdown (1–3, default 3; 1 is highest).
-- Suggested dates from today through +30 days with Today / Tomorrow / weekday labels — clicking one immediately applies it.
+- A **month calendar** — clicking a day immediately applies that date. `‹` / `›` move to the previous / next month; it opens on the current month (or, when the task already has a future due date, on that date's month) and the previous-month arrow is disabled once the current month is on screen. Today's cell is outlined and bold for reference, the currently entered date is highlighted, and every day before today is greyed out and unclickable.
 - A text input for a custom `YYYY-MM-DD` date or natural-language terms (`today`, `tomorrow`, weekday names); press Enter to submit. If the task already has a due date, it is prefilled here.
 - A **Repeat** text field for rules like `daily`, `2 weeks`, `mon, wed, fri`, `1st wed`, `last workday`, or `jan 27` (see [Recurring Tasks](#recurring-tasks) for the full grammar) — prefilled with the task's existing raw repeat value if it has one (most often seen when that value failed to parse and needs fixing).
 - A **Skip** button to dismiss without adding a due date.
@@ -279,7 +279,7 @@ Display notes:
 | `src/routing/task-routing.ts` | File movement: destination resolution, folder creation, merge handling |
 | `src/dashboard/date-dashboard.ts` | Right-sidebar ItemView controller and renderer |
 | `src/dashboard/dashboard-task-data.ts` | Task parsing/filtering/sorting for dashboard display |
-| `src/date/date-utils.ts` | Pure shared date formatting, ISO date helpers, and end-of-week/threshold-crossing helpers used by the Projects Summary |
+| `src/date/date-utils.ts` | Pure shared date formatting, ISO date helpers, end-of-week/threshold-crossing helpers used by the Projects Summary, and the month-calendar grid builder used by the Due Date Modal |
 | `src/editor/due-date-suggest.ts` | EditorSuggest providers for `due::` and `created::` inline fields |
 | `src/date/date-suggestions.ts` | Canonical date suggestion list (ISO dates + human labels) |
 | `src/settings/settings-utils.ts` | `TaskManagerSettings` type, `DEFAULT_SETTINGS`, `normalizeSettings()` |
@@ -443,6 +443,7 @@ graph TD
     TLM --> RC
     NA --> RC
     DS --> DDM
+    DU --> DDM
     DS --> QC
     TLM --> TU
     TLM --> NA

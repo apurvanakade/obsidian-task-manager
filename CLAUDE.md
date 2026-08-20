@@ -58,7 +58,7 @@ src/
   editor/
     due-date-suggest.ts          ← EditorSuggest for due:: and created:: inline fields
   date/
-    date-utils.ts                ← Pure shared date formatting and ISO date helpers
+    date-utils.ts                ← Pure shared date formatting, ISO date helpers, and the month-calendar grid builder (buildMonthGrid/shiftMonth) used by due-date-modal.ts
     date-suggestions.ts          ← Canonical date suggestion list (ISO dates + human labels)
   settings/
     settings-utils.ts            ← TaskManagerSettings type, DEFAULT_SETTINGS, normalizeSettings()
@@ -244,7 +244,7 @@ When a task newly becomes actionable after completion or uncompletion, a `DueDat
 
 - A preview of the task text
 - A project priority dropdown (values 1–3, default 3)
-- Suggested dates from today through +30 days with Today/Tomorrow/weekday labels — clicking one immediately applies it
+- A month calendar (`buildMonthGrid()`/`shiftMonth()`/`WEEKDAY_LABELS` from `date-utils.ts`) — clicking a day immediately applies that date; `‹`/`›` step months, opening on the current month (or the prefilled due date's month when that date is in the future), with the previous-month arrow disabled once the current month is showing. Today's cell is outlined/bold, the currently entered date is highlighted, and days before today are greyed out and `disabled` (the text input still accepts a past date, so an overdue value can be repaired by hand). Typing in the date input re-renders the calendar and jumps it to the resolved date's month
 - A text input for custom YYYY-MM-DD or natural-language terms (today, tomorrow, weekday names); Enter submits. If the task already has a due date, it is prefilled there.
 - A Repeat text field for rules like `daily`, `2 weeks`, `mon, fri`, `1st wed`, `last workday`, or `jan 27` (see Recurring Tasks above for the full grammar) — prefilled from `getRepeatFieldValue(taskLine)` when the task already carries a repeat value (the modal only opens when that value is absent or failed to parse, so this surfaces a broken value for repair); validated on submit by round-tripping through `parseRepeatRule()` against a standalone synthetic line (`- [ ] x [repeat:: ${repeat}]`), not `this.taskLine` itself — using `this.taskLine` would match its own pre-existing (broken) repeat field first and reject every entry
 - Input autocomplete sourced from the shared `buildDateSuggestions()` list
@@ -402,7 +402,7 @@ Run after meaningful logic changes:
 1. `npm run build` succeeds; `npm test` passes
 2. Event-driven reconciliation updates first-incomplete selection/status correctly for complete, uncomplete, and delete cases; when the last task is completed, `completion-date` and `completion-time` are stamped in both the task line and the file frontmatter
 3. Task completion triggers the DueDateModal for the newly exposed first incomplete task
-4. Modal shows task text preview; clicking a suggested date immediately applies it; manual date input (YYYY-MM-DD or natural-language) works via Add Due Date / Enter
+4. Modal shows task text preview; the month calendar opens on the current month with today outlined and every earlier day greyed out and unclickable, `‹`/`›` step months (with `‹` disabled on the current month), and clicking a day immediately applies it; manual date input (YYYY-MM-DD or natural-language) works via Add Due Date / Enter and moves the calendar's highlight to that date
 5. Submitted due date written as `[due:: YYYY-MM-DD]`; priority written as `priority: N` in file frontmatter (default 3)
 6. Modal Skip dismisses without modifying the task
 7. Recurring completion inserts new open task above completed task with correct due date for legacy, alias, numeric, workday, set (weekday/month-day), last-day/last-workday, nth-weekday, and yearly-date repeat forms (`5th` in particular — previously broken); if the completed task had a note block, it moves onto the new open clone and is not left behind on the completed task in `## Completed Tasks`

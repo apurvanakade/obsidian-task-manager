@@ -86,3 +86,72 @@ export function crossesThresholdWithinCurrentWeek(
 
   return thresholdDate >= startOfToday && thresholdDate <= endOfWeek;
 }
+
+export type MonthGridCell = {
+  /** ISO date string for this cell, or null for leading/trailing padding. */
+  date: string | null;
+  dayOfMonth: number | null;
+};
+
+export type MonthGrid = {
+  year: number;
+  /** 0-based, matching Date#getMonth(). */
+  monthIndex: number;
+  label: string;
+  /** Sunday-first weeks; padding cells carry null dates. */
+  weeks: MonthGridCell[][];
+};
+
+const MONTH_LABEL_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  month: "long",
+  year: "numeric",
+});
+
+export const WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const;
+
+/** Builds a Sunday-first calendar grid for the given month, padded to whole weeks. */
+export function buildMonthGrid(year: number, monthIndex: number): MonthGrid {
+  const firstOfMonth = new Date(year, monthIndex, 1);
+  const normalizedYear = firstOfMonth.getFullYear();
+  const normalizedMonth = firstOfMonth.getMonth();
+  const daysInMonth = new Date(normalizedYear, normalizedMonth + 1, 0).getDate();
+  const leadingBlanks = firstOfMonth.getDay();
+
+  const cells: MonthGridCell[] = [];
+  for (let index = 0; index < leadingBlanks; index += 1) {
+    cells.push({ date: null, dayOfMonth: null });
+  }
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    cells.push({
+      date: getCurrentDateString(new Date(normalizedYear, normalizedMonth, day)),
+      dayOfMonth: day,
+    });
+  }
+
+  while (cells.length % 7 !== 0) {
+    cells.push({ date: null, dayOfMonth: null });
+  }
+
+  const weeks: MonthGridCell[][] = [];
+  for (let index = 0; index < cells.length; index += 7) {
+    weeks.push(cells.slice(index, index + 7));
+  }
+
+  return {
+    year: normalizedYear,
+    monthIndex: normalizedMonth,
+    label: MONTH_LABEL_FORMATTER.format(firstOfMonth),
+    weeks,
+  };
+}
+
+/** Shifts a year/month pair by `delta` months, rolling the year over as needed. */
+export function shiftMonth(
+  year: number,
+  monthIndex: number,
+  delta: number,
+): { year: number; monthIndex: number } {
+  const shifted = new Date(year, monthIndex + delta, 1);
+  return { year: shifted.getFullYear(), monthIndex: shifted.getMonth() };
+}

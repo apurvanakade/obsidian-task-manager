@@ -734,6 +734,45 @@ function crossesThresholdWithinCurrentWeek(startDateString, thresholdDays, refer
   const endOfWeek = getEndOfWeek(referenceDate);
   return thresholdDate >= startOfToday && thresholdDate <= endOfWeek;
 }
+var MONTH_LABEL_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  month: "long",
+  year: "numeric"
+});
+var WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+function buildMonthGrid(year, monthIndex) {
+  const firstOfMonth = new Date(year, monthIndex, 1);
+  const normalizedYear = firstOfMonth.getFullYear();
+  const normalizedMonth = firstOfMonth.getMonth();
+  const daysInMonth = new Date(normalizedYear, normalizedMonth + 1, 0).getDate();
+  const leadingBlanks = firstOfMonth.getDay();
+  const cells = [];
+  for (let index = 0; index < leadingBlanks; index += 1) {
+    cells.push({ date: null, dayOfMonth: null });
+  }
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    cells.push({
+      date: getCurrentDateString(new Date(normalizedYear, normalizedMonth, day)),
+      dayOfMonth: day
+    });
+  }
+  while (cells.length % 7 !== 0) {
+    cells.push({ date: null, dayOfMonth: null });
+  }
+  const weeks = [];
+  for (let index = 0; index < cells.length; index += 7) {
+    weeks.push(cells.slice(index, index + 7));
+  }
+  return {
+    year: normalizedYear,
+    monthIndex: normalizedMonth,
+    label: MONTH_LABEL_FORMATTER.format(firstOfMonth),
+    weeks
+  };
+}
+function shiftMonth(year, monthIndex, delta) {
+  const shifted = new Date(year, monthIndex + delta, 1);
+  return { year: shifted.getFullYear(), monthIndex: shifted.getMonth() };
+}
 
 // src/tasks/frontmatter-utils.ts
 var FRONTMATTER_BLOCK_REGEX = /^---\r?\n([\s\S]*?)\r?\n---/;
@@ -2304,11 +2343,55 @@ var inputStyles = {
   boxSizing: "border-box",
   marginBottom: "10px"
 };
-var suggestionsGridStyles = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: "8px",
-  marginBottom: "15px"
+var calendarStyles = {
+  container: { marginBottom: "15px" },
+  header: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: "8px"
+  },
+  monthLabel: { fontWeight: "bold" },
+  navButton: {
+    padding: "2px 10px",
+    cursor: "pointer",
+    background: "none",
+    border: "1px solid var(--background-modifier-border)",
+    borderRadius: "4px",
+    boxShadow: "none"
+  },
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(7, 1fr)",
+    gap: "2px"
+  },
+  weekdayCell: {
+    textAlign: "center",
+    fontSize: "0.8em",
+    color: "var(--text-muted)",
+    padding: "4px 0"
+  },
+  dayButton: {
+    padding: "6px 0",
+    cursor: "pointer",
+    background: "none",
+    border: "1px solid transparent",
+    borderRadius: "4px",
+    boxShadow: "none"
+  },
+  today: {
+    border: "2px solid var(--interactive-accent)",
+    fontWeight: "bold"
+  },
+  selected: {
+    backgroundColor: "var(--interactive-accent)",
+    color: "var(--text-on-accent)"
+  },
+  pastDay: {
+    color: "var(--text-faint)",
+    cursor: "not-allowed"
+  },
+  padding: { visibility: "hidden" }
 };
 var actionRowStyles = {
   display: "flex",
@@ -2330,10 +2413,6 @@ var buttonStyles = {
     backgroundColor: "#f0f0f0",
     border: "1px solid #000",
     borderRadius: "4px"
-  },
-  suggestion: {
-    padding: "8px",
-    cursor: "pointer"
   }
 };
 var DueDateModal = class extends import_obsidian7.Modal {
@@ -2344,12 +2423,20 @@ var DueDateModal = class extends import_obsidian7.Modal {
     this.inputElement = null;
     this.prioritySelectElement = null;
     this.repeatInputElement = null;
+    this.calendarGridElement = null;
+    this.calendarLabelElement = null;
+    this.previousMonthButton = null;
     this.taskLine = options.taskLine;
     this.taskLineIndex = options.taskLineIndex;
     this.initialPriority = options.initialPriority;
     this.initialDueDate = (_b = (_a = options.initialDueDate) == null ? void 0 : _a.trim()) != null ? _b : "";
     this.initialRepeat = (_d = (_c = options.initialRepeat) == null ? void 0 : _c.trim()) != null ? _d : "";
     this.onSubmit = options.onSubmit;
+    const today = /* @__PURE__ */ new Date();
+    const prefilled = parseIsoDate(this.initialDueDate);
+    const startFrom = prefilled !== null && prefilled > today ? prefilled : today;
+    this.visibleYear = startFrom.getFullYear();
+    this.visibleMonthIndex = startFrom.getMonth();
   }
   onOpen() {
     var _a;
@@ -2361,7 +2448,7 @@ var DueDateModal = class extends import_obsidian7.Modal {
     this.createPrioritySection(contentEl);
     this.createInputSection(contentEl);
     this.createRepeatSection(contentEl);
-    this.createSuggestionsSection(contentEl);
+    this.createCalendarSection(contentEl);
     this.createActionButtons(contentEl);
     (_a = this.prioritySelectElement) == null ? void 0 : _a.focus();
   }
@@ -2406,6 +2493,9 @@ var DueDateModal = class extends import_obsidian7.Modal {
       value: this.initialDueDate
     });
     this.inputElement.setAttribute("list", listId);
+    this.inputElement.addEventListener("input", () => {
+      this.syncCalendarToInput();
+    });
     this.inputElement.addEventListener("keydown", (event) => {
       if (event.key !== "Enter") {
         return;
@@ -2443,22 +2533,115 @@ var DueDateModal = class extends import_obsidian7.Modal {
     });
     applyStyles2(this.repeatInputElement, inputStyles);
   }
-  createSuggestionsSection(container) {
-    this.createSectionLabel(container, "Suggested Dates:");
-    const suggestionsContainer = container.createEl("div");
-    applyStyles2(suggestionsContainer, suggestionsGridStyles);
-    for (const suggestion of this.dateSuggestions.slice(0, 10)) {
-      const button = suggestionsContainer.createEl("button", {
-        text: `${suggestion.value} (${suggestion.label})`
-      });
-      applyStyles2(button, buttonStyles.suggestion);
-      button.onclick = () => {
-        if (this.inputElement) {
-          this.inputElement.value = suggestion.value;
-        }
-        void this.submitDate(suggestion.value);
-      };
+  createCalendarSection(container) {
+    this.createSectionLabel(container, "Pick a Date:");
+    const calendarContainer = container.createEl("div");
+    applyStyles2(calendarContainer, calendarStyles.container);
+    const header = calendarContainer.createEl("div");
+    applyStyles2(header, calendarStyles.header);
+    this.previousMonthButton = header.createEl("button", { text: "\u2039" });
+    this.previousMonthButton.setAttribute("aria-label", "Previous month");
+    applyStyles2(this.previousMonthButton, calendarStyles.navButton);
+    this.previousMonthButton.onclick = () => {
+      this.changeVisibleMonth(-1);
+    };
+    this.calendarLabelElement = header.createEl("span");
+    applyStyles2(this.calendarLabelElement, calendarStyles.monthLabel);
+    const nextButton = header.createEl("button", { text: "\u203A" });
+    nextButton.setAttribute("aria-label", "Next month");
+    applyStyles2(nextButton, calendarStyles.navButton);
+    nextButton.onclick = () => {
+      this.changeVisibleMonth(1);
+    };
+    this.calendarGridElement = calendarContainer.createEl("div");
+    applyStyles2(this.calendarGridElement, calendarStyles.grid);
+    this.renderCalendar();
+  }
+  /** Keeps the calendar showing (and highlighting) whatever date the input resolves to. */
+  syncCalendarToInput() {
+    const selectedDate = this.getSelectedDate();
+    const parsed = selectedDate === null ? null : parseIsoDate(selectedDate);
+    if (parsed) {
+      this.visibleYear = parsed.getFullYear();
+      this.visibleMonthIndex = parsed.getMonth();
     }
+    this.renderCalendar();
+  }
+  changeVisibleMonth(delta) {
+    const shifted = shiftMonth(this.visibleYear, this.visibleMonthIndex, delta);
+    this.visibleYear = shifted.year;
+    this.visibleMonthIndex = shifted.monthIndex;
+    this.renderCalendar();
+  }
+  renderCalendar() {
+    const gridElement = this.calendarGridElement;
+    if (!gridElement) {
+      return;
+    }
+    const today = /* @__PURE__ */ new Date();
+    const todayYear = today.getFullYear();
+    const todayMonthIndex = today.getMonth();
+    const grid = buildMonthGrid(this.visibleYear, this.visibleMonthIndex);
+    if (this.calendarLabelElement) {
+      this.calendarLabelElement.textContent = grid.label;
+    }
+    gridElement.empty();
+    for (const weekdayLabel of WEEKDAY_LABELS) {
+      const weekdayCell = gridElement.createEl("div", { text: weekdayLabel });
+      applyStyles2(weekdayCell, calendarStyles.weekdayCell);
+    }
+    const todayDate = getCurrentDateString();
+    const selectedDate = this.getSelectedDate();
+    if (this.previousMonthButton) {
+      const isCurrentMonthOrEarlier = grid.year < todayYear || grid.year === todayYear && grid.monthIndex <= todayMonthIndex;
+      this.previousMonthButton.disabled = isCurrentMonthOrEarlier;
+      this.previousMonthButton.style.opacity = isCurrentMonthOrEarlier ? "0.4" : "1";
+      this.previousMonthButton.style.cursor = isCurrentMonthOrEarlier ? "not-allowed" : "pointer";
+    }
+    for (const week of grid.weeks) {
+      for (const cell of week) {
+        if (cell.date === null) {
+          const placeholder = gridElement.createEl("div");
+          applyStyles2(placeholder, calendarStyles.padding);
+          continue;
+        }
+        const dayButton = gridElement.createEl("button", {
+          text: String(cell.dayOfMonth)
+        });
+        applyStyles2(dayButton, calendarStyles.dayButton);
+        const isPast = cell.date < todayDate;
+        if (isPast) {
+          applyStyles2(dayButton, calendarStyles.pastDay);
+          dayButton.disabled = true;
+        }
+        if (cell.date === todayDate) {
+          applyStyles2(dayButton, calendarStyles.today);
+        }
+        if (cell.date === selectedDate) {
+          applyStyles2(dayButton, calendarStyles.selected);
+        }
+        if (isPast) {
+          continue;
+        }
+        const dateValue = cell.date;
+        dayButton.onclick = () => {
+          if (this.inputElement) {
+            this.inputElement.value = dateValue;
+          }
+          void this.submitDate(dateValue);
+        };
+      }
+    }
+  }
+  /** The currently typed date, when it resolves — used to highlight a calendar day. */
+  getSelectedDate() {
+    var _a, _b;
+    const rawValue = (_b = (_a = this.inputElement) == null ? void 0 : _a.value.trim()) != null ? _b : this.initialDueDate;
+    if (rawValue.length === 0) {
+      return null;
+    }
+    const resolved = resolveDateInput(rawValue);
+    return resolved !== null && parseIsoDate(resolved) !== null ? resolved : null;
   }
   createActionButtons(container) {
     const buttonContainer = container.createEl("div");
