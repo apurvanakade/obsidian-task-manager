@@ -1,6 +1,6 @@
 # Task Manager Plugin
 
-Automates task lifecycle management in Obsidian: state transitions, completion metadata stamping, recurring task creation, file routing by status, editor autocomplete for date fields, a right-sidebar date dashboard, quick capture straight into today's daily note, a live, searchable "Organize Captured Tasks into Projects" tab, a live, searchable Projects Summary tab, and a generated Obsidian Bases "Tasks Summary" file for reviewing Projects/Waiting/Someday-Maybe/Scheduled.
+Automates task lifecycle management in Obsidian: state transitions, completion metadata stamping, recurring task creation, file routing by status, editor autocomplete for date fields, a right-sidebar date dashboard, quick capture straight into today's daily note, a right-sidebar, searchable "Organize Captured Tasks into Projects" panel, a live, searchable Projects Summary tab, and a generated Obsidian Bases "Tasks Summary" file for reviewing Projects/Waiting/Someday-Maybe/Scheduled.
 
 > For developer/agent architecture reference, see [`CLAUDE.md`](CLAUDE.md).
 
@@ -34,11 +34,11 @@ In the active file:
 - Then re-runs the same task reconciliation and routing flow for the file.
 
 ### Organize Captured Tasks into Projects
-Opens an **Organize Captured Tasks into Projects** tab (a full main-panel tab, not a generated note or sidebar panel — same placement pattern as Projects Summary), reusing an already-open tab instead of duplicating it. It shows *every* open task found in your daily notes within today ± 1 year — not just ones added via Quick Capture, any open checkbox written directly in a journal entry counts too — each with a selection checkbox, so you can bundle related captures into a project in one pass. Reviewing your actual Projects/Waiting/Someday-Maybe/Scheduled folders lives in the generated **Tasks Summary** Bases file instead (see [Create Tasks Summary](#create-tasks-summary)) — this tab exists specifically for the one thing Bases can't do: writing new files from raw captured task lines.
+Reveals the **Organize Captured Tasks into Projects** panel in the **right sidebar** (same placement pattern as the date dashboard — not a main-panel tab and not a generated note). The panel is created automatically at plugin load and persists across sessions, so the command is normally just a way to bring it back into view; if you've closed it, the command recreates it. It shows *every* open task found in your daily notes within today ± 1 year — not just ones added via Quick Capture, any open checkbox written directly in a journal entry counts too — each with a selection checkbox, so you can bundle related captures into a project in one pass. Reviewing your actual Projects/Waiting/Someday-Maybe/Scheduled folders lives in the generated **Tasks Summary** Bases file instead (see [Create Tasks Summary](#create-tasks-summary)) — this panel exists specifically for the one thing Bases can't do: writing new files from raw captured task lines.
 
-While the tab is open, it auto-refreshes (debounced) whenever a daily note within the scan window is modified, renamed, or deleted elsewhere — including Due Date Modal submits. There's no separate "regenerate" step.
+The panel auto-refreshes (debounced) whenever a daily note within the scan window is modified, renamed, or deleted elsewhere — including Due Date Modal submits. There's no separate "regenerate" step.
 
-The table has columns Date (links back to the source daily note) | Task | Priority | Recurrence | Due (`MM-DD`), sorted most-recent-day-first. The section is collapsible — click its heading to collapse or expand it; the heading shows the total row count (e.g. "Organize Captured Tasks into Projects (12)"). A priority filter and a search box above the table narrow it the same way as the date dashboard and Projects Summary (both per-session UI state, not saved to settings).
+The table has columns Date (links back to the source daily note) | Task | Priority | Recurrence | Due (`MM-DD`), sorted most-recent-day-first. The section is collapsible — click its heading to collapse or expand it (useful in a narrow sidebar); the heading shows the total row count (e.g. "Organize Captured Tasks into Projects (12)"). A priority filter and a search box above the table narrow it the same way as the date dashboard and Projects Summary (both per-session UI state, not saved to settings).
 
 - **Create project from selected** opens the **Add New Project** modal prefilled with the checked tasks' text; submitting creates the project and removes the originals from their source daily notes.
 - **Move to existing project** opens a fuzzy file picker over your Projects/Waiting/Someday-Maybe/Scheduled folders; picking a file inserts the checked tasks immediately above the file's current first open task — so a moved task becomes the new next action — or, if the file has no open task, above `## Completed Tasks` if present, else at the end of the file; it then removes the originals from their source daily notes.
@@ -90,7 +90,7 @@ A one-time backfill command: stamps today's date on any file in the Waiting Proj
 Resyncs [derived frontmatter fields](#derived-frontmatter-fields) (`next-due`, `next-action`, `open-tasks`) on every tracked project file. Unlike the waiting-since backfill, this isn't a one-time migration — it's safe to re-run any time, e.g. after bulk-editing files outside Obsidian. Reports how many files were stamped and how many were already current.
 
 ### Create Tasks Summary
-Generates an [Obsidian Bases](https://help.obsidian.md/bases) file at the configured **Bases File Path** (default `Tasks/Tasks Summary.base`), with five table views wired to your configured folders: **Active projects**, **Next actions** (any file with a `next-due`), **Waiting**, **Someday-Maybe review**, and **Scheduled**. Every view's first column is Folder (the file's parent path), matching the Folder-first convention used by the date dashboard and Projects Summary. Requires the **Bases** core plugin (Settings → Core plugins) — if it's disabled, the command still generates the file but shows a Notice reminding you to enable it. This is the review surface for Projects/Waiting/Someday-Maybe/Scheduled — the Organize Captured Tasks into Projects tab covers only captured tasks in daily notes (see [Organize Captured Tasks into Projects](#organize-captured-tasks-into-projects)).
+Generates an [Obsidian Bases](https://help.obsidian.md/bases) file at the configured **Bases File Path** (default `Tasks/Tasks Summary.base`), with five table views wired to your configured folders: **Active projects**, **Next actions** (any file with a `next-due`), **Waiting**, **Someday-Maybe review**, and **Scheduled**. Every view's first column is Folder (the file's parent path), matching the Folder-first convention used by the date dashboard and Projects Summary. Requires the **Bases** core plugin (Settings → Core plugins) — if it's disabled, the command still generates the file but shows a Notice reminding you to enable it. This is the review surface for Projects/Waiting/Someday-Maybe/Scheduled — the Organize Captured Tasks into Projects panel covers only captured tasks in daily notes (see [Organize Captured Tasks into Projects](#organize-captured-tasks-into-projects)).
 
 Re-running the command **overwrites the file immediately, with no confirmation prompt** — it's meant to be a cheap, frequent way to pick up folder-setting changes or a Bases File Path rename, not a one-time scaffold. Any manual view customizations made from Bases' own UI are discarded on re-run. The generated views sort and filter using this plugin's own frontmatter fields (`status`, `priority`, `waiting-since`, `reviewed`) plus the [derived fields](#derived-frontmatter-fields) above — so `next-due`/`next-action`/`open-tasks` need to already be flowing (they are, automatically, once you're on this version) for the generated views to show meaningful data. The four hyphenated fields (`next-due`, `next-action`, `open-tasks`, `waiting-since`) are exposed as named formulas (e.g. `formula.nextDue`) with a friendly column label, rather than referenced directly — a plain `note["next-due"]`-style reference renders as a blank column in Bases, even with a display-name override, so this plugin never generates one.
 
@@ -149,7 +149,7 @@ Recurring tasks skip the Due Date Modal on the new copy.
 When a file's status field changes to a routable value (`todo`, `completed`, `waiting`, `someday-maybe`, `scheduled`, or `archived`), the file is automatically moved to the matching destination folder.
 When the plugin edits a project file's frontmatter metadata during this flow, it also writes `priority: 3` if the file does not already have a priority field.
 When a file's status changes to `waiting`, `waiting-since: YYYY-MM-DD` is also stamped into its frontmatter (today's date); when it changes away from `waiting`, that field is removed. This powers the Projects Summary's staleness tracking — see [Open Projects Summary](#open-projects-summary).
-That same status change also pokes any open Organize Captured Tasks into Projects tab to refresh — a cheap no-op re-render since the changed file is a project, not a daily note.
+That same status change also pokes the Organize Captured Tasks into Projects panel to refresh — a cheap no-op re-render since the changed file is a project, not a daily note.
 
 ## Scheduled Projects
 
@@ -184,7 +184,7 @@ When a task newly becomes actionable after completion or uncompletion (and that 
 - A **Skip** button to dismiss without adding a due date.
 
 On submit, `[due:: YYYY-MM-DD]` is written to the task line, an optional `[repeat:: X]` is added when provided, and `priority: N` is written to the file frontmatter.
-That update also pokes any open Organize Captured Tasks into Projects tab to refresh.
+That update also pokes the Organize Captured Tasks into Projects panel to refresh.
 
 ## Inline Field Format
 
@@ -237,7 +237,7 @@ When the active note is named `YYYY-MM-DD`, a live dashboard opens in the right 
 
 **Due** — open tasks with `[due:: YYYY-MM-DD]` where the due date is on or before the note date. Scanned from the configured Projects / Completed / Waiting / Someday-Maybe folders — deliberately **not** the Scheduled or Archived folders; Scheduled projects stay hidden until their first task's due date arrives (see [Scheduled Projects](#scheduled-projects)) and Archived projects never surface at all (see [Archived Projects](#archived-projects)). Rendered as a single table with columns Folder | Project | Task | Priority | Recurrence | Due (`MM-DD`) and sorted by file priority, then due date.
 
-An **Organize Captured Tasks into Projects** link — jumps straight to the [Organize Captured Tasks into Projects tab](#organize-captured-tasks-into-projects) for reviewing and bundling captured tasks across all daily notes, including today's.
+An **Organize Captured Tasks into Projects** link — reveals the [Organize Captured Tasks into Projects panel](#organize-captured-tasks-into-projects), its sibling in the right sidebar, for reviewing and bundling captured tasks across all daily notes, including today's.
 
 **Completed** — tasks with `[completion-date:: YYYY-MM-DD]` matching the note date from the same folders as Due above (Scheduled and Archived excluded). Columns: Folder | Project | Task | Priority | Recurrence. Sorted by file priority, then file path.
 
@@ -271,10 +271,10 @@ Display notes:
 | `src/projects/random-project.ts` | Lists Someday-Maybe project files and picks one at random |
 | `src/tables/grouped-task-table.ts` | Pure grouped task-table model and shared display formatting for dashboard/summary tables |
 | `src/journal/daily-note-config.ts` | Reads Obsidian's core Daily Notes plugin folder/date-format config and resolves today's daily note path; owns the shared `## Tasks` heading constant |
-| `src/journal/captured-tasks-data.ts` | Pure(ish) data layer: scans daily notes within ± 1 year for every open task line for the Organize Captured Tasks into Projects tab (no writes) |
-| `src/journal/captured-tasks-view.ts` | On-demand main-panel ItemView controller/renderer for the Organize Captured Tasks into Projects tab: priority filter, collapsible section, selection checkboxes and captured-tasks-to-project actions, auto-refresh on relevant vault changes |
+| `src/journal/captured-tasks-data.ts` | Pure(ish) data layer: scans daily notes within ± 1 year for every open task line for the Organize Captured Tasks into Projects panel (no writes) |
+| `src/journal/captured-tasks-view.ts` | Right-sidebar ItemView controller/renderer for the Organize Captured Tasks into Projects panel: priority filter, collapsible section, selection checkboxes and captured-tasks-to-project actions, auto-refresh on relevant vault changes |
 | `src/journal/captured-tasks-actions.ts` | Removes selected lines from their source daily notes (grouped per file) and appends task lines into an existing project's open-task area — the captured-tasks-to-project write path |
-| `src/summary/summary-file-io.ts` | Shared pure folder-scan helper used by Projects Summary, the Organize Captured Tasks into Projects tab, and the random-project picker |
+| `src/summary/summary-file-io.ts` | Shared pure folder-scan helper used by Projects Summary, the Organize Captured Tasks into Projects panel, and the random-project picker |
 | `src/routing/status-routing.ts` | Status extraction, validation, routable-status constants (`todo`/`completed`/`waiting`/`someday-maybe`/`scheduled`/`archived`) |
 | `src/routing/task-routing.ts` | File movement: destination resolution, folder creation, merge handling |
 | `src/dashboard/date-dashboard.ts` | Right-sidebar ItemView controller and renderer |

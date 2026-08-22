@@ -142,10 +142,10 @@ export default class TaskManagerPlugin extends Plugin {
       this.taskProcessor?.handleFileDelete(file);
     }));
     this.projectsSummary.onload(this);
-    this.capturedTasks.onload(this);
     await this.taskProcessor.primeState();
     await this.taskProcessor.checkScheduledPromotions();
     await this.dateDashboard.onload(this);
+    await this.capturedTasks.onload(this);
   }
 
   onunload(): void {

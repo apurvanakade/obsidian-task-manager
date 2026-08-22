@@ -4228,7 +4228,7 @@ var _CapturedTasksController = class _CapturedTasksController {
     this.getSettings = options.getSettings;
     this.createProject = options.createProject;
   }
-  onload(plugin) {
+  async onload(plugin) {
     plugin.registerView(_CapturedTasksController.VIEW_TYPE, (leaf) => new CapturedTasksView(leaf, this));
     plugin.registerEvent(this.app.vault.on("modify", (file) => {
       if (this.isRelevantFile(file)) {
@@ -4241,6 +4241,8 @@ var _CapturedTasksController = class _CapturedTasksController {
     plugin.registerEvent(this.app.vault.on("delete", () => {
       this.queueRefresh();
     }));
+    await this.ensureView();
+    await this.refreshOpenViews();
   }
   onunload() {
     if (this.refreshHandle !== null) {
@@ -4248,18 +4250,39 @@ var _CapturedTasksController = class _CapturedTasksController {
       this.refreshHandle = null;
     }
   }
-  /** Opens the tab, reusing an existing one if already open. */
+  /**
+   * Reveals the right-sidebar view, recreating its leaf first if the user closed it.
+   * Unlike a main-panel tab this leaf normally already exists (ensureView() runs at
+   * plugin load), so this is usually just a reveal-and-refresh.
+   */
   async openView() {
+    await this.ensureView();
     const existingLeaf = this.app.workspace.getLeavesOfType(_CapturedTasksController.VIEW_TYPE)[0];
-    if (existingLeaf) {
-      this.app.workspace.revealLeaf(existingLeaf);
-      if (existingLeaf.view instanceof CapturedTasksView) {
-        await existingLeaf.view.refresh();
-      }
+    if (!existingLeaf) {
       return;
     }
-    const leaf = this.app.workspace.getLeaf(true);
-    await leaf.setViewState({ type: _CapturedTasksController.VIEW_TYPE, active: true });
+    this.app.workspace.revealLeaf(existingLeaf);
+    if (existingLeaf.view instanceof CapturedTasksView) {
+      await existingLeaf.view.refresh();
+    }
+  }
+  /**
+   * Creates the right-sidebar leaf if none exists yet. Mirrors the date dashboard's
+   * placement (split side leaf, so it starts as its own half-height sidebar pane), but
+   * without `reveal` — plugin load shouldn't yank the sidebar's focus away from
+   * whatever the user last had open there.
+   */
+  async ensureView() {
+    const existingLeaf = this.app.workspace.getLeavesOfType(_CapturedTasksController.VIEW_TYPE)[0];
+    if (existingLeaf) {
+      return;
+    }
+    const leaf = await this.app.workspace.ensureSideLeaf(_CapturedTasksController.VIEW_TYPE, "right", {
+      active: false,
+      reveal: false,
+      split: true
+    });
+    await leaf.setViewState({ type: _CapturedTasksController.VIEW_TYPE, active: false });
   }
   refreshSoon() {
     this.queueRefresh();
@@ -4507,6 +4530,10 @@ var CapturedTasksView = class extends import_obsidian14.ItemView {
   }
   getDisplayText() {
     return CAPTURED_TASKS_TITLE;
+  }
+  /** Right-sidebar tabs are icon-only, so this view needs its own to be distinguishable. */
+  getIcon() {
+    return "inbox";
   }
   async onOpen() {
     await this.refresh();
@@ -4822,10 +4849,10 @@ var TaskManagerPlugin = class extends import_obsidian17.Plugin {
       (_a = this.taskProcessor) == null ? void 0 : _a.handleFileDelete(file);
     }));
     this.projectsSummary.onload(this);
-    this.capturedTasks.onload(this);
     await this.taskProcessor.primeState();
     await this.taskProcessor.checkScheduledPromotions();
     await this.dateDashboard.onload(this);
+    await this.capturedTasks.onload(this);
   }
   onunload() {
     var _a, _b, _c, _d;
