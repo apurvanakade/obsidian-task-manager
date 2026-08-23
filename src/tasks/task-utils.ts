@@ -14,7 +14,7 @@
  * Side Effects:
  * - none (pure functions over strings/arrays)
  */
-import { parseTaskLine, parseTaskLineStructured, readInlineFieldValue } from "./task-line-metadata";
+import { cleanTaskText, parseTaskLine, parseTaskLineStructured, readInlineFieldValue } from "./task-line-metadata";
 
 const FRONTMATTER_BLOCK_REGEX = /^---\r?\n[\s\S]*?\r?\n---/;
 export const DUE_FIELD_REGEX = /\[due::\s*([^\]]+?)\s*\]/i;
@@ -225,6 +225,70 @@ export function resetTaskContent(content: string): ResetTaskContentResult {
     taskCount,
     changed,
   };
+}
+
+/**
+ * Finds a task line in freshly-read content, given the line index it sat at when it was
+ * captured plus its text at that moment.
+ *
+ * The captured index is only a hint. The Due Date Modal, in particular, is opened without
+ * being awaited, so the rest of the modify pass keeps running while it sits open —
+ * stampDerivedFrontmatter() alone adds or deletes next-due/next-action frontmatter lines
+ * (and the waiting-since/priority stamps can too), which shifts every task line's index.
+ * The line sitting at the captured index by the time the modal submits may therefore be a
+ * *different* open task, which is how a due date used to land on the wrong one. Match on
+ * identity first; use the index only to disambiguate between identical candidates.
+ */
+export function locateTaskLine(lines: string[], capturedIndex: number, taskLine: string): number | null {
+  const exactIndex = findNearestIndex(lines, capturedIndex, (line) => line === taskLine);
+  if (exactIndex !== null) {
+    return exactIndex;
+  }
+
+  // The line's inline fields may have been rewritten since it was captured (e.g. a
+  // reconcile pass stripping completion metadata, or a due date written by something
+  // else), so fall back to matching its field-stripped text — still identity, just a
+  // looser form of it. Completed lines are excluded: if the task was checked off in the
+  // meantime, it is no longer the line the caller meant.
+  const targetText = getComparableTaskText(taskLine);
+  if (targetText.length === 0) {
+    return null;
+  }
+
+  return findNearestIndex(lines, capturedIndex, (line) => {
+    const parsed = parseTaskLineStructured(line);
+    return parsed?.status === "open" && cleanTaskText(parsed.body) === targetText;
+  });
+}
+
+/** Index of the match closest to `anchor`, so duplicate task lines resolve predictably. */
+function findNearestIndex(
+  lines: string[],
+  anchor: number,
+  predicate: (line: string) => boolean,
+): number | null {
+  let bestIndex: number | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  lines.forEach((line, index) => {
+    if (!predicate(line)) {
+      return;
+    }
+
+    const distance = Math.abs(index - anchor);
+    if (distance < bestDistance) {
+      bestIndex = index;
+      bestDistance = distance;
+    }
+  });
+
+  return bestIndex;
+}
+
+/** A task line's text with inline fields and tags stripped, for identity comparison. */
+function getComparableTaskText(line: string): string {
+  const structured = parseTaskLineStructured(line);
+  return structured === null ? "" : cleanTaskText(structured.body);
 }
 
 /**

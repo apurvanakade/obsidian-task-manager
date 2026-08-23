@@ -11,10 +11,10 @@ An Obsidian plugin (Task Manager) that automates task lifecycle management: stat
 ```bash
 npm run dev      # watch mode — rebuilds main.js on file changes via esbuild
 npm run build    # type-check (tsc --noEmit --skipLibCheck) + production bundle → main.js
-npm test         # runs tests/repeat-rules.test.ts via tsx (node:assert/strict, no framework)
+npm test         # runs tests/repeat-rules.test.ts + tests/locate-task-line.test.ts via tsx (node:assert/strict, no framework)
 ```
 
-There is no lint command in this repo. `npm test` is the only test suite — plain table-driven tests over the pure repeat-rule parser and date math in `src/tasks/repeat-rules.ts` (see Recurring Tasks below); nothing else in the codebase has test coverage. After any build, reload the plugin in Obsidian to verify behavior — the `verify` skill or manual reload is the only way to confirm runtime correctness here.
+There is no lint command in this repo. `npm test` is the only test suite — plain table-driven tests over the pure repeat-rule parser and date math in `src/tasks/repeat-rules.ts` (see Recurring Tasks below) and over `locateTaskLine()` in `src/tasks/task-utils.ts` (see First-Incomplete Assignment & DueDateModal below); nothing else in the codebase has test coverage. After any build, reload the plugin in Obsidian to verify behavior — the `verify` skill or manual reload is the only way to confirm runtime correctness here.
 
 Bundling: `esbuild.config.mjs` bundles `main.ts` → `main.js` (CommonJS, ES2018). `obsidian`, `electron`, `@codemirror/*`, `@lezer/*`, and Node builtins are marked external and must never be bundled.
 
@@ -33,10 +33,10 @@ src/
     frontmatter-utils.ts         ← Pure single-field frontmatter parser over a content string (shared by status-routing.ts and file-priority.ts; deliberately NOT metadataCache-based, see Obsidian API Usage below)
     derived-frontmatter.ts       ← Pure computeDerivedFields()/derivedFieldsMatchContent()/applyDerivedFields(): mirrors next-due/next-action/open-tasks from task lines into frontmatter so Bases/Dataview/search can see them — see Derived Frontmatter Fields below
     repeat-rules.ts              ← Pure Todoist-level recurring-rule parser (intervals, weekday/month-day sets, nth-weekday, yearly dates, every/every!/until modifiers), alias normalizer, and next-occurrence calculator — see Recurring Tasks below
-    task-utils.ts                ← Pure parsing/diffing utilities (no side effects); task-line parsing delegates to task-line-metadata.ts
+    task-utils.ts                ← Pure parsing/diffing utilities (no side effects), including locateTaskLine(); task-line parsing delegates to task-line-metadata.ts
     next-actions.ts              ← Pure findActionableTaskLines(): the file's first open task line, if any
     task-state-store.ts          ← In-memory snapshot cache (tasks + status per file)
-    due-date-modal.ts            ← Modal for collecting due date + file priority for the first incomplete task; submit is keyed by the captured task-line index, not string equality
+    due-date-modal.ts            ← Modal for collecting due date + file priority for the first incomplete task; submit resolves its target line via task-utils.ts's locateTaskLine() (identity first, captured index only as a tiebreak)
   journal/
     daily-note-config.ts         ← Reads Obsidian's core Daily Notes plugin folder/date-format config (undocumented `App.internalPlugins`, same cast pattern as create-tasks-summary.ts) and resolves today's daily note path; owns DAILY_NOTE_TASKS_HEADER ("## Tasks")
     captured-tasks-data.ts       ← Pure(ish) data layer: scans daily notes within today ± 365 days for every open task line (not scoped to any section) for the Organize Captured Tasks into Projects tab (no writes)
@@ -236,7 +236,7 @@ The first incomplete task in a file is always treated as the current actionable 
 
 Weekday, month-day, nth-weekday, and yearly-date specs always resolve to the **next future occurrence** relative to the anchor (never the anchor date itself, since the scan is strictly-after). So `Monday` completed on a Monday becomes next Monday, and `5th` completed on the 5th becomes next month's 5th.
 
-`tests/repeat-rules.test.ts` (run via `npm test`, uses `tsx` + `node:assert/strict`, no framework) is the only test file in the repo — table-driven coverage of the parse grammar and the anchoring/clamping/bound date math described above.
+`tests/repeat-rules.test.ts` (run via `npm test`, uses `tsx` + `node:assert/strict`, no framework) covers the parse grammar and the anchoring/clamping/bound date math described above; `tests/locate-task-line.test.ts` is the repo's only other test file.
 
 ### First-Incomplete Assignment & DueDateModal
 
@@ -423,7 +423,7 @@ Run after meaningful logic changes:
 20. `Add New Project` creates a new file at the chosen folder path, writes status/priority frontmatter, and converts each task textarea line into an open task
 21. `Open Random Someday-Maybe Project` (command and ribbon icon) opens a file from the configured Someday-Maybe Projects Folder; shows a Notice instead of opening a file when the folder is unset or empty
 22. Renaming or deleting a tracked file from Obsidian's file explorer (not via a plugin-driven move) keeps subsequent reconciliation correct — completing/uncompleting a task in the renamed file does not spuriously re-trigger recurring-task insertion from stale state
-23. If a Due Date Modal's target task line is edited (or the file is otherwise modified) while the modal is still open, submitting either still updates the correct line or shows a Notice explaining the due date wasn't saved — it never silently no-ops
+23. If a Due Date Modal's target task line is edited (or the file is otherwise modified) while the modal is still open, submitting either still updates the correct line or shows a Notice explaining the due date wasn't saved — it never silently no-ops, and never writes the due date onto a *different* task. The regression to watch: the modal is opened without being awaited, so the rest of the modify pass (`stampDerivedFrontmatter()` adding/deleting `next-due`/`next-action` frontmatter lines, the waiting-since/priority stamps) runs while it sits open and shifts every task line's index. Complete a task in a file with two or more remaining open tasks, where the newly actionable one has no due date (so `next-due` gets deleted, shifting lines up by one), and confirm the date lands on the task the modal previewed — not its neighbour. Covered by `tests/locate-task-line.test.ts`
 24. Routing a file onto an existing destination merges by content rather than duplicating: retrying an already-merged move does not re-append a second `---`-divided copy
 25. `Quick Capture Task` (command and ribbon icon) opens from any file, inserts the entered text as an open task under a `## Tasks` heading in **today's daily note** — prepended above earlier captures for the day if the heading already exists, else the heading is created at the **end** of the note (or is the whole note, if it's being created fresh) — without requiring the daily note to be open, creating it (and its parent folders) if it doesn't exist yet; a trailing `due:tomorrow`/`due:YYYY-MM-DD` token is converted to `[due:: YYYY-MM-DD]` and stripped from the task text; an unrecognized trailing `due:` token is left in the task text; every captured line is also stamped with `[created:: YYYY-MM-DD]` (today's date); shows a Notice instead of opening the modal when Obsidian's core Daily Notes plugin is disabled or unconfigured
 26. No settings UI, `data.json`, or code path references the removed Context/Multiple-Next-Actions feature (`knownContexts`, `enableMultipleNextActions`, `getContexts`/`parseContextList`, `ContextEditorSuggest`, `src/editor/context-suggest.ts` — see the Inline Field Format note above for the full removal history); a pre-existing `[context:: ...]` inline field still renders as clean task text everywhere

@@ -17,12 +17,13 @@
 import { App, Notice, TFile } from "obsidian";
 import { getCurrentDateString, getCurrentTimeString } from "../date/date-utils";
 import { FilePriority, readFilePriority } from "./file-priority";
-import { parseTaskLine, parseTaskLineStructured, readInlineFieldValue } from "./task-line-metadata";
+import { parseTaskLineStructured, readInlineFieldValue } from "./task-line-metadata";
 import { findActionableTaskLines } from "./next-actions";
 import {
   DUE_FIELD_REGEX,
   findFirstIncompleteTaskLine,
   findNoteBlockEnd,
+  locateTaskLine,
   moveTaskToCompletedSection
 } from "./task-utils";
 import { TaskManagerSettings } from "../settings/settings-utils";
@@ -101,16 +102,7 @@ async function showDueDateModalForFirstIncompleteTask(
       const currentContent = await readFile(file);
       const updatedLines = currentContent.split(/\r?\n/);
 
-      // Prefer the line index captured when the modal opened; it's only trustworthy if
-      // that line is still an open task line. Otherwise fall back to matching the exact
-      // original line text, since content may have shifted during the async modal gap.
-      let targetIndex: number | null = null;
-      if (targetLineIndex < updatedLines.length && parseTaskLine(updatedLines[targetLineIndex])?.status === "open") {
-        targetIndex = targetLineIndex;
-      } else {
-        const fallbackIndex = updatedLines.indexOf(taskLine);
-        targetIndex = fallbackIndex === -1 ? null : fallbackIndex;
-      }
+      const targetIndex = locateTaskLine(updatedLines, targetLineIndex, taskLine);
 
       if (targetIndex === null) {
         new Notice(`Could not find "${taskLine.trim()}" in ${file.name}; the due date was not saved.`);

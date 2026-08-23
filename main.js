@@ -2221,6 +2221,39 @@ function resetTaskContent(content) {
     changed
   };
 }
+function locateTaskLine(lines, capturedIndex, taskLine) {
+  const exactIndex = findNearestIndex(lines, capturedIndex, (line) => line === taskLine);
+  if (exactIndex !== null) {
+    return exactIndex;
+  }
+  const targetText = getComparableTaskText(taskLine);
+  if (targetText.length === 0) {
+    return null;
+  }
+  return findNearestIndex(lines, capturedIndex, (line) => {
+    const parsed = parseTaskLineStructured(line);
+    return (parsed == null ? void 0 : parsed.status) === "open" && cleanTaskText(parsed.body) === targetText;
+  });
+}
+function findNearestIndex(lines, anchor, predicate) {
+  let bestIndex = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  lines.forEach((line, index) => {
+    if (!predicate(line)) {
+      return;
+    }
+    const distance = Math.abs(index - anchor);
+    if (distance < bestDistance) {
+      bestIndex = index;
+      bestDistance = distance;
+    }
+  });
+  return bestIndex;
+}
+function getComparableTaskText(line) {
+  const structured = parseTaskLineStructured(line);
+  return structured === null ? "" : cleanTaskText(structured.body);
+}
 function normalizeForComparison(content) {
   return content.replace(FRONTMATTER_BLOCK_REGEX2, "").trim().replace(/\s+/g, " ");
 }
@@ -2725,19 +2758,13 @@ async function showDueDateModalForFirstIncompleteTask(file, taskLineIndex, updat
     initialDueDate,
     initialRepeat,
     onSubmit: async (targetLineIndex, taskLine2, dueDate, priority, repeat) => {
-      var _a, _b;
+      var _a;
       if (!isValidDateFormat(dueDate)) {
         return;
       }
       const currentContent = await readFile(file);
       const updatedLines = currentContent.split(/\r?\n/);
-      let targetIndex = null;
-      if (targetLineIndex < updatedLines.length && ((_a = parseTaskLine(updatedLines[targetLineIndex])) == null ? void 0 : _a.status) === "open") {
-        targetIndex = targetLineIndex;
-      } else {
-        const fallbackIndex = updatedLines.indexOf(taskLine2);
-        targetIndex = fallbackIndex === -1 ? null : fallbackIndex;
-      }
+      const targetIndex = locateTaskLine(updatedLines, targetLineIndex, taskLine2);
       if (targetIndex === null) {
         new import_obsidian8.Notice(`Could not find "${taskLine2.trim()}" in ${file.name}; the due date was not saved.`);
         return;
@@ -2758,7 +2785,7 @@ async function showDueDateModalForFirstIncompleteTask(file, taskLineIndex, updat
       await writeFileContent(file, nextContent);
       await context.setFilePriority(file, Number.parseInt(priority, 10));
       setTaskState(file.path, nextContent);
-      await ((_b = context.onTaskPropertiesChanged) == null ? void 0 : _b.call(context));
+      await ((_a = context.onTaskPropertiesChanged) == null ? void 0 : _a.call(context));
     }
   });
   modal.open();

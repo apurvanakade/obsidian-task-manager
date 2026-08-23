@@ -183,7 +183,7 @@ When a task newly becomes actionable after completion or uncompletion (and that 
 - A **Repeat** text field for rules like `daily`, `2 weeks`, `mon, wed, fri`, `1st wed`, `last workday`, or `jan 27` (see [Recurring Tasks](#recurring-tasks) for the full grammar) — prefilled with the task's existing raw repeat value if it has one (most often seen when that value failed to parse and needs fixing).
 - A **Skip** button to dismiss without adding a due date.
 
-On submit, `[due:: YYYY-MM-DD]` is written to the task line, an optional `[repeat:: X]` is added when provided, and `priority: N` is written to the file frontmatter.
+On submit, `[due:: YYYY-MM-DD]` is written to the task line, an optional `[repeat:: X]` is added when provided, and `priority: N` is written to the file frontmatter. The task line is re-located by its own text at submit time rather than by the line number it had when the modal opened — the file keeps being processed while the modal sits there (frontmatter fields being stamped or removed), which shifts line numbers underneath it. If the task can no longer be found (deleted, or checked off in the meantime), a Notice says the due date wasn't saved instead of writing it to whatever line moved into that position.
 That update also pokes the Organize Captured Tasks into Projects panel to refresh.
 
 ## Inline Field Format
@@ -260,7 +260,7 @@ Display notes:
 | `src/tasks/file-priority.ts` | Pure helpers for reading file-frontmatter priority |
 | `src/tasks/task-line-metadata.ts` | Pure shared task-line parsing and display-text helpers |
 | `src/tasks/repeat-rules.ts` | Pure recurring-rule parser (Todoist-level grammar: intervals, weekday/month-day sets, nth-weekday-of-month, yearly dates, `every`/`every!`/`until` modifiers), alias normalizer, and next-occurrence calculator — the sole owner of the `[repeat::]`/`[repeats::]` field extraction regex |
-| `src/tasks/task-utils.ts` | Pure parsing/diffing utilities (no side effects) |
+| `src/tasks/task-utils.ts` | Pure parsing/diffing utilities (no side effects), including the task-line resolver used by Due Date Modal submits |
 | `src/tasks/next-actions.ts` | Pure actionable-task-line finder: the file's first open task line |
 | `src/tasks/task-state-store.ts` | In-memory per-file task/status snapshot cache and pending-write guards |
 | `src/tasks/due-date-modal.ts` | Modal for collecting due date and file priority for a newly actionable task |
