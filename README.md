@@ -222,7 +222,7 @@ Plain indented lines written directly under a task (no checkbox) are treated as 
   Number is on the fridge whiteboard.
 ```
 
-Note blocks are not tasks: they never appear as rows in the date dashboard, Organize Captured Tasks into Projects, or Projects Summary, and they don't affect first-incomplete-task selection. When the task above them is completed, the note block moves into `## Completed Tasks` together with the completed line, directly beneath it — unless the task recurs (`[repeat:: ...]`), in which case the note block moves onto the newly inserted open clone instead, so multi-line context (a checklist, reference info) carries forward into the next occurrence rather than getting buried in completed-task history.
+Note blocks are not tasks: they never appear as rows in the date dashboard, Organize Captured Tasks into Projects, or Projects Summary, and they don't affect first-incomplete-task selection. When the task above them is completed, the note block moves into `## Completed Tasks` together with the completed line, directly beneath it — this holds whether or not the task recurs (`[repeat:: ...]`); a recurring task's newly inserted open clone never carries the note block forward, so multi-line context stays with the completion history it was written for instead of being duplicated onto every future occurrence.
 
 An indented **checkbox** line (`  - [ ]`) under a task is not a note — it's parsed and treated as its own independent task line, same as any top-level task (this plugin has no separate sub-task/child-task concept).
 

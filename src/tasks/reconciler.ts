@@ -22,7 +22,6 @@ import { findActionableTaskLines } from "./next-actions";
 import {
   DUE_FIELD_REGEX,
   findFirstIncompleteTaskLine,
-  findNoteBlockEnd,
   locateTaskLine,
   moveTaskToCompletedSection
 } from "./task-utils";
@@ -167,21 +166,12 @@ export async function applyCompletionRules(context: CompletionContext): Promise<
       } else {
         const repeatedTaskLine = buildRepeatedTaskLine(sourceTaskLine, nextDate);
         if (repeatedTaskLine !== null) {
-          // Move the completed task's note block (see Task Notes in CLAUDE.md) onto the
-          // new occurrence instead of duplicating it — a note attached to a recurring task
-          // is usually reusable instructions/context for the task itself, not a record of
-          // this specific completion, so it belongs with the next occurrence, not this one.
-          const noteBlockEnd = findNoteBlockEnd(lines, completedLine);
-          const noteBlockLines = lines.slice(completedLine + 1, noteBlockEnd);
-          const repeatedBlock = [repeatedTaskLine, ...noteBlockLines];
-          nextLines.splice(completedLine, 0, ...repeatedBlock);
-          completedLineIndex += repeatedBlock.length;
-          if (noteBlockLines.length > 0) {
-            // The original note block is still sitting just below the completed task's
-            // shifted position (untouched by the splice above) — remove it from there now
-            // that a copy lives with the new occurrence, so it isn't left on both.
-            nextLines.splice(completedLineIndex + 1, noteBlockLines.length);
-          }
+          // Insert the new open clone above the completed task, leaving the completed
+          // task's note block (see Task Notes in CLAUDE.md) untouched below it, so the
+          // note moves into "## Completed Tasks" together with the completed line — the
+          // same behavior a non-recurring task already gets from moveTaskToCompletedSection.
+          nextLines.splice(completedLine, 0, repeatedTaskLine);
+          completedLineIndex += 1;
         }
       }
     }

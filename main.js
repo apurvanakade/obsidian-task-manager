@@ -2816,14 +2816,8 @@ async function applyCompletionRules(context) {
       } else {
         const repeatedTaskLine = buildRepeatedTaskLine(sourceTaskLine, nextDate);
         if (repeatedTaskLine !== null) {
-          const noteBlockEnd = findNoteBlockEnd(lines, completedLine);
-          const noteBlockLines = lines.slice(completedLine + 1, noteBlockEnd);
-          const repeatedBlock = [repeatedTaskLine, ...noteBlockLines];
-          nextLines.splice(completedLine, 0, ...repeatedBlock);
-          completedLineIndex += repeatedBlock.length;
-          if (noteBlockLines.length > 0) {
-            nextLines.splice(completedLineIndex + 1, noteBlockLines.length);
-          }
+          nextLines.splice(completedLine, 0, repeatedTaskLine);
+          completedLineIndex += 1;
         }
       }
     }
